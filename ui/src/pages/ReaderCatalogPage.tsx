@@ -2,14 +2,14 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
-import { BookOpen, ChevronRight, MapPin } from 'lucide-react';
+import { ChevronRight, LibraryBig, MapPin } from 'lucide-react';
 import {
-  Button,
   Card,
   Input,
   ListSkeleton,
   Pagination,
   QueryErrorBanner,
+  PageHeading,
 } from '@/components/common';
 import { CopyDepositBadges } from '@/components/items/DepositBadge';
 import ItemAvailabilityBadge from '@/components/items/ItemAvailabilityBadge';
@@ -65,29 +65,26 @@ export default function ReaderCatalogPage() {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{t('nav.catalog')}</h1>
-        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{t('opac.readerCatalogSubtitle')}</p>
-      </div>
+      <PageHeading
+        icon={LibraryBig}
+        title={t('nav.catalog')}
+        subtitle={t('opac.readerCatalogSubtitle')}
+      />
 
       <Card>
         <form
-          className="flex flex-col gap-3 sm:flex-row"
           onSubmit={(e) => {
             e.preventDefault();
             setActiveSearch(searchInput.trim());
           }}
         >
           <Input
-            type="text"
+            type="search"
+            enterKeyHint="search"
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
             placeholder={t('opac.searchPlaceholder')}
-            className="flex-1"
           />
-          <Button type="submit" variant="primary" className="shrink-0">
-            {t('common.search')}
-          </Button>
         </form>
         <div className="mt-3 flex flex-wrap gap-1.5">
           {MEDIA_FILTERS.map((f) => (
@@ -119,7 +116,7 @@ export default function ReaderCatalogPage() {
           <ListSkeleton rows={8} />
         ) : biblios.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 px-4 text-gray-500 dark:text-gray-400">
-            <BookOpen className="h-12 w-12 mb-3 opacity-30" aria-hidden />
+            <LibraryBig className="h-12 w-12 mb-3 opacity-30" aria-hidden />
             <p>{t('common.noResults')}</p>
           </div>
         ) : (

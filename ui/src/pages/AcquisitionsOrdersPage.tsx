@@ -12,6 +12,7 @@ import {
   Pagination,
   QueryErrorBanner,
   ResponsiveRecordList,
+  ListResultCountBar,
   SearchInput,
   Table,
 } from '@/components/common';
@@ -182,6 +183,7 @@ export function AcquisitionsOrdersPanel() {
           </div>
         ) : (
           <>
+            <ListResultCountBar>{t('common.listCount', { count: total })}</ListResultCountBar>
             <ResponsiveRecordList
               desktop={
                 <Table

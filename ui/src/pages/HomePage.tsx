@@ -45,8 +45,8 @@ export default function HomePage() {
 
   return (
     <div className="flex flex-col gap-6 min-h-full">
-      {/* Welcome section */}
-      <div className="relative overflow-hidden rounded-2xl border border-gray-200/80 dark:border-gray-800 bg-gradient-to-br from-white via-amber-50/40 to-white dark:from-gray-900 dark:via-amber-950/25 dark:to-gray-900 p-7 sm:p-10 shadow-sm">
+      {/* Welcome section — hidden on mobile (library name already in app header) */}
+      <div className="relative hidden overflow-hidden rounded-2xl border border-gray-200/80 dark:border-gray-800 bg-gradient-to-br from-white via-amber-50/40 to-white dark:from-gray-900 dark:via-amber-950/25 dark:to-gray-900 p-7 sm:p-10 shadow-sm md:block">
         <img
           src="/elidune_logo.png"
           alt=""

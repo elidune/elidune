@@ -18,6 +18,7 @@ import {
   activeLoanCopyLabel,
   depositActiveLoanCopies,
   depositBadgeText,
+  depositLenderInitials,
   depositDueDateNotice,
   depositReplacementAmountRequired,
   depositScanAlreadyReturned,
@@ -357,5 +358,11 @@ describe('deposit replacement amount', () => {
     assert.deepEqual(parseReplacementRateEuros(''), { ok: true, cents: null });
     assert.deepEqual(parseReplacementRateEuros('12,50'), { ok: true, cents: 1250 });
     assert.deepEqual(parseReplacementRateEuros('0'), { ok: false, reason: 'notPositive' });
+  });
+
+  it('depositLenderInitials', () => {
+    assert.equal(depositLenderInitials('Médiathèque départementale'), 'MD');
+    assert.equal(depositLenderInitials('Smith'), 'SM');
+    assert.equal(depositLenderInitials(''), '?');
   });
 });

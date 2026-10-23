@@ -32,6 +32,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { canArchiveItems, canCreateHold, canDeleteBiblios, canManageItems, canManageWeeding, canReadUsers, seesInternalCatalog, type MediaType } from '@/types';
 import CopyLoanStatus from '@/components/items/CopyLoanStatus';
 import NoticeHoldsWaiting from '@/components/holds/NoticeHoldsWaiting';
+import { LoanMediaTypeBadge } from '@/utils/mediaTypeIcon';
 import PlaceHoldDialog from '@/components/holds/PlaceHoldDialog';
 import BatchDeleteSpecimensDialog from '@/components/specimen/BatchDeleteSpecimensDialog';
 import WeedingStatusControl from '@/components/items/WeedingStatusControl';
@@ -387,9 +388,12 @@ export default function BiblioDetailPage() {
           >
             <ArrowLeft className="h-5 w-5" />
           </button>
-          <div className="flex-shrink-0 h-16 w-16 rounded-xl bg-indigo-100 dark:bg-indigo-900/50 flex items-center justify-center">
-            <BookOpen className="h-8 w-8 text-indigo-600 dark:text-indigo-400" />
-          </div>
+          <LoanMediaTypeBadge
+            mediaType={item.mediaType}
+            size="comfortable"
+            depositCopies={item.items}
+            className="flex-shrink-0"
+          />
           <div>
             <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">
               {item.title || t('items.noTitle')}

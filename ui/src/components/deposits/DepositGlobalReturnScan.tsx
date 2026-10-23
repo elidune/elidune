@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
-import { Button, Card, Input } from '@/components/common';
+import { Card, BarcodeScanField } from '@/components/common';
 import api from '@/services/api';
 import type { DepositGlobalScanOut } from '@/types';
 import { getApiErrorMessage } from '@/utils/apiError';
@@ -64,7 +64,7 @@ export default function DepositGlobalReturnScan({ canWrite }: DepositGlobalRetur
         <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">{t('deposits.globalScan.hint')}</p>
       </div>
       <form
-        className="flex flex-col gap-3 p-4 sm:flex-row sm:items-end"
+        className="p-4"
         onSubmit={(event) => {
           event.preventDefault();
           const code = barcode.trim();
@@ -72,18 +72,18 @@ export default function DepositGlobalReturnScan({ canWrite }: DepositGlobalRetur
           scanMutation.mutate(code);
         }}
       >
-        <div className="min-w-0 flex-1">
-          <Input
-            ref={scanRef}
-            label={t('items.barcode')}
-            value={barcode}
-            autoFocus
-            onChange={(event) => setBarcode(event.target.value)}
-          />
-        </div>
-        <Button type="submit" isLoading={scanMutation.isPending} disabled={!barcode.trim()}>
-          {t('deposits.batch.scanOut')}
-        </Button>
+        <BarcodeScanField
+          ref={scanRef}
+          label={t('items.barcode')}
+          value={barcode}
+          autoFocus
+          onChange={(event) => setBarcode(event.target.value)}
+          onCameraScan={(code) => {
+            setBarcode(code);
+            if (code.trim() && !scanMutation.isPending) scanMutation.mutate(code.trim());
+          }}
+          scannerTitle={t('loans.scanOrEnterBarcode')}
+        />
       </form>
       {notice ? (
         <p className="px-4 pb-4 text-sm text-gray-700 dark:text-gray-300" role="status">

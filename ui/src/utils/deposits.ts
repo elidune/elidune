@@ -66,6 +66,19 @@ export function isDepositCopy(deposit: ItemDeposit | null | undefined): deposit 
   return deposit != null && deposit.batchId.trim() !== '' && deposit.lenderName.trim() !== '';
 }
 
+/** Two letters for deposit overlay on catalog document icons. */
+export function depositLenderInitials(lenderName: string | null | undefined): string {
+  const parts = String(lenderName ?? '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (parts.length >= 2) {
+    return `${parts[0]![0] ?? ''}${parts[1]![0] ?? ''}`.toUpperCase();
+  }
+  const word = parts[0] ?? '?';
+  return word.slice(0, 2).toUpperCase();
+}
+
 /** One badge per batch, in first-seen order. */
 export function uniqueDeposits(copies: DepositCopyRef[] | null | undefined): ItemDeposit[] {
   const seen = new Set<string>();

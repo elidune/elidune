@@ -862,6 +862,11 @@ class ApiService {
   async getUsers(params?: {
     name?: string;
     barcode?: string;
+    accountType?: string;
+    publicType?: number;
+    subscriptionExpired?: boolean;
+    overdueLoans?: boolean;
+    unpaidFines?: boolean;
     page?: number;
     perPage?: number;
   }): Promise<PaginatedResponse<UserShortStaff>> {

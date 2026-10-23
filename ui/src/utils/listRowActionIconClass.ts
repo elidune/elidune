@@ -7,3 +7,12 @@ export const LIST_ROW_ICON_BTN_DANGER =
 
 export const LIST_ROW_ICON_BTN_MUTED =
   'inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-600 shadow-sm transition-colors hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-white dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:shadow-none dark:hover:bg-gray-700 dark:disabled:hover:bg-gray-800';
+
+export const LIST_ROW_RENEW_BTN =
+  'inline-flex max-w-[12rem] shrink-0 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-left text-xs font-medium leading-snug text-gray-700 shadow-sm transition-colors hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-1 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:shadow-none dark:hover:bg-gray-700';
+
+export const LIST_ROW_SUBSCRIPTION_EXPIRED =
+  'bg-red-50 hover:bg-red-100 focus-visible:bg-red-100 dark:bg-red-950/30 dark:hover:bg-red-950/45 dark:focus-visible:bg-red-950/45';
+
+export const LIST_ROW_DEFAULT =
+  'hover:bg-gray-50 focus-visible:bg-gray-50 dark:hover:bg-gray-800/50 dark:focus-visible:bg-gray-800/50';

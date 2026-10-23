@@ -13,7 +13,7 @@ import HoldsPolicySettings from '@/components/settings/HoldsPolicySettings';
 import ModulesSettings from '@/components/settings/ModulesSettings';
 import OverdueRemindersSettings from '@/components/settings/OverdueRemindersSettings';
 import { isFeatureEnabled } from '@/utils/featureAccess';
-import { Card, CardHeader, Button, Input, Badge, ConfirmDialog, SectionTabBar } from '@/components/common';
+import { Card, CardHeader, Button, Input, Badge, ConfirmDialog, SectionTabBar, PageHeading, PageTabLeadGroup } from '@/components/common';
 import api from '@/services/api';
 import { getApiErrorCode, getApiErrorMessage } from '@/utils/apiError';
 import { deferFromEffect } from '@/utils/deferFromEffect';
@@ -1922,24 +1922,26 @@ export default function SettingsPage() {
 
   return (
     <div className="space-y-6 min-w-0">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{t('settings.title')}</h1>
-          <p className="text-gray-500 dark:text-gray-400">{t('settings.subtitle')}</p>
-        </div>
-        {activeTab === 'z3950' && (
-          <Button onClick={handleSave} isLoading={isSaving} leftIcon={<Save className="h-4 w-4" />}>
-            {t('common.save')}
-          </Button>
-        )}
-      </div>
-
-      <SectionTabBar
-        ariaLabel={t('settings.title')}
-        activeTab={activeTab}
-        onSelectTab={selectTab}
-        tabs={tabs.map((tab) => ({ id: tab.id, label: tab.label, icon: tab.icon }))}
-      />
+      <PageTabLeadGroup>
+        <PageHeading
+          icon={Cog}
+          title={t('settings.title')}
+          subtitle={t('settings.subtitle')}
+          actions={
+            activeTab === 'z3950' ? (
+              <Button onClick={handleSave} isLoading={isSaving} leftIcon={<Save className="h-4 w-4" />}>
+                {t('common.save')}
+              </Button>
+            ) : undefined
+          }
+        />
+        <SectionTabBar
+          ariaLabel={t('settings.title')}
+          activeTab={activeTab}
+          onSelectTab={selectTab}
+          tabs={tabs.map((tab) => ({ id: tab.id, label: tab.label, icon: tab.icon }))}
+        />
+      </PageTabLeadGroup>
 
       {/* Library (identity, hours) */}
       {activeTab === 'library' && (

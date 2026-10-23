@@ -24,7 +24,7 @@ import {
   Palette,
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
-import { Card, CardHeader, Button, Input, Modal, SectionTabBar } from '@/components/common';
+import { Card, CardHeader, Button, Input, Modal, SectionTabBar, PageHeading } from '@/components/common';
 import ThemeSwitcher from '@/components/common/ThemeSwitcher';
 import EventsConsentFields from '@/components/users/EventsConsentFields';
 import ReaderPublicTypeReadout from '@/components/users/ReaderPublicTypeReadout';
@@ -295,10 +295,7 @@ export default function ProfilePage() {
 
   return (
     <div className={APP_PAGE_CLASS}>
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{t('profile.title')}</h1>
-        <p className="text-gray-500 dark:text-gray-400 mt-1">{t('profile.subtitle')}</p>
-      </div>
+      <PageHeading icon={User} title={t('profile.title')} subtitle={t('profile.subtitle')} />
 
       <div className="flex items-center gap-4 rounded-2xl border border-gray-200/80 dark:border-gray-800/80 bg-white dark:bg-gray-900 px-4 py-4 sm:px-6">
         <div className="flex-shrink-0 h-14 w-14 rounded-full bg-indigo-100 dark:bg-indigo-900 flex items-center justify-center">

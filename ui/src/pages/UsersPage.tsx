@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Plus, BookMarked, RefreshCw, Loader2, Edit, Trash2, AlertCircle } from 'lucide-react';
+import { Plus, Loader2, AlertCircle, Users } from 'lucide-react';
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { invalidateUsersListQueries, USERS_LIST_QUERY_ROOT } from '@/hooks/users/queryKeys';
 import { usePublicTypesQuery } from '@/hooks/usePublicTypesQuery';
@@ -9,28 +9,45 @@ import { useAccountTypesQuery } from '@/hooks/useAccountTypesQuery';
 import {
   Card,
   Button,
-  Table,
-  Badge,
   SearchInput,
   ConfirmDialog,
   ScrollableListRegion,
   ResponsiveRecordList,
   ListSkeleton,
+  MultiSelect,
+  PageHeading,
+  ListPageLayout,
+  ListResultCountBar,
 } from '@/components/common';
 import { getApiErrorCode, getApiErrorMessage } from '@/utils/apiError';
+import { getListScrollRoot } from '@/utils/listScrollRoot';
 import { patronId } from '@/utils/patronLink';
-import { LIST_ROW_ICON_BTN, LIST_ROW_ICON_BTN_DANGER, LIST_ROW_ICON_BTN_MUTED } from '@/utils/listRowActionIconClass';
-import { RenewSubscriptionModal, UserListCard } from '@/components/users';
+import { RenewSubscriptionModal, UserListCard, UsersDesktopList } from '@/components/users';
 import api from '@/services/api';
 import { canManageUsers, type UserShort } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
-import { isSubscriptionExpired } from '@/utils/userSubscription';
 import { localizedAccountTypeLabel } from '@/utils/accountTypeDisplay';
-import { localizedPublicTypeById } from '@/utils/publicTypeDisplay';
+import { localizedPublicTypeLabel } from '@/utils/publicTypeDisplay';
+import { formControlClass, formLabelClass } from '@/utils/formControl';
 const USERS_PER_PAGE = 20;
 
+const CIRCULATION_FILTERS = ['subscriptionExpired', 'overdueLoans', 'unpaidFines'] as const;
+type CirculationFilter = (typeof CIRCULATION_FILTERS)[number];
+
+type UsersListFilters = {
+  accountType: string;
+  publicType: string;
+  circulation: CirculationFilter[];
+};
+
+const emptyUsersListFilters = (): UsersListFilters => ({
+  accountType: '',
+  publicType: '',
+  circulation: [],
+});
+
 export default function UsersPage() {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { user: currentUser } = useAuth();
@@ -41,6 +58,7 @@ export default function UsersPage() {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [searchDraft, setSearchDraft] = useState('');
+  const [listFilters, setListFilters] = useState<UsersListFilters>(emptyUsersListFilters);
   const [renewModalUser, setRenewModalUser] = useState<UserShort | null>(null);
   const [deleteModalUser, setDeleteModalUser] = useState<UserShort | null>(null);
   const [deleteUserForce, setDeleteUserForce] = useState(false);
@@ -50,7 +68,6 @@ export default function UsersPage() {
   const {
     data,
     isLoading,
-    isFetching,
     isFetchingNextPage,
     hasNextPage,
     fetchNextPage,
@@ -58,10 +75,15 @@ export default function UsersPage() {
     error: usersQueryError,
     refetch: refetchUsers,
   } = useInfiniteQuery({
-    queryKey: [...USERS_LIST_QUERY_ROOT, searchQuery],
+    queryKey: [...USERS_LIST_QUERY_ROOT, searchQuery, listFilters],
     queryFn: async ({ pageParam }) =>
       api.getUsers({
         name: searchQuery || undefined,
+        accountType: listFilters.accountType || undefined,
+        publicType: listFilters.publicType ? Number(listFilters.publicType) : undefined,
+        subscriptionExpired: listFilters.circulation.includes('subscriptionExpired') || undefined,
+        overdueLoans: listFilters.circulation.includes('overdueLoans') || undefined,
+        unpaidFines: listFilters.circulation.includes('unpaidFines') || undefined,
         page: pageParam,
         perPage: USERS_PER_PAGE,
       }),
@@ -80,7 +102,7 @@ export default function UsersPage() {
 
   useEffect(() => {
     const el = loadMoreRef.current;
-    const scrollRoot = el?.closest('.app-list-scroll') ?? null;
+    const scrollRoot = getListScrollRoot(el);
     if (!el || !scrollRoot || !hasNextPage || isFetchingNextPage || !data?.pages?.length) return;
     const obs = new IntersectionObserver(
       (entries) => {
@@ -139,175 +161,112 @@ export default function UsersPage() {
     }
   };
 
-  const handleRefreshList = () => {
-    void invalidateUsersListQueries(queryClient);
-  };
-
-  const columns = [
-    {
-      key: 'name',
-      header: t('common.name'),
-      render: (user: UserShort) => (
-        <div className="flex items-center gap-3">
-          <div className="flex-shrink-0 h-10 w-10 rounded-full bg-indigo-100 dark:bg-indigo-900/50 flex items-center justify-center">
-            <span className="text-sm font-medium text-indigo-600 dark:text-indigo-400">
-              {user.firstname?.[0] || '?'}{user.lastname?.[0] || ''}
-            </span>
-          </div>
-          <div>
-            <p className="font-medium text-gray-900 dark:text-white">
-              {user.firstname} {user.lastname}
-            </p>
-            <p className="text-sm text-gray-500 dark:text-gray-400">
-              {localizedAccountTypeLabel(t, user.accountType, accountTypes)}
-              {(() => {
-                const publicLabel = localizedPublicTypeById(t, publicTypes, user.publicType);
-                return publicLabel ? <> · {publicLabel}</> : null;
-              })()}
-            </p>
-          </div>
-        </div>
-      ),
-    },
-    {
-      key: 'createdAt',
-      header: t('users.createdAt'),
-      className: 'whitespace-nowrap',
-      render: (user: UserShort) =>
-        user.createdAt
-          ? new Date(user.createdAt).toLocaleDateString(i18n.language, {
-              day: '2-digit',
-              month: 'short',
-              year: 'numeric',
-            })
-          : '—',
-    },
-    {
-      key: 'expiryAt',
-      header: t('users.subscriptionExpiry'),
-      className: 'whitespace-nowrap',
-      render: (user: UserShort) => {
-        if (user.expiryAt == null || user.expiryAt === '') {
-          return (
-            <span className="text-gray-500 dark:text-gray-400">{t('users.expiryUnlimited')}</span>
-          );
-        }
-        const expired = isSubscriptionExpired(user.expiryAt);
-        const d = new Date(user.expiryAt);
-        return (
-          <span
-            className={
-              expired
-                ? 'text-red-600 dark:text-red-400 font-medium'
-                : 'text-gray-700 dark:text-gray-200'
-            }
-          >
-            {d.toLocaleDateString(i18n.language, {
-              day: 'numeric',
-              month: 'short',
-              year: 'numeric',
-            })}
-          </span>
-        );
-      },
-    },
-    {
-      key: 'loans',
-      header: t('users.loans'),
-      render: (user: UserShort) => {
-        const loanCount = user.nbLoans ?? 0;
-        return (
-          <div className="flex items-center gap-2">
-            <BookMarked className="h-4 w-4 text-gray-400" />
-            <span>{loanCount}</span>
-            {(user.nbLateLoans || 0) > 0 && (
-              <Badge variant="danger" size="sm">
-                {user.nbLateLoans} {t('users.lateLoans')}
-              </Badge>
-            )}
-          </div>
-        );
-      },
-    },
-    {
-      key: 'actions',
-      header: '',
-      align: 'right' as const,
-      className: 'w-[1%] whitespace-nowrap',
-      render: (user: UserShort) => {
-        const renewDisabled = !isSubscriptionExpired(user.expiryAt);
-        return (
-          <div
-            className="flex justify-end gap-1.5"
-            onClick={(e) => e.stopPropagation()}
-            role="group"
-            aria-label={t('common.actions')}
-          >
-            <button
-              type="button"
-              className={LIST_ROW_ICON_BTN}
-              title={t('common.edit')}
-              aria-label={t('common.edit')}
-              onClick={() => {
-                const id = patronId(user.id);
-                if (id) navigate(`/users/${id}`);
-              }}
-            >
-              <Edit className="h-4 w-4" aria-hidden />
-            </button>
-            <button
-              type="button"
-              className={LIST_ROW_ICON_BTN_DANGER}
-              title={t('common.delete')}
-              aria-label={t('common.delete')}
-              onClick={() => openDeleteModal(user)}
-            >
-              <Trash2 className="h-4 w-4" aria-hidden />
-            </button>
-            <button
-              type="button"
-              className={LIST_ROW_ICON_BTN_MUTED}
-              title={t('users.renewSubscription')}
-              aria-label={t('users.renewSubscription')}
-              disabled={renewDisabled}
-              onClick={() => {
-                if (!renewDisabled) openRenewModal(user);
-              }}
-            >
-              <RefreshCw className="h-4 w-4" aria-hidden />
-            </button>
-          </div>
-        );
-      },
-    },
-  ];
+  const circulationFilterOptions = useMemo(
+    () =>
+      CIRCULATION_FILTERS.map((value) => ({
+        value,
+        label: t(`users.listFilters.${value}`),
+      })),
+    [t],
+  );
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{t('users.title')}</h1>
-        </div>
-        {canCreateUser && (
-          <Button onClick={() => navigate('/users/new')} leftIcon={<Plus className="h-4 w-4" />}>
-            {t('users.newUser')}
-          </Button>
-        )}
-      </div>
+    <ListPageLayout>
+      <PageHeading
+        className="shrink-0"
+        icon={Users}
+        title={t('users.title')}
+        subtitle={t('users.pageSubtitle')}
+        actions={
+          canCreateUser ? (
+            <Button onClick={() => navigate('/users/new')} leftIcon={<Plus className="h-4 w-4" />}>
+              {t('users.newUser')}
+            </Button>
+          ) : undefined
+        }
+      />
 
-      <Card>
-        <SearchInput
-          value={searchDraft}
-          onChange={setSearchDraft}
-          placeholder={t('users.searchPlaceholder')}
-          submitMode
-          onSubmit={handleSearch}
-          showSubmitButton
-          submitLabel={t('common.search')}
-        />
+      <Card className="shrink-0">
+        <div className="space-y-4">
+          <SearchInput
+            value={searchDraft}
+            onChange={setSearchDraft}
+            placeholder={t('users.searchPlaceholder')}
+            submitMode
+            onSubmit={handleSearch}
+            submitLabel={t('common.search')}
+          />
+          <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50/80 p-4 dark:border-gray-700 dark:bg-gray-800/40">
+            <div className="flex flex-col gap-4 xl:flex-row xl:flex-wrap xl:items-end">
+              <div className="flex flex-col gap-1.5 w-full sm:w-[13rem] shrink-0">
+                <label
+                  htmlFor="users-filter-account-type"
+                  className={formLabelClass({ marginBottom: false })}
+                >
+                  {t('users.listFilters.accountType')}
+                </label>
+                <select
+                  id="users-filter-account-type"
+                  value={listFilters.accountType}
+                  onChange={(e) =>
+                    setListFilters((prev) => ({ ...prev, accountType: e.target.value }))
+                  }
+                  className={formControlClass({ className: 'w-full' })}
+                >
+                  <option value="">{t('users.listFilters.allAccountTypes')}</option>
+                  {accountTypes.map((row) => (
+                    <option key={row.code} value={row.code}>
+                      {localizedAccountTypeLabel(t, row.code, accountTypes)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex flex-col gap-1.5 w-full sm:w-[13rem] shrink-0">
+                <label
+                  htmlFor="users-filter-public-type"
+                  className={formLabelClass({ marginBottom: false })}
+                >
+                  {t('users.listFilters.publicType')}
+                </label>
+                <select
+                  id="users-filter-public-type"
+                  value={listFilters.publicType}
+                  onChange={(e) =>
+                    setListFilters((prev) => ({ ...prev, publicType: e.target.value }))
+                  }
+                  className={formControlClass({ className: 'w-full' })}
+                >
+                  <option value="">{t('users.listFilters.allPublicTypes')}</option>
+                  {publicTypes.map((pt) => (
+                    <option key={pt.id} value={String(pt.id)}>
+                      {localizedPublicTypeLabel(t, pt)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="min-w-0 flex-1 w-full xl:min-w-[16rem]">
+                <MultiSelect
+                  id="users-filter-circulation"
+                  label={t('users.listFilters.statusHeading')}
+                  options={circulationFilterOptions}
+                  value={[...listFilters.circulation]}
+                  onChange={(next) =>
+                    setListFilters((prev) => ({
+                      ...prev,
+                      circulation: next.filter((v): v is CirculationFilter =>
+                        (CIRCULATION_FILTERS as readonly string[]).includes(v),
+                      ),
+                    }))
+                  }
+                  placeholder={t('users.listFilters.circulationPlaceholder')}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
       </Card>
 
-      <Card padding="none" className="flex flex-col min-h-0">
+      <Card padding="none" className="flex min-h-0 flex-1 flex-col">
         {isUsersQueryError && (
           <div
             role="alert"
@@ -322,35 +281,23 @@ export default function UsersPage() {
             </Button>
           </div>
         )}
-        <div className="px-4 py-2 border-b border-gray-200 dark:border-gray-800 flex flex-wrap items-center justify-between gap-2 text-sm text-gray-600 dark:text-gray-300">
-          <span>{t('users.count', { count: totalUsers })}</span>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={handleRefreshList}
-            disabled={isFetching && !isFetchingNextPage}
-            leftIcon={
-              <RefreshCw className={`h-4 w-4 ${isFetching && !isFetchingNextPage ? 'animate-spin' : ''}`} />
-            }
-          >
-            {t('common.refresh')}
-          </Button>
-        </div>
-        <ScrollableListRegion aria-label={t('users.title')}>
+        <ListResultCountBar>{t('users.count', { count: totalUsers })}</ListResultCountBar>
+        <ScrollableListRegion fill aria-label={t('users.title')}>
           {isLoading && !users.length ? (
             <ListSkeleton rows={10} />
           ) : (
             <>
               <ResponsiveRecordList
                 desktop={
-                  <Table
-                    columns={columns}
-                    data={users}
-                    keyExtractor={(user) => user.id}
-                    onRowClick={handleRowClick}
-                    isLoading={false}
+                  <UsersDesktopList
+                    users={users}
+                    accountTypes={accountTypes}
+                    publicTypes={publicTypes}
                     emptyMessage={t('users.noUsers')}
+                    t={t}
+                    onRowClick={handleRowClick}
+                    onDelete={openDeleteModal}
+                    onRenew={openRenewModal}
                   />
                 }
                 mobile={
@@ -367,15 +314,10 @@ export default function UsersPage() {
                           publicTypes={publicTypes}
                           accountTypes={accountTypes}
                           onOpen={() => handleRowClick(user)}
-                          onEdit={() => {
-                            const id = patronId(user.id);
-                            if (id) navigate(`/users/${id}`);
-                          }}
                           onDelete={() => openDeleteModal(user)}
                           onRenew={() => openRenewModal(user)}
-                          editLabel={t('common.edit')}
                           deleteLabel={t('common.delete')}
-                          renewLabel={t('users.renewSubscription')}
+                          renewLabel={t('users.renewSubscriptionListAction')}
                           actionsAriaLabel={t('common.actions')}
                         />
                       ))}
@@ -429,6 +371,6 @@ export default function UsersPage() {
         }}
       />
 
-    </div>
+    </ListPageLayout>
   );
 }

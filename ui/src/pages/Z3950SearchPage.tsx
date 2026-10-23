@@ -13,7 +13,7 @@ import {
   Loader2,
   Server,
 } from 'lucide-react';
-import { Card, CardHeader, Button, Table, Modal, Input, ScrollableListRegion, ResponsiveRecordList, BarcodeScanField } from '@/components/common';
+import { Card, CardHeader, Button, Table, Modal, Input, ScrollableListRegion, ResponsiveRecordList, BarcodeScanField, PageHeading, ListResultCountBar } from '@/components/common';
 import CallNumberField from '@/components/specimen/CallNumberField';
 import api from '@/services/api';
 import type { Biblio, Author, Z3950Server, Site, ImportReport, DuplicateConfirmationRequired } from '@/types';
@@ -351,16 +351,7 @@ export default function Z3950SearchPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-3">
-          <Globe className="h-7 w-7 text-emerald-600 dark:text-emerald-400" />
-          {t('z3950.title')}
-        </h1>
-        <p className="text-gray-500 dark:text-gray-400 mt-1">
-          {t('z3950.subtitle')}
-        </p>
-      </div>
+      <PageHeading icon={Globe} title={t('z3950.title')} subtitle={t('z3950.subtitle')} />
 
       {/* Search form */}
       <Card>
@@ -472,20 +463,14 @@ export default function Z3950SearchPage() {
       {(isSearching || hasSearched) && (
         <Card padding="none" className="flex flex-col min-h-0">
           <div className="p-4 sm:p-6 border-b border-gray-200 dark:border-gray-800 flex-shrink-0">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-                  {t('z3950.results')}
-                </h2>
-                {!isSearching ? (
-                  <p className="text-sm text-gray-500 dark:text-gray-400">
-                    {t('z3950.documentsFound', { count: totalResults })}
-                    {source ? ` • ${t('z3950.source', { source })}` : ''}
-                  </p>
-                ) : null}
-              </div>
-            </div>
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">{t('z3950.results')}</h2>
           </div>
+          {!isSearching ? (
+            <ListResultCountBar>
+              {t('z3950.documentsFound', { count: totalResults })}
+              {source ? ` · ${t('z3950.source', { source })}` : ''}
+            </ListResultCountBar>
+          ) : null}
 
           <ScrollableListRegion aria-label={t('z3950.results')}>
             {isSearching ? (

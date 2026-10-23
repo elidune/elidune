@@ -8,6 +8,9 @@ export function isSidebarNavItemActive(href: string, location: Location): boolea
   if (href === '/catalog') {
     return location.pathname === '/catalog' || location.pathname.startsWith('/biblios/');
   }
+  if (href === '/events') {
+    return location.pathname === '/events';
+  }
   if (href.includes('?')) {
     return `${location.pathname}${location.search}` === href;
   }

@@ -69,6 +69,67 @@ Role hierarchy: `Guest < Reader < Librarian < Administrator`
 - Co-locate domain logic in the matching `hooks/<domain>/` folder.
 - Common UI building blocks go in `components/common/`.
 
+## UI layout & interaction norms
+
+These rules apply to **new pages and refactors**. Prefer aligning existing screens when you touch them.
+
+### Page chrome (`PageHeading`)
+
+- Every staff/patron **top-level page** uses `PageHeading` in the page body (not in the sticky mobile app bar).
+- **Subtitle is required** — one line explaining what the page is for.
+- **Icon**: pass a lucide icon; default tile is `rounded-xl`, `w-14`, stretches to the title + subtitle block height, glyph `h-8 w-8`, `bg-amber-100 dark:bg-amber-900/40` and amber colors (overridable via `iconTileClassName` / `iconClassName`).
+- **Actions** (create, help, export…): `actions` prop; layout is column on narrow viewports, row on `sm+` to the right of the title block.
+- **Mobile app header** (`Layout`): menu + **logo only** (link to `/home`). Do **not** duplicate the page title in the sticky header; the title lives in `PageHeading` below.
+
+### Tabs & section navigation (`SectionTabBar`)
+
+- **Default pattern for switching views or filters on a page** (e.g. Circulation borrow/return, catalogue tabs, inventory Tous/Ouverte/Clôturée, deposit sub-pages). Do **not** use pill/chip button groups for primary page modes.
+- Use `SectionTabBar` from `components/common/` — horizontal scroll, amber bottom border on active tab, optional lucide icon per tab, `role="tablist"`.
+- **Page lead block**: wrap `PageHeading` + primary `SectionTabBar` in `PageTabLeadGroup` so title → tabs spacing matches site-wide (tighter on mobile).
+- Wire **accessibility**: when the tab switches main content, wrap the panel in `role="tabpanel"` with `id={`section-panel-${id}`}` and `aria-labelledby={`section-tab-${id}`}` (ids match `SectionTabBar` buttons).
+- **`size="compact"`** for secondary tab rows **inside** a card (e.g. scan vs batch, scans vs missing list), not for the main page mode tabs.
+- Provide `ariaLabel` on each bar (dedicated i18n key, all four locales).
+
+### Lists & scrolling
+
+- Long lists: `ScrollableListRegion` + infinite scroll or pagination as already done on peer pages.
+- **Viewport-filling list pages** (`UsersPage`, `BibliosPage`, …): wrap in `ListPageLayout`; list `Card` uses `flex min-h-0 flex-1 flex-col`; `ScrollableListRegion` with **`fill`**. Chrome (heading, filters) uses `shrink-0`. On lg+ only the list band scrolls — no double scroll with the shell.
+- **List totals:** show the result count in `ListResultCountBar` directly above the scrollable table/list (right-aligned). Do not duplicate the same count in `PageHeading` / `CardHeader` subtitles.
+- List scroll root: `getListScrollRoot()` / `APP_LIST_SCROLL_ROOT_CLASS` where the page participates in the app shell scroll model.
+
+### Single-field actions (search, barcode, identifier)
+
+- **No adjacent “Validate / Search / Submit” button** next to a lone text field at any breakpoint. Users confirm with **Enter** (or native `<form onSubmit>`).
+- Set **`enterKeyHint`**: `search` for search fields, `go` for scan/action fields (default on `BarcodeScanField`).
+- **`SearchInput`**: with `submitMode`, call `onSubmit` on Enter only; no separate submit control.
+- **`BarcodeScanField`**: camera control lives **inside** the field via `Input` `rightIcon`; do not add a trailing validate column.
+- **Do not reintroduce** `ValidatedFieldRow` / `ResponsiveSubmitButton` (removed). Multi-field forms keep their **primary submit at the bottom** of the form; non-submit actions (e.g. “Withdraw selection”, print) may stay as separate buttons where they are not redundant with Enter.
+- Optional short hint text under the field is fine for a11y; prefer that over a duplicate submit control.
+
+### Search vs live filter
+
+- **Explicit search** (catalog OPAC hero, reader catalog, list screens that hit the server on submit): `SearchInput` `submitMode` + Enter, or `<form onSubmit>` around a search `Input`.
+- **Live filter** (debounced table/list filtering): `SearchInput` without `submitMode` (debounced `onChange`).
+
+### Help & density
+
+- Long instructional copy on list pages: **Help** button in `PageHeading` actions → **Modal**, not a permanent essay above the list.
+
+### Navigation copy (sidebar / sections)
+
+- Keep labels consistent with product vocabulary in i18n (e.g. loans desk page title **Circulation**, section **Service aux lecteurs** / `nav.sectionMySpace` for patron “Mon espace”).
+- **Events**: single route `/events` (public share link + in-app calendar). Staff with `eventsWrite` manage create/edit/delete in-page on `PublicEventsPage`; no separate `/events/manage`.
+- Patron-only chrome: avoid redundant “Lecteur” section headers when the whole view is reader-scoped.
+
+### Reference implementations
+
+| Pattern | Example |
+|---------|---------|
+| Heading + primary tabs | `LoansPage`, `BibliosPage`, `DepositsPage`, `SettingsPage`, `InventoryPage` (session list) |
+| In-card compact tabs | `InventoryPage` (scan/batch, scans/missing) |
+| Search on Enter | `LoginPage` OPAC search, `ReaderCatalogPage`, `SearchInput` `submitMode` |
+| Scan on Enter | `BarcodeScanField` inside `<form onSubmit>` on circulation, holds, deposits |
+
 ## Coding Conventions
 - factorize as much as possible, reuse existing code and create new factorisations on changes
 - avoid multi call to same rest apis, reuse data

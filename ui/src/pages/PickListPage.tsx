@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, Printer, SearchX } from 'lucide-react';
+import { Check, PackageSearch, Printer, SearchX } from 'lucide-react';
 import {
   Badge,
   Button,
@@ -9,7 +9,11 @@ import {
   CardHeader,
   ConfirmDialog,
   QueryErrorBanner,
+  ScrollableListRegion,
+  ResponsiveRecordList,
   Table,
+  PageHeading,
+  ListResultCountBar,
 } from '@/components/common';
 import { useSitesQuery } from '@/hooks/holds/useSitesQuery';
 import api from '@/services/api';
@@ -182,20 +186,22 @@ export default function PickListPage() {
 
   return (
     <div className="space-y-6 print:space-y-3">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between print:hidden">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{t('pickList.pageTitle')}</h1>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{t('pickList.subtitle')}</p>
-        </div>
-        <Button
-          type="button"
-          variant="secondary"
-          leftIcon={<Printer className="h-4 w-4" />}
-          onClick={() => window.print()}
-        >
-          {t('pickList.print')}
-        </Button>
-      </div>
+      <PageHeading
+        className="print:hidden"
+        icon={PackageSearch}
+        title={t('pickList.pageTitle')}
+        subtitle={t('pickList.subtitle')}
+        actions={
+          <Button
+            type="button"
+            variant="secondary"
+            leftIcon={<Printer className="h-4 w-4" />}
+            onClick={() => window.print()}
+          >
+            {t('pickList.print')}
+          </Button>
+        }
+      />
 
       <h1 className="hidden print:block text-xl font-bold">{t('pickList.pageTitle')}</h1>
 
@@ -221,12 +227,9 @@ export default function PickListPage() {
       <Card padding="none" className="overflow-hidden">
         <div className="p-4 sm:p-6 border-b border-gray-200 dark:border-gray-800 space-y-4 print:border-0 print:p-0">
           <div className="print:hidden">
-            <CardHeader
-              title={t('pickList.pageTitle')}
-              subtitle={pickQuery.isSuccess ? t('pickList.count', { count: rows.length }) : undefined}
-            />
+            <CardHeader title={t('pickList.pageTitle')} />
           </div>
-          <div className="max-w-xs print:hidden">
+          <div className="w-full max-w-xs print:hidden">
             <label className={formLabelClass()} htmlFor="pick-list-site">
               {t('pickList.siteLabel')}
             </label>
@@ -260,15 +263,110 @@ export default function PickListPage() {
           </div>
         ) : (
           <>
-            <div className="print:hidden">
-              <Table
-                columns={columns}
-                data={rows}
-                keyExtractor={(row) => row.holdId}
-                isLoading={pickQuery.isLoading || siteId === null}
-                emptyMessage={t('pickList.empty')}
+            {pickQuery.isSuccess ? (
+              <ListResultCountBar className="print:hidden">
+                {t('pickList.count', { count: rows.length })}
+              </ListResultCountBar>
+            ) : null}
+            <ScrollableListRegion aria-label={t('pickList.pageTitle')} className="print:hidden">
+              <ResponsiveRecordList
+                desktop={
+                  <Table
+                    columns={columns}
+                    data={rows}
+                    keyExtractor={(row) => row.holdId}
+                    isLoading={pickQuery.isLoading || siteId === null}
+                    emptyMessage={t('pickList.empty')}
+                  />
+                }
+                mobile={
+                  pickQuery.isLoading || siteId === null ? (
+                    <Table
+                      columns={columns}
+                      data={[]}
+                      keyExtractor={(row) => row.holdId}
+                      isLoading
+                      emptyMessage={t('pickList.empty')}
+                    />
+                  ) : rows.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-12 text-gray-500 dark:text-gray-400 px-4">
+                      {t('pickList.empty')}
+                    </div>
+                  ) : (
+                    <div className="rounded-lg border border-gray-200 dark:border-gray-800 overflow-hidden bg-white dark:bg-gray-900 mx-2 sm:mx-4 mb-2">
+                      {rows.map((row) => (
+                        <div
+                          key={row.holdId}
+                          className="border-b border-gray-100 dark:border-gray-800 last:border-b-0 p-4 space-y-2"
+                        >
+                          <p className="font-medium text-gray-900 dark:text-white">
+                            {row.title?.trim() || t('pickList.noTitle')}
+                          </p>
+                          <dl className="grid grid-cols-1 gap-1 text-sm text-gray-600 dark:text-gray-300">
+                            <div>
+                              <dt className="text-xs text-gray-500 dark:text-gray-400">{t('pickList.columnBarcode')}</dt>
+                              <dd className="font-mono">{row.barcode || '—'}</dd>
+                            </div>
+                            <div>
+                              <dt className="text-xs text-gray-500 dark:text-gray-400">{t('pickList.columnCallNumber')}</dt>
+                              <dd className="font-mono">{row.callNumber || '—'}</dd>
+                            </div>
+                            <div>
+                              <dt className="text-xs text-gray-500 dark:text-gray-400">{t('pickList.columnPatron')}</dt>
+                              <dd><HoldShelfPatron holdFor={row.holdFor} /></dd>
+                            </div>
+                            <div>
+                              <dt className="text-xs text-gray-500 dark:text-gray-400">{t('pickList.columnPickup')}</dt>
+                              <dd>{row.pickupSiteName?.trim() || '—'}</dd>
+                            </div>
+                            <div>
+                              <dt className="text-xs text-gray-500 dark:text-gray-400">{t('pickList.columnPickupDeadline')}</dt>
+                              <dd className="tabular-nums">{formatDue(row.pickupDeadline)}</dd>
+                            </div>
+                            <div>
+                              <dt className="text-xs text-gray-500 dark:text-gray-400">{t('pickList.columnDue')}</dt>
+                              <dd className="flex flex-wrap items-center gap-2 tabular-nums">
+                                {formatDue(row.pickDueAt)}
+                                {row.overdue ? <Badge variant="danger">{t('pickList.overdue')}</Badge> : null}
+                              </dd>
+                            </div>
+                          </dl>
+                          <div className="flex flex-wrap gap-2 pt-1">
+                            <Button
+                              size="sm"
+                              variant="primary"
+                              className="min-h-[2.75rem] bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-500"
+                              leftIcon={<Check className="h-4 w-4" />}
+                              onClick={() => {
+                                setCheckInBind({
+                                  holdId: row.holdId,
+                                  itemId: row.itemId,
+                                  barcode: row.barcode,
+                                  title: row.title,
+                                });
+                                document.getElementById('pick-list-check-in')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                              }}
+                            >
+                              {t('holds.checkInAction')}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              className="min-h-[2.75rem]"
+                              leftIcon={<SearchX className="h-4 w-4" />}
+                              isLoading={notFoundMutation.isPending && notFoundMutation.variables === row.holdId}
+                              onClick={() => setPending(row)}
+                            >
+                              {t('pickList.notFound')}
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )
+                }
               />
-            </div>
+            </ScrollableListRegion>
             <ul className="hidden print:block space-y-4 p-4">
               {rows.map((row) => (
                 <li key={row.holdId}>

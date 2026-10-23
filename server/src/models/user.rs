@@ -625,6 +625,14 @@ pub struct UserShort {
 pub struct UserQuery {
     pub name: Option<String>,
     pub barcode: Option<String>,
+    pub account_type: Option<AccountTypeSlug>,
+    pub public_type: Option<i64>,
+    /// When `true`, patrons whose subscription end date is strictly in the past.
+    pub subscription_expired: Option<bool>,
+    /// When `true`, patrons with at least one open loan past its due date.
+    pub overdue_loans: Option<bool>,
+    /// When `true`, patrons with a positive unpaid fine balance.
+    pub unpaid_fines: Option<bool>,
     pub page: Option<i64>,
     pub per_page: Option<i64>,
 }

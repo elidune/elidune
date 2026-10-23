@@ -21,9 +21,11 @@ import { invalidateCirculationCaches } from '@/hooks/loans/invalidateCirculation
 import { invalidateUsersListQueries, userDetailQueryKey } from '@/hooks/users/queryKeys';
 import { usePublicTypesQuery } from '@/hooks/usePublicTypesQuery';
 import { useAccountTypesQuery } from '@/hooks/useAccountTypesQuery';
-import { Card, Button, Badge, Modal, Input, Table, ConfirmDialog, MessageModal, ScrollableListRegion, BarcodeScanField, SectionTabBar } from '@/components/common';
+import { Card, Button, Badge, Modal, Input, Table, ConfirmDialog, MessageModal, ScrollableListRegion, BarcodeScanField, SectionTabBar, ResponsiveRecordList } from '@/components/common';
+import ActiveLoanCard from '@/components/loans/ActiveLoanCard';
 import api from '@/services/api';
 import { getApiErrorCode, getApiErrorMessage } from '@/utils/apiError';
+import { getListScrollRoot } from '@/utils/listScrollRoot';
 import { navigateBack } from '@/utils/navigateBack';
 import { deskCheckoutMessage, presentCheckoutRefusal } from '@/utils/deskCheckoutError';
 import { overrideReasonRefusalMessage, trimmedOverrideReason } from '@/utils/circulationForce';
@@ -63,7 +65,7 @@ import LoansMarcExportButton from '@/components/loans/LoansMarcExportButton';
 import CirculationExceptionDialog from '@/components/loans/CirculationExceptionDialog';
 import LoanExceptionActions from '@/components/loans/LoanExceptionActions';
 import { useCirculationExceptionAction, type CirculationExceptionKind } from '@/hooks/loans/useCirculationExceptionAction';
-import { RenewSubscriptionModal, UserEditorForm } from '@/components/users';
+import { RenewSubscriptionModal, UserEditorForm, UserListAvatar } from '@/components/users';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/contexts/ToastContext';
 import { canForceLoans, canManageUsers, canReadLoans, canReadUsers, type LoanListItem, type LoanStatsResponse, type AdvancedStatsParams, type StatsInterval, type Author, type Hold } from '@/types';
@@ -82,7 +84,6 @@ import {
   userRecordQueryRetry,
 } from '@/utils/loanListAccess';
 import UserRecordLoanIdentity from '@/components/users/UserRecordLoanIdentity';
-import { localizedAccountTypeLabel } from '@/utils/accountTypeDisplay';
 import { localizedPublicTypeById } from '@/utils/publicTypeDisplay';
 import { formControlClass, formLabelClass } from '@/utils/formControl';
 import { deferFromEffect } from '@/utils/deferFromEffect';
@@ -301,7 +302,7 @@ export default function UserDetailPage() {
 
   useEffect(() => {
     const el = activeLoansLoadMoreRef.current;
-    const scrollRoot = el?.closest('.app-list-scroll') ?? null;
+    const scrollRoot = getListScrollRoot(el);
     if (!el || !scrollRoot || !hasNextActivePage || isFetchingNextActiveLoans || detailTab !== 'activeLoans')
       return;
     const obs = new IntersectionObserver(
@@ -316,7 +317,7 @@ export default function UserDetailPage() {
 
   useEffect(() => {
     const el = pastLoansLoadMoreRef.current;
-    const scrollRoot = el?.closest('.app-list-scroll') ?? null;
+    const scrollRoot = getListScrollRoot(el);
     if (!el || !scrollRoot || !hasNextPastPage || isFetchingNextPastLoans || detailTab !== 'pastLoans') return;
     const obs = new IntersectionObserver(
       (entries) => {
@@ -431,7 +432,7 @@ export default function UserDetailPage() {
 
   useEffect(() => {
     const el = holdsLoadMoreRef.current;
-    const scrollRoot = el?.closest('.app-list-scroll') ?? null;
+    const scrollRoot = getListScrollRoot(el);
     if (!el || !scrollRoot || !hasNextHoldsPage || isFetchingNextHolds || detailTab !== 'holds') return;
     const obs = new IntersectionObserver(
       (entries) => {
@@ -979,7 +980,7 @@ export default function UserDetailPage() {
   );
 
   return (
-    <div className="flex flex-col min-h-0 gap-4 h-[calc(100dvh-9rem)] lg:h-[calc(100dvh-5.5rem)]">
+    <div className="flex flex-col min-h-0 gap-4 lg:h-[calc(100dvh-5.5rem)]">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
         <div className="flex items-start gap-4">
@@ -993,17 +994,18 @@ export default function UserDetailPage() {
           >
             <ArrowLeft className="h-5 w-5" />
           </Button>
-          <div className="flex-shrink-0 h-16 w-16 rounded-xl bg-indigo-100 dark:bg-indigo-900/50 flex items-center justify-center">
-            <span className="text-xl font-bold text-indigo-600 dark:text-indigo-400">
-              {user.firstname?.[0] || '?'}{user.lastname?.[0] || ''}
-            </span>
-          </div>
+          <UserListAvatar
+            size="xl"
+            firstname={user.firstname}
+            lastname={user.lastname}
+            accountType={user.accountType}
+            accountTypes={accountTypes}
+          />
           <div>
             <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">
               {user.firstname} {user.lastname}
             </h1>
             <div className="flex flex-wrap items-center gap-2 mt-1">
-              <Badge>{localizedAccountTypeLabel(t, user.accountType, accountTypes)}</Badge>
               {(() => {
                 const publicLabel = localizedPublicTypeById(t, publicTypes, user.publicType);
                 return publicLabel ? <Badge variant="info">{publicLabel}</Badge> : null;
@@ -1116,7 +1118,7 @@ export default function UserDetailPage() {
           {detailTab === 'info' && (
             <ScrollableListRegion
               aria-label={t('users.information')}
-              className="flex-1 min-h-0 !max-h-none overflow-auto px-3 sm:px-4 py-3"
+              className="flex-1 min-h-0 max-lg:overflow-visible max-lg:max-h-none lg:overflow-auto lg:!max-h-none px-3 sm:px-4 py-3"
             >
               <div className="flex justify-end mb-3">
                 <Button type="submit" form="user-detail-edit-form" isLoading={isEditLoading}>
@@ -1143,7 +1145,7 @@ export default function UserDetailPage() {
           {detailTab === 'activeLoans' && (
             <ScrollableListRegion
               aria-label={t('loans.activeLoans')}
-              className="flex-1 min-h-0 !max-h-none overflow-auto"
+              className="flex-1 min-h-0 max-lg:overflow-visible max-lg:max-h-none lg:overflow-auto lg:!max-h-none"
             >
               {isActiveLoansError ? (
                 <div className="p-4">
@@ -1157,12 +1159,60 @@ export default function UserDetailPage() {
                 </div>
               ) : (
                 <>
-                  <Table
-                    columns={loanColumnsActive}
-                    data={activeLoans}
-                    keyExtractor={(loan) => loan.id}
-                    isLoading={isLoadingActiveLoans && activeLoans.length === 0}
-                    emptyMessage={t('loans.noLoans')}
+                  <ResponsiveRecordList
+                    desktop={
+                      <Table
+                        columns={loanColumnsActive}
+                        data={activeLoans}
+                        keyExtractor={(loan) => loan.id}
+                        isLoading={isLoadingActiveLoans && activeLoans.length === 0}
+                        emptyMessage={t('loans.noLoans')}
+                      />
+                    }
+                    mobile={
+                      isLoadingActiveLoans && activeLoans.length === 0 ? (
+                        <Table
+                          columns={loanColumnsActive}
+                          data={[]}
+                          keyExtractor={(loan) => loan.id}
+                          isLoading
+                          emptyMessage={t('loans.noLoans')}
+                        />
+                      ) : activeLoans.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center py-12 text-gray-500 dark:text-gray-400 px-4">
+                          {t('loans.noLoans')}
+                        </div>
+                      ) : (
+                        <div className="rounded-lg border border-gray-200 dark:border-gray-800 overflow-hidden bg-white dark:bg-gray-900 mx-2 sm:mx-4 mb-2">
+                          {activeLoans.map((loan) => {
+                            const claimed = isClaimedReturnedLoan(loan, claimedLoanIds);
+                            const busy = loanAction?.loanId === loan.id ? loanAction.op : null;
+                            return (
+                              <ActiveLoanCard
+                                key={loan.id}
+                                loan={loan}
+                                onRenew={() => void handleRenewLoan(loan.id)}
+                                onReturn={() => void handleReturnLoan(loan.id)}
+                                renewLoading={busy === 'renew'}
+                                returnLoading={busy === 'return'}
+                                actionsDisabled={deskBusy}
+                                hideRenew={claimed}
+                                exceptionActions={
+                                  <LoanExceptionActions
+                                    loanId={loan.id}
+                                    loanLabel={loan.biblio.title || undefined}
+                                    claimedReturned={claimed}
+                                    disabled={deskBusy}
+                                    busyKind={busy && busy !== 'return' && busy !== 'renew' ? busy : null}
+                                    onOpen={(kind, label) => exceptionAction.open({ loanId: loan.id, kind, label })}
+                                  />
+                                }
+                              />
+                            );
+                          })}
+                        </div>
+                      )
+                    }
                   />
                   <div ref={activeLoansLoadMoreRef} className="h-4 flex-shrink-0" aria-hidden />
                   {isFetchingNextActiveLoans && (
@@ -1179,7 +1229,7 @@ export default function UserDetailPage() {
           {detailTab === 'pastLoans' && (
             <ScrollableListRegion
               aria-label={t('users.pastLoansTab')}
-              className="flex-1 min-h-0 !max-h-none overflow-auto"
+              className="flex-1 min-h-0 max-lg:overflow-visible max-lg:max-h-none lg:overflow-auto lg:!max-h-none"
             >
               {isPastLoansError ? (
                 <div className="p-4">
@@ -1193,12 +1243,68 @@ export default function UserDetailPage() {
                 </div>
               ) : (
                 <>
-                  <Table
-                    columns={loanColumnsPast}
-                    data={pastLoans}
-                    keyExtractor={(loan) => loan.id}
-                    isLoading={isLoadingPastLoans && pastLoans.length === 0}
-                    emptyMessage={t('loans.noLoans')}
+                  <ResponsiveRecordList
+                    desktop={
+                      <Table
+                        columns={loanColumnsPast}
+                        data={pastLoans}
+                        keyExtractor={(loan) => loan.id}
+                        isLoading={isLoadingPastLoans && pastLoans.length === 0}
+                        emptyMessage={t('loans.noLoans')}
+                      />
+                    }
+                    mobile={
+                      isLoadingPastLoans && pastLoans.length === 0 ? (
+                        <Table
+                          columns={loanColumnsPast}
+                          data={[]}
+                          keyExtractor={(loan) => loan.id}
+                          isLoading
+                          emptyMessage={t('loans.noLoans')}
+                        />
+                      ) : pastLoans.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center py-12 text-gray-500 dark:text-gray-400 px-4">
+                          {t('loans.noLoans')}
+                        </div>
+                      ) : (
+                        <div className="rounded-lg border border-gray-200 dark:border-gray-800 overflow-hidden bg-white dark:bg-gray-900 mx-2 sm:mx-4 mb-2">
+                          {pastLoans.map((loan) => (
+                            <div
+                              key={loan.id}
+                              className="border-b border-gray-100 dark:border-gray-800 last:border-b-0 p-4 space-y-2"
+                            >
+                              <LoanDocumentRow
+                                mediaType={loan.biblio.mediaType}
+                                title={renderLoanTitle(loan)}
+                                details={<UserRecordLoanIdentity loan={loan} linked={canReadBorrowers} placement="row" />}
+                              />
+                              <dl className="grid grid-cols-2 gap-2 text-xs text-gray-600 dark:text-gray-300">
+                                <div>
+                                  <dt className="text-gray-500">{t('loans.borrowDate')}</dt>
+                                  <dd>{new Date(loan.startDate).toLocaleDateString(i18n.language)}</dd>
+                                </div>
+                                <div>
+                                  <dt className="text-gray-500">{t('loans.returnDate')}</dt>
+                                  <dd>
+                                    {loan.returnedAt
+                                      ? new Date(loan.returnedAt).toLocaleDateString(i18n.language)
+                                      : '-'}
+                                  </dd>
+                                </div>
+                                <div className="col-span-2">
+                                  <dt className="text-gray-500">{t('loans.closure.column')}</dt>
+                                  <dd>{closureReasonText(loan, t, i18n.language) ?? '-'}</dd>
+                                </div>
+                                <div>
+                                  <dt className="text-gray-500">{t('loans.renewals')}</dt>
+                                  <dd>{loan.nbRenews}</dd>
+                                </div>
+                              </dl>
+                            </div>
+                          ))}
+                        </div>
+                      )
+                    }
                   />
                   <div ref={pastLoansLoadMoreRef} className="h-4 flex-shrink-0" aria-hidden />
                   {isFetchingNextPastLoans && (
@@ -1215,7 +1321,7 @@ export default function UserDetailPage() {
           {detailTab === 'fines' && finesVisible && (
             <ScrollableListRegion
               aria-label={t('users.finesTab')}
-              className="flex-1 min-h-0 !max-h-none overflow-auto"
+              className="flex-1 min-h-0 max-lg:overflow-visible max-lg:max-h-none lg:overflow-auto lg:!max-h-none"
             >
               <PatronFinesPanel
                 fines={finesData?.fines ?? []}
@@ -1235,14 +1341,72 @@ export default function UserDetailPage() {
 
           {detailTab === 'holds' && (
             <>
-              <ScrollableListRegion aria-label={t('users.holdsTab')} className="flex-1 min-h-0 !max-h-none overflow-auto">
+              <ScrollableListRegion aria-label={t('users.holdsTab')} className="flex-1 min-h-0 max-lg:overflow-visible max-lg:max-h-none lg:overflow-auto lg:!max-h-none">
                 <>
-                  <Table
-                    columns={userHoldColumns}
-                    data={holds}
-                    keyExtractor={(h) => h.id}
-                    isLoading={isLoadingHolds && holds.length === 0}
-                    emptyMessage={t('holds.noHolds')}
+                  <ResponsiveRecordList
+                    desktop={
+                      <Table
+                        columns={userHoldColumns}
+                        data={holds}
+                        keyExtractor={(h) => h.id}
+                        isLoading={isLoadingHolds && holds.length === 0}
+                        emptyMessage={t('holds.noHolds')}
+                      />
+                    }
+                    mobile={
+                      isLoadingHolds && holds.length === 0 ? (
+                        <Table
+                          columns={userHoldColumns}
+                          data={[]}
+                          keyExtractor={(h) => h.id}
+                          isLoading
+                          emptyMessage={t('holds.noHolds')}
+                        />
+                      ) : holds.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center py-12 text-gray-500 dark:text-gray-400 px-4">
+                          {t('holds.noHolds')}
+                        </div>
+                      ) : (
+                        <div className="rounded-lg border border-gray-200 dark:border-gray-800 overflow-hidden bg-white dark:bg-gray-900 mx-2 sm:mx-4 mb-2">
+                          {holds.map((h) => (
+                            <div
+                              key={h.id}
+                              className="border-b border-gray-100 dark:border-gray-800 last:border-b-0 p-4 space-y-2"
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <HoldDocumentCell hold={h} />
+                                <HoldStatusBadge status={h.status} />
+                              </div>
+                              <HoldPickupCell hold={h} sites={sites} transit={transitByHoldId.get(h.id)} />
+                              <p className="text-xs text-gray-500 dark:text-gray-400">
+                                {t('holds.position')}: {h.position} · {t('holds.createdAt')}:{' '}
+                                {new Date(h.createdAt).toLocaleString(i18n.language)}
+                              </p>
+                              {h.expiresAt ? (
+                                <p className="text-xs text-gray-500 dark:text-gray-400">
+                                  {t('holds.expiresAt')}: {new Date(h.expiresAt).toLocaleString(i18n.language)}
+                                </p>
+                              ) : null}
+                              <div className="flex flex-wrap gap-2">
+                                <HoldTransitActions hold={h} transit={transitByHoldId.get(h.id)} actions={transitActions} />
+                                {h.status === 'pending' || h.status === 'ready' ? (
+                                  <Button
+                                    size="sm"
+                                    variant="secondary"
+                                    className="min-h-[2.75rem]"
+                                    leftIcon={<Ban className="h-4 w-4" />}
+                                    isLoading={cancellingHoldId === h.id}
+                                    onClick={() => void handleCancelHold(h.id)}
+                                  >
+                                    {t('holds.cancelHold')}
+                                  </Button>
+                                ) : null}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )
+                    }
                   />
                   <div ref={holdsLoadMoreRef} className="h-4 flex-shrink-0" aria-hidden />
                   {isFetchingNextHolds && (
@@ -1259,7 +1423,7 @@ export default function UserDetailPage() {
           {detailTab === 'stats' && (
             <ScrollableListRegion
               aria-label={t('users.loanStatistics')}
-              className="flex-1 min-h-0 !max-h-none overflow-auto px-4 sm:px-6 py-4"
+              className="flex-1 min-h-0 max-lg:overflow-visible max-lg:max-h-none lg:overflow-auto lg:!max-h-none px-4 sm:px-6 py-4"
             >
               {statsTabContent}
             </ScrollableListRegion>
@@ -1420,7 +1584,7 @@ export default function UserDetailPage() {
         onClose={() => setShowBorrowModal(false)}
         title={t('loans.newLoan')}
         footer={
-          <div className="flex justify-end gap-2">
+          <div className="hidden sm:flex justify-end gap-2">
             <Button type="submit" form="borrow-user-form" isLoading={isBorrowLoading}>
               {t('loans.borrow')}
             </Button>
@@ -1431,6 +1595,7 @@ export default function UserDetailPage() {
           ref={borrowFormRef}
           formId="borrow-user-form"
           userId={user.id}
+          isLoading={isBorrowLoading}
           onLoadingChange={setIsBorrowLoading}
           onSuccess={(created) => {
             setShowBorrowModal(false);
@@ -1638,6 +1803,7 @@ interface BorrowFormHandle {
 interface BorrowFormProps {
   formId: string;
   userId: string;
+  isLoading?: boolean;
   onLoadingChange: (loading: boolean) => void;
   onSuccess: (created: { dueDateCappedByDeposit?: boolean; expiryAt?: string | null }) => void;
   canForce: boolean;
@@ -1651,6 +1817,7 @@ interface BorrowFormProps {
 const BorrowForm = forwardRef<BorrowFormHandle, BorrowFormProps>(function BorrowForm({
   formId,
   userId,
+  isLoading = false,
   onLoadingChange,
   onSuccess,
   canForce,
@@ -1744,6 +1911,7 @@ const BorrowForm = forwardRef<BorrowFormHandle, BorrowFormProps>(function Borrow
         placeholder={t('loans.scanOrEnterBarcode')}
         autoFocus
         required
+        disabled={isLoading}
         scannerTitle={t('loans.scanSpecimenBarcode')}
         onCameraScan={(code) => {
           setSpecimenCode(code);

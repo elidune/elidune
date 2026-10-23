@@ -44,6 +44,11 @@ pub fn router() -> axum::Router<crate::AppState> {
     params(
         ("name" = Option<String>, Query, description = "Search by name"),
         ("barcode" = Option<String>, Query, description = "Search by barcode"),
+        ("accountType" = Option<String>, Query, description = "Filter by account type code"),
+        ("publicType" = Option<i64>, Query, description = "Filter by public type id"),
+        ("subscriptionExpired" = Option<bool>, Query, description = "When true, patrons whose subscription end date is in the past"),
+        ("overdueLoans" = Option<bool>, Query, description = "When true, patrons with at least one overdue loan"),
+        ("unpaidFines" = Option<bool>, Query, description = "When true, patrons with unpaid fines"),
         ("page" = Option<i64>, Query, description = "Page number"),
         ("per_page" = Option<i64>, Query, description = "Items per page")
     ),

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus } from 'lucide-react';
-import { Badge, Button, Card, Input, Modal, QueryErrorBanner, Table } from '@/components/common';
+import { Badge, Button, Card, Input, Modal, QueryErrorBanner, ResponsiveRecordList, Table, ListResultCountBar } from '@/components/common';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/contexts/ToastContext';
 import api from '@/services/api';
@@ -96,6 +96,43 @@ export function DepositBatchesPanel() {
   });
 
   const activeLenders = (lendersQuery.data ?? []).filter((lender) => !lender.archivedAt);
+  const batches = batchesQuery.data ?? [];
+  const batchColumns = [
+    {
+      key: 'reference',
+      header: t('deposits.reference'),
+      render: (batch: DepositBatch) => (
+        <span className="font-medium text-gray-900 dark:text-white">{batch.reference}</span>
+      ),
+    },
+    {
+      key: 'lender',
+      header: t('deposits.lender'),
+      render: (batch: DepositBatch) => lenderName(batch.lenderId),
+    },
+    {
+      key: 'site',
+      header: t('deposits.site'),
+      render: (batch: DepositBatch) => siteName(batch.siteId),
+    },
+    {
+      key: 'return',
+      header: t('deposits.returnDueOn'),
+      render: (batch: DepositBatch) =>
+        batch.returnDueOn
+          ? formatCatalogDate(batch.returnDueOn, i18n.language)
+          : t('deposits.returnDueOpen'),
+    },
+    {
+      key: 'status',
+      header: t('common.status'),
+      render: (batch: DepositBatch) => (
+        <Badge variant={statusVariant(batch.status)} size="sm">
+          {t(`deposits.status.${batch.status}`)}
+        </Badge>
+      ),
+    },
+  ];
 
   return (
     <div className="space-y-4">
@@ -116,8 +153,8 @@ export function DepositBatchesPanel() {
         ) : null}
       </div>
 
-      <Card className="overflow-hidden">
-        <div className="flex flex-col gap-1.5 px-4 py-3 sm:max-w-xs">
+      <Card padding="none" className="overflow-hidden">
+        <div className="flex flex-col gap-1.5 px-4 py-3 sm:max-w-xs border-b border-gray-200 dark:border-gray-800">
           <label htmlFor="deposit-status" className={formLabelClass({ marginBottom: false })}>
             {t('common.status')}
           </label>
@@ -140,48 +177,65 @@ export function DepositBatchesPanel() {
             onRetry={() => void batchesQuery.refetch()}
           />
         ) : null}
-        <Table
-          columns={[
-            {
-              key: 'reference',
-              header: t('deposits.reference'),
-              render: (batch: DepositBatch) => (
-                <span className="font-medium text-gray-900 dark:text-white">{batch.reference}</span>
-              ),
-            },
-            {
-              key: 'lender',
-              header: t('deposits.lender'),
-              render: (batch: DepositBatch) => lenderName(batch.lenderId),
-            },
-            {
-              key: 'site',
-              header: t('deposits.site'),
-              render: (batch: DepositBatch) => siteName(batch.siteId),
-            },
-            {
-              key: 'return',
-              header: t('deposits.returnDueOn'),
-              render: (batch: DepositBatch) =>
-                batch.returnDueOn
-                  ? formatCatalogDate(batch.returnDueOn, i18n.language)
-                  : t('deposits.returnDueOpen'),
-            },
-            {
-              key: 'status',
-              header: t('common.status'),
-              render: (batch: DepositBatch) => (
-                <Badge variant={statusVariant(batch.status)} size="sm">
-                  {t(`deposits.status.${batch.status}`)}
-                </Badge>
-              ),
-            },
-          ]}
-          data={batchesQuery.data ?? []}
-          keyExtractor={(batch) => batch.id}
-          onRowClick={(batch) => navigate(`/deposits/${batch.id}`)}
-          isLoading={batchesQuery.isLoading}
-          emptyMessage={t('deposits.batches.empty')}
+        {!batchesQuery.isLoading || batches.length > 0 ? (
+          <ListResultCountBar>{t('common.listCount', { count: batches.length })}</ListResultCountBar>
+        ) : null}
+        <ResponsiveRecordList
+          desktop={
+            <Table
+              columns={batchColumns}
+              data={batches}
+              keyExtractor={(batch) => batch.id}
+              onRowClick={(batch) => navigate(`/deposits/${batch.id}`)}
+              isLoading={batchesQuery.isLoading}
+              emptyMessage={t('deposits.batches.empty')}
+            />
+          }
+          mobile={
+            batchesQuery.isLoading && batches.length === 0 ? (
+              <Table
+                columns={batchColumns}
+                data={[]}
+                keyExtractor={(batch) => batch.id}
+                isLoading
+                emptyMessage={t('deposits.batches.empty')}
+              />
+            ) : batches.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12 text-gray-500 dark:text-gray-400 px-4">
+                {t('deposits.batches.empty')}
+              </div>
+            ) : (
+              <div className="rounded-lg border border-gray-200 dark:border-gray-800 overflow-hidden bg-white dark:bg-gray-900 mx-2 sm:mx-4 mb-2">
+                {batches.map((batch) => (
+                  <button
+                    key={batch.id}
+                    type="button"
+                    className="w-full text-left border-b border-gray-100 dark:border-gray-800 last:border-b-0 p-4 space-y-2 hover:bg-gray-50 dark:hover:bg-gray-800/50"
+                    onClick={() => navigate(`/deposits/${batch.id}`)}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="font-medium text-gray-900 dark:text-white">{batch.reference}</p>
+                      <Badge variant={statusVariant(batch.status)} size="sm">
+                        {t(`deposits.status.${batch.status}`)}
+                      </Badge>
+                    </div>
+                    <p className="text-sm text-gray-600 dark:text-gray-300">
+                      {t('deposits.lender')}: {lenderName(batch.lenderId)}
+                    </p>
+                    <p className="text-sm text-gray-600 dark:text-gray-300">
+                      {t('deposits.site')}: {siteName(batch.siteId)}
+                    </p>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                      {t('deposits.returnDueOn')}:{' '}
+                      {batch.returnDueOn
+                        ? formatCatalogDate(batch.returnDueOn, i18n.language)
+                        : t('deposits.returnDueOpen')}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            )
+          }
         />
       </Card>
 

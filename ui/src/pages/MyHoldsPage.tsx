@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, Navigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Ban, Bookmark, AlertCircle } from 'lucide-react';
+import { Ban, BookmarkCheck, AlertCircle } from 'lucide-react';
 import {
   Card,
   CardHeader,
@@ -12,7 +12,9 @@ import {
   ConfirmDialog,
   ScrollableListRegion,
   ResponsiveRecordList,
+  ListResultCountBar,
   ListSkeleton,
+  PageHeading,
 } from '@/components/common';
 import HoldStatusBadge from '@/components/holds/HoldStatusBadge';
 import { HoldNotes } from '@/components/holds/HoldNotes';
@@ -164,13 +166,11 @@ export default function MyHoldsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
-          <Bookmark className="h-7 w-7 text-amber-600" />
-          {t('holds.patronTitle')}
-        </h1>
-        <p className="text-gray-500 dark:text-gray-400 mt-1">{t('holds.patronSubtitle')}</p>
-      </div>
+      <PageHeading
+        icon={BookmarkCheck}
+        title={t('holds.patronTitle')}
+        subtitle={t('holds.patronSubtitle')}
+      />
 
       <Card padding="none" className="flex flex-col min-h-0">
         {listQuery.isError && (
@@ -188,7 +188,6 @@ export default function MyHoldsPage() {
         <div className="p-4 sm:p-6 border-b border-gray-200 dark:border-gray-800 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 flex-shrink-0">
           <CardHeader
             title={activeOnly ? t('holds.activeHoldsTitle') : t('holds.patronAllSectionTitle')}
-            subtitle={listData != null ? t('holds.patronCount', { total: listData.total }) : undefined}
           />
           <div className="flex flex-wrap items-end gap-3">
             <fieldset className="flex flex-wrap gap-4">
@@ -236,6 +235,10 @@ export default function MyHoldsPage() {
             </div>
           </div>
         </div>
+
+        {listData != null ? (
+          <ListResultCountBar>{t('holds.patronCount', { total: listData.total })}</ListResultCountBar>
+        ) : null}
 
         <ScrollableListRegion aria-label={t('holds.patronTitle')}>
           {listQuery.isLoading && !(listData?.items?.length) ? (

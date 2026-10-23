@@ -46,7 +46,7 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
             aria-describedby={describedBy}
             className={formControlClass({
               error: !!error,
-              className: `w-full ${leftIcon ? 'pl-10' : ''} ${rightIcon ? 'pr-10' : ''} ${className}`,
+              className: `w-full ${leftIcon ? 'pl-10' : ''} ${rightIcon ? 'pr-11' : ''} ${className}`,
             })}
             {...props}
           />

@@ -2,8 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Ban, Bookmark, Check, Plus, Search, AlertCircle, Truck, ListChecks } from 'lucide-react';
-import { Card, CardHeader, Button, Table, Pagination, Modal, ConfirmDialog, ScrollableListRegion, ResponsiveRecordList, ListSkeleton, BarcodeScanField, Typeahead } from '@/components/common';
+import { Ban, Bookmark, Check, Plus, Search, AlertCircle, Truck, PackageSearch } from 'lucide-react';
+import { Card, CardHeader, Button, Table, Pagination, Modal, ConfirmDialog, ScrollableListRegion, ResponsiveRecordList, ListSkeleton, BarcodeScanField, Typeahead, PageHeading, ListResultCountBar } from '@/components/common';
 import HoldPickCheckInPanel from '@/components/holds/HoldPickCheckInPanel';
 import HoldMobileCard from '@/components/holds/HoldMobileCard';
 import HoldDocumentCell from '@/components/holds/HoldDocumentCell';
@@ -427,34 +427,32 @@ export default function HoldsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
-            <Bookmark className="h-7 w-7 text-amber-600" />
-            {t('holds.pageTitle')}
-          </h1>
-          <p className="text-gray-500 dark:text-gray-400 mt-1">{t('holds.subtitle')}</p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Link to="/pick-list">
-            <Button variant="secondary" leftIcon={<ListChecks className="h-4 w-4" />}>
-              {t('holds.openPickList')}
+      <PageHeading
+        icon={Bookmark}
+        title={t('holds.pageTitle')}
+        subtitle={t('holds.subtitle')}
+        actions={
+          <div className="flex flex-wrap gap-2">
+            <Link to="/pick-list">
+              <Button variant="secondary" leftIcon={<PackageSearch className="h-4 w-4" />}>
+                {t('holds.openPickList')}
+              </Button>
+            </Link>
+            <Link to="/transits">
+              <Button variant="secondary" leftIcon={<Truck className="h-4 w-4" />}>
+                {t('transits.openQueue')}
+              </Button>
+            </Link>
+            <Button
+              variant="primary"
+              leftIcon={<Plus className="h-4 w-4" />}
+              onClick={() => setShowCreateModal(true)}
+            >
+              {t('holds.newHoldButton')}
             </Button>
-          </Link>
-          <Link to="/transits">
-            <Button variant="secondary" leftIcon={<Truck className="h-4 w-4" />}>
-              {t('transits.openQueue')}
-            </Button>
-          </Link>
-          <Button
-            variant="primary"
-            leftIcon={<Plus className="h-4 w-4" />}
-            onClick={() => setShowCreateModal(true)}
-          >
-            {t('holds.newHoldButton')}
-          </Button>
-        </div>
-      </div>
+          </div>
+        }
+      />
 
       <Card padding="none" className="flex flex-col min-h-0">
         {activeHoldsQuery.isError && (
@@ -469,12 +467,7 @@ export default function HoldsPage() {
           </div>
         )}
         <div className="p-4 sm:p-6 border-b border-gray-200 dark:border-gray-800 flex-shrink-0">
-          <CardHeader
-            title={t('holds.activeHoldsTitle')}
-            subtitle={
-              listData != null ? t('holds.activeHoldsCount', { total: preparedHolds.length }) : undefined
-            }
-          />
+          <CardHeader title={t('holds.activeHoldsTitle')} />
         </div>
         <div
           id="hold-pick-check-in"
@@ -543,6 +536,11 @@ export default function HoldsPage() {
             </select>
           </div>
         </div>
+        {listData != null ? (
+          <ListResultCountBar>
+            {t('holds.activeHoldsCount', { total: preparedHolds.length })}
+          </ListResultCountBar>
+        ) : null}
         <ScrollableListRegion aria-label={t('holds.activeHoldsTitle')}>
           {activeHoldsQuery.isLoading && !(listData?.items?.length) ? (
             <ListSkeleton rows={8} />

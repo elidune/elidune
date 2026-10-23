@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { BookOpen, Calendar, AlertTriangle } from 'lucide-react';
-import { Card, CardHeader, Badge, Pagination, ListSkeleton, QueryErrorBanner } from '@/components/common';
+import { BookMarked, Calendar, AlertTriangle } from 'lucide-react';
+import { Card, CardHeader, Badge, Pagination, ListSkeleton, QueryErrorBanner, PageHeading } from '@/components/common';
 import { useToast } from '@/contexts/ToastContext';
 import AccountRenewalBanner from '@/components/loans/AccountRenewalBanner';
 import LoansMarcExportButton from '@/components/loans/LoansMarcExportButton';
@@ -86,19 +86,12 @@ export default function MyLoansPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{t('loans.myLoans')}</h1>
-          <p className="text-gray-500 dark:text-gray-400">
-            {t('loans.count', { count: loansTotal })}
-          </p>
-        </div>
-        {user?.id ? (
-          <div className="shrink-0">
-            <LoansMarcExportButton userId={user.id} />
-          </div>
-        ) : null}
-      </div>
+      <PageHeading
+        icon={BookMarked}
+        title={t('loans.myLoans')}
+        subtitle={t('loans.count', { count: loansTotal })}
+        actions={user?.id ? <LoansMarcExportButton userId={user.id} /> : undefined}
+      />
 
       {loadError && (
         <QueryErrorBanner message={loadError} onRetry={() => void activeLoansQuery.refetch()} />
@@ -122,7 +115,7 @@ export default function MyLoansPage() {
           <ListSkeleton rows={6} />
         ) : loadError ? null : loans.length === 0 ? (
           <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-            <BookOpen className="h-12 w-12 mx-auto mb-3 opacity-30" />
+            <BookMarked className="h-12 w-12 mx-auto mb-3 opacity-30" />
             <p>{t('loans.noLoans')}</p>
           </div>
         ) : (

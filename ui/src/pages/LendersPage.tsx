@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus } from 'lucide-react';
-import { Badge, Button, Card, ConfirmDialog, Input, Modal, QueryErrorBanner, Table } from '@/components/common';
+import { Badge, Button, Card, ConfirmDialog, Input, Modal, QueryErrorBanner, ResponsiveRecordList, Table, ListResultCountBar } from '@/components/common';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/contexts/ToastContext';
 import api from '@/services/api';
@@ -93,6 +93,58 @@ export function LendersPanel() {
     },
   });
 
+  const lenders = query.data ?? [];
+  const lenderColumns = [
+    {
+      key: 'name',
+      header: t('common.name'),
+      render: (lender: Lender) => (
+        <span className="font-medium text-gray-900 dark:text-white">{lender.name}</span>
+      ),
+    },
+    {
+      key: 'contact',
+      header: t('deposits.lenders.contact'),
+      render: (lender: Lender) => lender.contact || '—',
+    },
+    {
+      key: 'replacementRate',
+      header: t('deposits.lenders.replacementRate'),
+      render: (lender: Lender) =>
+        formatReplacementRateCents(lender.replacementRateCents, i18n.language)
+        ?? t('deposits.lenders.replacementRateNone'),
+    },
+    {
+      key: 'status',
+      header: t('common.status'),
+      render: (lender: Lender) =>
+        lender.archivedAt ? (
+          <Badge variant="default" size="sm">{t('deposits.lenders.archivedBadge')}</Badge>
+        ) : (
+          <Badge variant="success" size="sm">{t('common.active')}</Badge>
+        ),
+    },
+    ...(canWrite
+      ? [{
+          key: 'actions',
+          header: '',
+          align: 'right' as const,
+          render: (lender: Lender) => (
+            <div className="flex justify-end gap-2" data-row-action>
+              <Button type="button" size="sm" variant="secondary" onClick={() => openForm(lender)}>
+                {t('common.edit')}
+              </Button>
+              {lender.archivedAt ? null : (
+                <Button type="button" size="sm" variant="danger" onClick={() => setArchiveTarget(lender)}>
+                  {t('deposits.lenders.archive')}
+                </Button>
+              )}
+            </div>
+          ),
+        }]
+      : []),
+  ];
+
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -104,8 +156,8 @@ export function LendersPanel() {
         ) : null}
       </div>
 
-      <Card className="overflow-hidden">
-        <label className="flex items-center gap-2 px-4 py-3 text-sm text-gray-700 dark:text-gray-300">
+      <Card padding="none" className="overflow-hidden">
+        <label className="flex items-center gap-2 px-4 py-3 text-sm text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-800">
           <input
             type="checkbox"
             className={formChoiceControlClass()}
@@ -117,61 +169,72 @@ export function LendersPanel() {
         {query.isError ? (
           <QueryErrorBanner message={getApiErrorMessage(query.error, t)} onRetry={() => void query.refetch()} />
         ) : null}
-        <Table
-          columns={[
-            {
-              key: 'name',
-              header: t('common.name'),
-              render: (lender: Lender) => (
-                <span className="font-medium text-gray-900 dark:text-white">{lender.name}</span>
-              ),
-            },
-            {
-              key: 'contact',
-              header: t('deposits.lenders.contact'),
-              render: (lender: Lender) => lender.contact || '—',
-            },
-            {
-              key: 'replacementRate',
-              header: t('deposits.lenders.replacementRate'),
-              render: (lender: Lender) =>
-                formatReplacementRateCents(lender.replacementRateCents, i18n.language)
-                ?? t('deposits.lenders.replacementRateNone'),
-            },
-            {
-              key: 'status',
-              header: t('common.status'),
-              render: (lender: Lender) =>
-                lender.archivedAt ? (
-                  <Badge variant="default" size="sm">{t('deposits.lenders.archivedBadge')}</Badge>
-                ) : (
-                  <Badge variant="success" size="sm">{t('common.active')}</Badge>
-                ),
-            },
-            ...(canWrite
-              ? [{
-                  key: 'actions',
-                  header: '',
-                  align: 'right' as const,
-                  render: (lender: Lender) => (
-                    <div className="flex justify-end gap-2" data-row-action>
-                      <Button type="button" size="sm" variant="secondary" onClick={() => openForm(lender)}>
-                        {t('common.edit')}
-                      </Button>
-                      {lender.archivedAt ? null : (
-                        <Button type="button" size="sm" variant="danger" onClick={() => setArchiveTarget(lender)}>
-                          {t('deposits.lenders.archive')}
-                        </Button>
+        {!query.isLoading || lenders.length > 0 ? (
+          <ListResultCountBar>{t('common.listCount', { count: lenders.length })}</ListResultCountBar>
+        ) : null}
+        <ResponsiveRecordList
+          desktop={
+            <Table
+              columns={lenderColumns}
+              data={lenders}
+              keyExtractor={(lender) => lender.id}
+              isLoading={query.isLoading}
+              emptyMessage={t('deposits.lenders.empty')}
+            />
+          }
+          mobile={
+            query.isLoading && lenders.length === 0 ? (
+              <Table
+                columns={lenderColumns}
+                data={[]}
+                keyExtractor={(lender) => lender.id}
+                isLoading
+                emptyMessage={t('deposits.lenders.empty')}
+              />
+            ) : lenders.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12 text-gray-500 dark:text-gray-400 px-4">
+                {t('deposits.lenders.empty')}
+              </div>
+            ) : (
+              <div className="rounded-lg border border-gray-200 dark:border-gray-800 overflow-hidden bg-white dark:bg-gray-900 mx-2 sm:mx-4 mb-2">
+                {lenders.map((lender) => (
+                  <div
+                    key={lender.id}
+                    className="border-b border-gray-100 dark:border-gray-800 last:border-b-0 p-4 space-y-2"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="font-medium text-gray-900 dark:text-white">{lender.name}</p>
+                      {lender.archivedAt ? (
+                        <Badge variant="default" size="sm">{t('deposits.lenders.archivedBadge')}</Badge>
+                      ) : (
+                        <Badge variant="success" size="sm">{t('common.active')}</Badge>
                       )}
                     </div>
-                  ),
-                }]
-              : []),
-          ]}
-          data={query.data ?? []}
-          keyExtractor={(lender) => lender.id}
-          isLoading={query.isLoading}
-          emptyMessage={t('deposits.lenders.empty')}
+                    <p className="text-sm text-gray-600 dark:text-gray-300">
+                      {t('deposits.lenders.contact')}: {lender.contact || '—'}
+                    </p>
+                    <p className="text-sm text-gray-600 dark:text-gray-300">
+                      {t('deposits.lenders.replacementRate')}:{' '}
+                      {formatReplacementRateCents(lender.replacementRateCents, i18n.language)
+                        ?? t('deposits.lenders.replacementRateNone')}
+                    </p>
+                    {canWrite ? (
+                      <div className="flex flex-wrap gap-2 pt-1">
+                        <Button type="button" size="sm" variant="secondary" className="min-h-[2.75rem]" onClick={() => openForm(lender)}>
+                          {t('common.edit')}
+                        </Button>
+                        {!lender.archivedAt ? (
+                          <Button type="button" size="sm" variant="danger" className="min-h-[2.75rem]" onClick={() => setArchiveTarget(lender)}>
+                            {t('deposits.lenders.archive')}
+                          </Button>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            )
+          }
         />
       </Card>
 

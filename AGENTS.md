@@ -7,7 +7,7 @@ Elidune is a library management system split into two independently buildable co
 | Path | Stack | Guide |
 |------|-------|-------|
 | `server/` | Rust · Axum · SQLx · PostgreSQL · Redis · Meilisearch | [`server/AGENTS.md`](server/AGENTS.md) |
-| `ui/` | React 19 · TypeScript · Vite · TanStack Query | [`ui/AGENTS.md`](ui/AGENTS.md) |
+| `ui/` | React 19 · TypeScript · Vite · TanStack Query | [`ui/AGENTS.md`](ui/AGENTS.md) — incl. **UI layout & interaction norms** |
 | `docker/` | Multi-stage Docker builds and Compose stacks | [`docs/README-docker.md`](docs/README-docker.md) |
 
 ## Cross-cutting rules

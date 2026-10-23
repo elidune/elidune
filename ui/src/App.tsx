@@ -40,7 +40,6 @@ import {
   DepositsPage,
   DepositsLendersRedirect,
   DepositBatchDetailPage,
-  EventsPage,
   UnsubscribeEventsPage,
   PublicEventsPage,
   AcquisitionsPage,
@@ -154,7 +153,7 @@ function UsersRecordRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-/** Shareable `/events`: guests get public chrome; staff EventsPage stays at `/events/manage`. */
+/** Shareable `/events`: guests get public chrome; signed-in users get layout + calendar (staff manage in-page). */
 function EventsEntryPage() {
   const { isAuthenticated, isLoading } = useAuth();
   const { libraryInfo } = useLibrary();
@@ -555,19 +554,7 @@ function AppRoutes() {
         }
       />
 
-      <Route
-        path="/events/manage"
-        element={
-          <ProtectedRoute>
-            <FeatureRoute feature="events">
-              <RightsRoute allow={(access) => access.eventsWrite}>
-                <EventsPage />
-              </RightsRoute>
-            </FeatureRoute>
-          </ProtectedRoute>
-        }
-      />
-
+      <Route path="/events/manage" element={<Navigate to="/events" replace />} />
       <Route path="/events/unsubscribe" element={<UnsubscribeEventsPage />} />
       <Route path="/events" element={<EventsEntryPage />} />
       <Route path="/public/events" element={<Navigate to="/events" replace />} />

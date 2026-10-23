@@ -11,6 +11,8 @@ import {
   ScrollableListRegion,
   ListSkeleton,
   Table,
+  PageHeading,
+  ListResultCountBar,
 } from '@/components/common';
 import TransitActionModals from '@/components/holds/TransitActionModals';
 import {
@@ -71,6 +73,8 @@ export default function TransitsPage() {
       : (pagedQuery.data?.items ?? []);
   const totalPages =
     filter === 'active' ? 1 : Math.max(1, pagedQuery.data?.pageCount ?? 1);
+  const listTotal =
+    filter === 'active' ? rows.length : (pagedQuery.data?.total ?? rows.length);
 
   const rowActions = (r: ItemTransit) => (
     <>
@@ -166,13 +170,7 @@ export default function TransitsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
-          <Truck className="h-7 w-7 text-amber-600" />
-          {t('transits.pageTitle')}
-        </h1>
-        <p className="text-gray-500 dark:text-gray-400 mt-1">{t('transits.subtitle')}</p>
-      </div>
+      <PageHeading icon={Truck} title={t('transits.pageTitle')} subtitle={t('transits.subtitle')} />
 
       <Card padding="none" className="flex flex-col min-h-0">
         {listError && (
@@ -211,6 +209,9 @@ export default function TransitsPage() {
             ))}
           </fieldset>
         </div>
+        {!isLoading || rows.length > 0 ? (
+          <ListResultCountBar>{t('common.listCount', { count: listTotal })}</ListResultCountBar>
+        ) : null}
         <ScrollableListRegion aria-label={t('transits.queueTitle')}>
           {isLoading && rows.length === 0 ? (
             <ListSkeleton rows={8} />

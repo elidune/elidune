@@ -1,28 +1,27 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Plus, BookOpen, SlidersHorizontal, Loader2, AlertCircle, Trash2, Layers, BookMarked, Edit, ChevronLeft, ChevronRight, ScanLine, Upload } from 'lucide-react';
+import { Plus, BookOpen, LibraryBig, SlidersHorizontal, Loader2, AlertCircle, Trash2, Layers, BookMarked, Edit, ChevronLeft, ChevronRight, ScanLine, Upload } from 'lucide-react';
 import { MarcImportWorkflow } from '@/pages/ImportIsoPage';
 import { useLibrary } from '@/contexts/LibraryContext';
 import { isFeatureEnabled } from '@/utils/featureAccess';
-import { Card, Button, Table, SearchInput, Modal, Input, ScrollableListRegion, ResponsiveRecordList, ListSkeleton, SectionTabBar } from '@/components/common';
+import { Card, Button, Table, SearchInput, Modal, Input, ScrollableListRegion, ResponsiveRecordList, ListSkeleton, SectionTabBar, PageHeading, PageTabLeadGroup, ListPageLayout, ListResultCountBar } from '@/components/common';
 import BiblioCatalogItemCard from '@/components/items/BiblioCatalogItemCard';
 import BatchDeleteSpecimensDialog from '@/components/specimen/BatchDeleteSpecimensDialog';
 import { useAuth } from '@/contexts/AuthContext';
 import ItemAvailabilityBadge from '@/components/items/ItemAvailabilityBadge';
 import { canManageItems, type MediaType, type MediaTypeOption, type Serie, type Collection } from '@/types';
-import { staffCopyAvailabilityLabel, summaryAvailability } from '@/utils/itemAvailability';
+import { summaryAvailability } from '@/utils/itemAvailability';
 import api from '@/services/api';
 import type { BiblioShort, Author, PaginatedResponse } from '@/types';
 import { PUBLIC_TYPE_OPTIONS } from '@/utils/codeLabels';
 import { getApiErrorCode, getApiErrorMessage } from '@/utils/apiError';
+import { getListScrollRoot } from '@/utils/listScrollRoot';
 import { LIST_ROW_ICON_BTN, LIST_ROW_ICON_BTN_DANGER } from '@/utils/listRowActionIconClass';
 import { formatIsbnDisplay } from '@/utils/isbnDisplay';
 import { LoanMediaTypeBadge } from '@/utils/mediaTypeIcon';
-import { mediaTypeIconBadgeBgClass, renderMediaTypeIcon } from '@/utils/mediaTypeIconUtils';
 import { formControlClass, formLabelClass } from '@/utils/formControl';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CopyDepositBadges } from '@/components/items/DepositBadge';
 import { filterLoadedBiblios, type DepositStockFilter } from '@/utils/deposits';
 type CatalogTab = 'catalog' | 'collections' | 'series' | 'import';
 
@@ -258,7 +257,7 @@ export default function BibliosPage() {
 
   useEffect(() => {
     const el = loadMoreRef.current;
-    const scrollRoot = el?.closest('.app-list-scroll') ?? null;
+    const scrollRoot = getListScrollRoot(el);
     if (!el || !scrollRoot || !hasNextPage || isFetchingNextPage || !data?.pages?.length) return;
     const obs = new IntersectionObserver(
       (entries) => {
@@ -273,7 +272,7 @@ export default function BibliosPage() {
   useEffect(() => {
     if (pendingScrollTop.current == null || isItemsLoading || !data?.pages?.length) return;
     const top = pendingScrollTop.current;
-    const scrollRoot = loadMoreRef.current?.closest('.app-list-scroll');
+    const scrollRoot = getListScrollRoot(loadMoreRef.current);
     if (scrollRoot instanceof HTMLElement && top + scrollRoot.clientHeight > scrollRoot.scrollHeight) {
       if (hasNextPage && !isFetchingNextPage) {
         void fetchNextPage();
@@ -414,9 +413,14 @@ export default function BibliosPage() {
     {
       key: 'title',
       header: t('items.titleField'),
+      className: 'min-w-[12rem] max-w-[24rem]',
       render: (item: BiblioShort) => (
         <div className="flex items-center gap-3">
-          <LoanMediaTypeBadge mediaType={item.mediaType} size="table" />
+          <LoanMediaTypeBadge
+            mediaType={item.mediaType}
+            size="table"
+            depositCopies={item.items}
+          />
           <div className="min-w-0">
             <p className="font-medium text-gray-900 dark:text-white truncate">
               {item.title || t('items.notSpecified')}
@@ -424,7 +428,6 @@ export default function BibliosPage() {
             <p className="text-sm text-gray-500 dark:text-gray-400 truncate font-mono">
               {formatIsbnDisplay(item.isbn)}
             </p>
-            <CopyDepositBadges copies={item.items} />
           </div>
         </div>
       ),
@@ -432,21 +435,12 @@ export default function BibliosPage() {
     {
       key: 'author',
       header: t('items.author'),
+      className: 'min-w-[7rem] max-w-[14rem]',
       render: (item: BiblioShort) => (
-        <span className="text-gray-600 dark:text-gray-300">
+        <span className="block truncate text-gray-600 dark:text-gray-300">
           {formatAuthor(item.author)}
         </span>
       ),
-    },
-    {
-      key: 'items',
-      header: t('items.specimens'),
-      render: (item: BiblioShort) => {
-        const label = staffCopyAvailabilityLabel(t, item.items);
-        if (!label) return <span className="text-gray-500 dark:text-gray-400">-</span>;
-        return <span className="text-gray-600 dark:text-gray-300">{label}</span>;
-      },
-      className: 'hidden md:table-cell',
     },
     {
       key: 'date',
@@ -502,28 +496,29 @@ export default function BibliosPage() {
   ];
 
   return (
-    <div className="space-y-4">
-      {/* Page header */}
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{t('catalog.pageTitle')}</h1>
-      </div>
-
-      {/* Tab navigation — staff cataloging only (hidden on MARC import view) */}
-      {canManage && activeTab !== 'import' ? (
-        <SectionTabBar
-          ariaLabel={t('catalog.pageTitle')}
-          activeTab={activeTab}
-          onSelectTab={setActiveTab}
-          tabs={[
-            { id: 'catalog', label: t('catalog.tabCatalog'), icon: BookOpen },
-            { id: 'collections', label: t('catalog.tabCollections'), icon: Layers },
-            { id: 'series', label: t('catalog.tabSeries'), icon: BookMarked },
-          ]}
+    <ListPageLayout>
+      <PageTabLeadGroup className="shrink-0">
+        <PageHeading
+          icon={LibraryBig}
+          title={t('catalog.pageTitle')}
+          subtitle={t('catalog.pageSubtitle')}
         />
-      ) : null}
+        {canManage && activeTab !== 'import' ? (
+          <SectionTabBar
+            ariaLabel={t('catalog.pageTitle')}
+            activeTab={activeTab}
+            onSelectTab={setActiveTab}
+            tabs={[
+              { id: 'catalog', label: t('catalog.tabCatalog'), icon: BookOpen },
+              { id: 'collections', label: t('catalog.tabCollections'), icon: Layers },
+              { id: 'series', label: t('catalog.tabSeries'), icon: BookMarked },
+            ]}
+          />
+        ) : null}
+      </PageTabLeadGroup>
 
       {activeTab === 'import' && importIsoEnabled ? (
-        <div className="space-y-4">
+        <div className="shrink-0 space-y-4">
           <Button type="button" variant="secondary" size="sm" onClick={() => setActiveTab('catalog')}>
             {t('catalog.backToCatalog')}
           </Button>
@@ -533,24 +528,30 @@ export default function BibliosPage() {
 
       {/* Collections tab */}
       {activeTab === 'collections' && (
-        <CollectionsTab
-          canManage={canManage}
-          onSelect={(id, name) => goToCatalogWithFilter('collection', id, name)}
-        />
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <CollectionsTab
+            canManage={canManage}
+            onSelect={(id, name) => goToCatalogWithFilter('collection', id, name)}
+          />
+        </div>
       )}
 
       {/* Series tab */}
       {activeTab === 'series' && (
-        <SeriesTab
-          canManage={canManage}
-          onSelect={(id, name) => goToCatalogWithFilter('serie', id, name)}
-        />
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <SeriesTab
+            canManage={canManage}
+            onSelect={(id, name) => goToCatalogWithFilter('serie', id, name)}
+          />
+        </div>
       )}
 
       {/* Catalog tab content */}
-      {activeTab === 'catalog' && (<>
+      {activeTab === 'catalog' && (
+      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
+      <>
       {isCatalogQueryError && (
-        <div className="rounded-lg border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/30 px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3">
+        <div className="shrink-0 rounded-lg border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/30 px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3">
           <div className="flex items-start gap-2 flex-1 min-w-0 text-sm text-red-800 dark:text-red-200">
             <AlertCircle className="h-5 w-5 shrink-0 mt-0.5" aria-hidden />
             <span>{getApiErrorMessage(catalogQueryError, t)}</span>
@@ -563,7 +564,7 @@ export default function BibliosPage() {
 
       {/* Active filter chip */}
       {(activeFilterSerieId || activeFilterCollectionId) && (
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           <span className="text-sm text-gray-500 dark:text-gray-400">{t('catalog.filteredBy')}</span>
           <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
             {activeFilterSerieId ? (
@@ -584,12 +585,7 @@ export default function BibliosPage() {
       )}
 
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <p className="text-gray-500 dark:text-gray-400">
-            {t('items.count', { count: listedCount })}
-          </p>
-        </div>
+      <div className="flex shrink-0 flex-col sm:flex-row sm:items-center sm:justify-end gap-4">
         {canManageItems(user, api.getToken()) && (
           <div className="flex flex-wrap items-center gap-2">
             <Button
@@ -617,24 +613,18 @@ export default function BibliosPage() {
 
       {/* Search and filters — hidden while a serie/collection filter is active */}
       {!(activeFilterSerieId || activeFilterCollectionId) && (
-      <Card>
-        <div className="flex items-stretch gap-2 min-w-0">
-          <div className="flex-1 min-w-0">
+      <Card className="shrink-0">
+        <div className="flex flex-col gap-2 min-w-0 sm:flex-row sm:items-end">
+          <div className="min-w-0 flex-1">
             <SearchInput
               value={searchQueryDraft}
               onChange={setSearchQueryDraft}
               placeholder={t('items.searchPlaceholder')}
               submitMode
               onSubmit={() => handleApplySearch()}
+              submitLabel={t('common.search')}
             />
           </div>
-          <Button
-            type="button"
-            className="shrink-0 self-stretch"
-            onClick={() => handleApplySearch()}
-          >
-            {t('common.search')}
-          </Button>
           <button
             type="button"
             className={`shrink-0 self-stretch inline-flex items-center justify-center rounded-lg border px-3 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-gray-900 ${
@@ -772,11 +762,9 @@ export default function BibliosPage() {
       )}
 
       {/* Items list: fixed-height scroll area so header/filters stay static */}
-      <Card padding="none" className="flex flex-col min-h-0">
-        <div className="px-4 py-2 border-b border-gray-200 dark:border-gray-800 text-sm text-gray-600 dark:text-gray-300 flex justify-end">
-          <span>{t('items.count', { count: listedCount })}</span>
-        </div>
-        <ScrollableListRegion aria-label={t('items.title')}>
+      <Card padding="none" className="flex min-h-0 flex-1 flex-col">
+        <ListResultCountBar>{t('items.count', { count: listedCount })}</ListResultCountBar>
+        <ScrollableListRegion fill aria-label={t('items.title')}>
           {isItemsLoading && !visibleItems.length ? (
             <ListSkeleton rows={10} />
           ) : (
@@ -803,8 +791,6 @@ export default function BibliosPage() {
                         <BiblioCatalogItemCard
                           key={item.id}
                           item={item}
-                          mediaIcon={renderMediaTypeIcon(item.mediaType, 'h-5 w-5')}
-                          mediaBgClassName={mediaTypeIconBadgeBgClass(item.mediaType)}
                           formatAuthor={formatAuthor}
                           notSpecified={t('items.notSpecified')}
                           statusBadge={getCatalogRowStatusBadge(item)}
@@ -913,8 +899,10 @@ export default function BibliosPage() {
         }}
       />
 
-      </>)}
-    </div>
+      </>
+      </div>
+      )}
+    </ListPageLayout>
   );
 }
 
@@ -1052,11 +1040,8 @@ function CollectionsTab({ canManage, onSelect }: CollectionsTabProps) {
   ];
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <p className="text-gray-500 dark:text-gray-400 text-sm">
-          {data ? t('catalog.collectionCount', { count: data.total }) : ''}
-        </p>
+    <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
+      <div className="flex shrink-0 flex-col sm:flex-row sm:items-center sm:justify-end gap-4">
         {canManage && (
           <Button onClick={() => setShowCreateModal(true)} leftIcon={<Plus className="h-4 w-4" />}>
             {t('catalog.addCollection')}
@@ -1064,7 +1049,7 @@ function CollectionsTab({ canManage, onSelect }: CollectionsTabProps) {
         )}
       </div>
 
-      <Card>
+      <Card className="shrink-0">
         <div className="flex gap-2">
           <SearchInput
             value={searchDraft}
@@ -1072,14 +1057,16 @@ function CollectionsTab({ canManage, onSelect }: CollectionsTabProps) {
             placeholder={t('catalog.searchCollections')}
             submitMode
             onSubmit={handleSearch}
-            showSubmitButton
             submitLabel={t('common.search')}
           />
         </div>
       </Card>
 
-      <Card padding="none" className="flex flex-col min-h-0">
-        <ScrollableListRegion aria-label={t('catalog.tabCollections')}>
+      <Card padding="none" className="flex min-h-0 flex-1 flex-col">
+        {data ? (
+          <ListResultCountBar>{t('catalog.collectionCount', { count: data.total })}</ListResultCountBar>
+        ) : null}
+        <ScrollableListRegion fill aria-label={t('catalog.tabCollections')}>
           {isLoading && !(data?.items?.length) ? (
             <ListSkeleton rows={8} />
           ) : (
@@ -1422,11 +1409,8 @@ function SeriesTab({ canManage, onSelect }: SeriesTabProps) {
   ];
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <p className="text-gray-500 dark:text-gray-400 text-sm">
-          {data ? t('catalog.serieCount', { count: data.total }) : ''}
-        </p>
+    <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
+      <div className="flex shrink-0 flex-col sm:flex-row sm:items-center sm:justify-end gap-4">
         {canManage && (
           <Button onClick={() => setShowCreateModal(true)} leftIcon={<Plus className="h-4 w-4" />}>
             {t('catalog.addSerie')}
@@ -1434,7 +1418,7 @@ function SeriesTab({ canManage, onSelect }: SeriesTabProps) {
         )}
       </div>
 
-      <Card>
+      <Card className="shrink-0">
         <div className="flex gap-2">
           <SearchInput
             value={searchDraft}
@@ -1442,14 +1426,16 @@ function SeriesTab({ canManage, onSelect }: SeriesTabProps) {
             placeholder={t('catalog.searchSeries')}
             submitMode
             onSubmit={handleSearch}
-            showSubmitButton
             submitLabel={t('common.search')}
           />
         </div>
       </Card>
 
-      <Card padding="none" className="flex flex-col min-h-0">
-        <ScrollableListRegion aria-label={t('catalog.tabSeries')}>
+      <Card padding="none" className="flex min-h-0 flex-1 flex-col">
+        {data ? (
+          <ListResultCountBar>{t('catalog.serieCount', { count: data.total })}</ListResultCountBar>
+        ) : null}
+        <ScrollableListRegion fill aria-label={t('catalog.tabSeries')}>
           {isLoading && !(data?.items?.length) ? (
             <ListSkeleton rows={8} />
           ) : (

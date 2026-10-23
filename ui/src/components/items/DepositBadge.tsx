@@ -23,14 +23,16 @@ export default function DepositBadge({ deposit, size = 'sm' }: DepositBadgeProps
 export function CopyDepositBadges({
   copies,
   size = 'sm',
+  className = 'mt-1 flex-wrap',
 }: {
   copies?: DepositCopyRef[] | null;
   size?: 'sm' | 'md';
+  className?: string;
 }) {
   const deposits = uniqueDeposits(copies);
   if (deposits.length === 0) return null;
   return (
-    <div className="mt-1 flex flex-wrap gap-1">
+    <div className={['flex gap-1', className].filter(Boolean).join(' ')}>
       {deposits.map((deposit) => (
         <DepositBadge key={deposit.batchId} deposit={deposit} size={size} />
       ))}

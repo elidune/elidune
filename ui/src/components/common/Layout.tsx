@@ -1,28 +1,26 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { rateLimitWaitMessage } from '@/utils/apiError';
 import { Link, useNavigate } from 'react-router-dom';
 import LegalModalLink from '@/components/legal/LegalModalLink';
 import { useTranslation } from 'react-i18next';
 import {
-  BookOpen,
   Users,
   BarChart3,
   Settings,
   LogOut,
   Menu,
   X,
-  Home,
   BookMarked,
   Globe,
-  Library,
   ArrowLeftRight,
   CalendarDays,
   LibraryBig,
+  PackageOpen,
   ClipboardList,
   Leaf,
   Bookmark,
   BookmarkCheck,
-  ListChecks,
+  PackageSearch,
   Truck,
   ShoppingCart,
   Lightbulb,
@@ -41,13 +39,15 @@ import {
   BackgroundTasksNavItem,
 } from './BackgroundTasksPanel';
 import SidebarNavSections, { type SidebarNavSection } from './SidebarNavSections';
+import { APP_LIST_SCROLL_ROOT_CLASS } from './ScrollableListRegion';
 import { noModalDialogOpen, useFocusTrap } from '@/hooks/common/useFocusTrap';
+import { MobilePageTitleProvider } from '@/contexts/MobilePageTitleContext';
 
 interface LayoutProps {
   children: React.ReactNode;
 }
 
-export default function Layout({ children }: LayoutProps) {
+function LayoutShell({ children }: LayoutProps) {
   const { t, i18n } = useTranslation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [serverVersion, setServerVersion] = useState<string | null>(null);
@@ -85,13 +85,15 @@ export default function Layout({ children }: LayoutProps) {
     navigate('/');
   };
 
+  const staffNavSectionIds = new Set(['circulation', 'cataloging', 'admin']);
+
   const navSections: (SidebarNavSection & {
     items: (SidebarNavSection['items'][number] & { show: boolean })[];
   })[] = [
     {
       id: 'top',
       collapseLabel: t('nav.sectionGeneral'),
-      items: [{ name: t('nav.catalog'), href: '/catalog', icon: BookOpen, show: !access.internalCatalog }],
+      items: [{ name: t('nav.catalog'), href: '/catalog', icon: LibraryBig, show: !access.internalCatalog }],
     },
     {
       id: 'circulation',
@@ -99,7 +101,7 @@ export default function Layout({ children }: LayoutProps) {
       items: [
         { name: t('nav.loans'), href: '/loans', icon: ArrowLeftRight, show: access.loansRead },
         { name: t('nav.holds'), href: '/holds', icon: Bookmark, show: access.holdsStaff },
-        { name: t('nav.pickList'), href: '/pick-list', icon: ListChecks, show: access.holdsStaff },
+        { name: t('nav.pickList'), href: '/pick-list', icon: PackageSearch, show: access.holdsStaff },
         {
           name: t('nav.transits'),
           href: '/transits',
@@ -113,7 +115,7 @@ export default function Layout({ children }: LayoutProps) {
       id: 'cataloging',
       label: t('nav.sectionCataloging'),
       items: [
-        { name: t('nav.catalog'), href: '/biblios', icon: BookOpen, show: access.internalCatalog },
+        { name: t('nav.catalog'), href: '/biblios', icon: LibraryBig, show: access.internalCatalog },
         {
           name: t('nav.inventory'),
           href: '/inventory',
@@ -136,14 +138,13 @@ export default function Layout({ children }: LayoutProps) {
         {
           name: t('nav.deposits'),
           href: '/deposits',
-          icon: Library,
+          icon: PackageOpen,
           show: access.internalCatalog && access.itemsRead && isFeatureEnabled(features, 'deposits'),
         },
       ],
     },
     {
       id: 'patron',
-      label: t('nav.sectionPatron'),
       items: [
         { name: t('nav.myLoans'), href: '/my-loans', icon: BookMarked, show: true },
         {
@@ -183,6 +184,66 @@ export default function Layout({ children }: LayoutProps) {
   ]
     .map((section) => ({ ...section, items: section.items.filter((item) => item.show) }))
     .filter((section) => section.items.length > 0);
+
+  const hasStaffNav = navSections.some((section) => staffNavSectionIds.has(section.id));
+  const navSectionsWithPatronHeader = navSections.map((section) => {
+    if (section.id !== 'patron') return section;
+    if (!hasStaffNav) {
+      return { ...section, showHeader: false };
+    }
+    return {
+      ...section,
+      label: t('nav.sectionMySpace'),
+      collapseLabel: t('nav.sectionMySpace'),
+    };
+  });
+
+  const navSectionsSyncKey = navSections
+    .map((section) => `${section.id}:${section.items.map((item) => item.href).join(',')}`)
+    .join('|');
+
+  const navScrollRef = useRef<HTMLElement>(null);
+  const [navScrollable, setNavScrollable] = useState(false);
+  const [navScrollFade, setNavScrollFade] = useState({ top: false, bottom: false });
+
+  const remeasureNavScroll = useCallback(() => {
+    const nav = navScrollRef.current;
+    if (!nav) return;
+
+    const edgeSlack = 4;
+    const scrollable = nav.scrollHeight > nav.clientHeight + edgeSlack;
+    const top = scrollable && nav.scrollTop > edgeSlack;
+    const bottom =
+      scrollable && nav.scrollTop + nav.clientHeight < nav.scrollHeight - edgeSlack;
+
+    setNavScrollable((prev) => (prev === scrollable ? prev : scrollable));
+    setNavScrollFade((prev) => (prev.top === top && prev.bottom === bottom ? prev : { top, bottom }));
+  }, []);
+
+  useLayoutEffect(() => {
+    const nav = navScrollRef.current;
+    if (!nav) return;
+
+    const measure = () => remeasureNavScroll();
+
+    measure();
+    let raf = 0;
+    const scheduleMeasure = () => {
+      if (raf) cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(measure);
+    };
+
+    const resizeObserver = new ResizeObserver(scheduleMeasure);
+    resizeObserver.observe(nav);
+    nav.addEventListener('scroll', measure, { passive: true });
+    window.addEventListener('resize', scheduleMeasure);
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+      resizeObserver.disconnect();
+      nav.removeEventListener('scroll', measure);
+      window.removeEventListener('resize', scheduleMeasure);
+    };
+  }, [navSectionsSyncKey, sidebarOpen, remeasureNavScroll]);
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
@@ -237,18 +298,41 @@ export default function Layout({ children }: LayoutProps) {
           </div>
 
           {/* Navigation */}
-          <nav aria-label={t('nav.main')} className="flex-1 px-3 py-4 space-y-4 overflow-y-auto">
-            <SidebarNavSections
-              pinnedItems={[
-                { name: t('nav.home'), href: '/home', icon: Home },
-              ]}
-              sections={navSections}
-              onNavigate={() => setSidebarOpen(false)}
-            />
-          </nav>
+          <div className="relative min-h-0 flex-1">
+            {navScrollFade.top ? (
+              <div
+                className="pointer-events-none absolute inset-x-0 top-0 z-10 h-7 bg-gradient-to-b from-white via-white/80 to-transparent dark:from-gray-900 dark:via-gray-900/80"
+                aria-hidden
+              />
+            ) : null}
+            {navScrollFade.bottom ? (
+              <div
+                className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-9 bg-gradient-to-t from-white via-white/85 to-transparent dark:from-gray-900 dark:via-gray-900/85"
+                aria-hidden
+              />
+            ) : null}
+            <nav
+              ref={navScrollRef}
+              aria-label={t('nav.main')}
+              className="h-full min-h-0 px-3 py-4 space-y-4 overflow-y-auto [scrollbar-gutter:stable]"
+            >
+              <SidebarNavSections
+                sections={navSectionsWithPatronHeader}
+                onNavigate={() => setSidebarOpen(false)}
+                onLayoutChange={remeasureNavScroll}
+              />
+            </nav>
+          </div>
 
           {access.backgroundTasks && (
-            <div className="shrink-0 px-3 pb-2">
+            <div
+              className={[
+                'shrink-0 px-3 pb-2',
+                navScrollable ? 'border-t border-gray-200 pt-2 dark:border-gray-800' : '',
+              ]
+                .filter(Boolean)
+                .join(' ')}
+            >
               <BackgroundTasksNavItem />
             </div>
           )}
@@ -304,84 +388,107 @@ export default function Layout({ children }: LayoutProps) {
           >
             <Menu className="h-6 w-6" />
           </button>
-          <div className="flex items-center gap-3 ml-4 min-w-0 flex-1">
-            <img src="/elidune_logo.png" alt="Elidune" className="h-8 w-8 shrink-0" />
-            <span className="text-lg font-bold text-gray-900 dark:text-white truncate">
-              {libraryName ?? 'Elidune'}
-            </span>
-          </div>
+          <Link
+            to="/home"
+            className="ml-2 shrink-0 rounded-lg p-1 hover:bg-gray-100 dark:hover:bg-gray-800"
+            aria-label={libraryName ?? 'Elidune'}
+          >
+            <img src="/elidune_logo.png" alt="" className="h-8 w-8 object-contain" aria-hidden />
+          </Link>
+          <span className="min-w-0 flex-1" aria-hidden />
         </header>
 
         <div className="print:hidden">
           <BackgroundTasksDrawer />
         </div>
 
-        {/* Page content */}
-        <main
-          id="main-content"
-          tabIndex={-1}
-          className="flex min-h-0 flex-1 flex-col overflow-y-auto outline-none"
+        {/*
+          Mobile: one scrollport below the sticky header (main + footer).
+          Desktop (`lg+`): main scrolls; footer stays in the shell.
+        */}
+        <div
+          id="app-page-scroll"
+          className={`flex min-h-0 flex-1 flex-col overflow-y-auto lg:overflow-hidden ${APP_LIST_SCROLL_ROOT_CLASS} max-lg:overscroll-y-contain`}
         >
-          {/*
-            Padding lives on an inner wrapper (not on the scrollport) so sticky page
-            headers can sit flush at top:0 without a gap above the bar.
-          */}
-          <div className="flex min-h-0 flex-1 flex-col p-4 lg:p-6">
-            {profileWarning ? (
-              <div
-                role="status"
-                className="mb-4 flex flex-col gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 sm:flex-row sm:items-center dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-100"
-              >
-                <p className="min-w-0 flex-1">
-                  {profileWarning.seconds != null
-                    ? rateLimitWaitMessage(profileWarning.seconds, t, i18n.language)
-                    : t(profileWarning.messageKey)}
-                </p>
-                <div className="flex shrink-0 gap-2">
-                  <Button type="button" size="sm" variant="secondary" onClick={() => void refreshProfile()}>
-                    {t('common.retry')}
-                  </Button>
-                  <Button type="button" size="sm" variant="ghost" onClick={dismissProfileWarning}>
-                    {t('common.close')}
-                  </Button>
+          <div className="flex min-h-0 flex-1 flex-col">
+            <main
+              id="main-content"
+              tabIndex={-1}
+              className="flex min-h-0 flex-1 flex-col overflow-hidden outline-none"
+            >
+              {/*
+                Padding on the scroll wrapper (not the scrollport) so sticky headers sit at top:0.
+                lg: page body scrolls here unless a list page uses ListPageLayout + ScrollableListRegion fill.
+              */}
+              <div className="flex min-h-0 flex-1 flex-col max-lg:overflow-visible overflow-y-auto px-4 pb-4 pt-2 lg:overscroll-y-contain lg:p-6">
+                {profileWarning ? (
+                  <div
+                    role="status"
+                    className="mb-4 flex flex-col gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 sm:flex-row sm:items-center dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-100"
+                  >
+                    <p className="min-w-0 flex-1">
+                      {profileWarning.seconds != null
+                        ? rateLimitWaitMessage(profileWarning.seconds, t, i18n.language)
+                        : t(profileWarning.messageKey)}
+                    </p>
+                    <div className="flex shrink-0 gap-2">
+                      <Button type="button" size="sm" variant="secondary" onClick={() => void refreshProfile()}>
+                        {t('common.retry')}
+                      </Button>
+                      <Button type="button" size="sm" variant="ghost" onClick={dismissProfileWarning}>
+                        {t('common.close')}
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
+                {children}
+              </div>
+            </main>
+
+            {/* Footer — pinned to bottom when content is short; follows content when tall */}
+            <footer className="print:hidden mt-auto shrink-0 border-t border-gray-200 dark:border-gray-800 py-3 px-4 lg:px-6 pb-[max(0.75rem,env(safe-area-inset-bottom))] text-xs text-gray-400 dark:text-gray-500">
+              <div className="grid grid-cols-1 items-center gap-y-2 sm:grid-cols-[1fr_auto_1fr] sm:gap-x-4 sm:gap-y-0">
+                <div className="flex flex-wrap items-center justify-center gap-x-4 sm:justify-start">
+                  <span className="font-mono">UI v{uiVersion}</span>
+                  <span className="font-mono">Server v{serverVersion ?? '—'}</span>
+                </div>
+                <div className="text-center whitespace-nowrap">
+                  {t('common.poweredBy')}{' '}
+                  <LegalModalLink
+                    modal="about"
+                    className="font-semibold text-amber-600 dark:text-amber-400 hover:underline transition-colors"
+                  >
+                    Elidune
+                  </LegalModalLink>
+                </div>
+                <div className="flex flex-wrap items-center justify-center gap-x-4 sm:justify-end">
+                  <LegalModalLink
+                    modal="about"
+                    className="hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+                  >
+                    {t('nav.about')}
+                  </LegalModalLink>
+                  <LegalModalLink
+                    modal="privacy"
+                    className="hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+                  >
+                    {t('nav.privacy')}
+                  </LegalModalLink>
                 </div>
               </div>
-            ) : null}
-            {children}
+            </footer>
           </div>
-        </main>
-
-        {/* Footer */}
-        <footer className="print:hidden border-t border-gray-200 dark:border-gray-800 py-3 px-4 lg:px-6 pb-[max(0.75rem,env(safe-area-inset-bottom))] text-xs text-gray-400 dark:text-gray-500">
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-            <span className="font-mono">UI v{uiVersion}</span>
-            <span className="font-mono">Server v{serverVersion ?? '—'}</span>
-            <span className="flex-1" />
-            <LegalModalLink
-              modal="about"
-              className="hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
-            >
-              {t('nav.about')}
-            </LegalModalLink>
-            <LegalModalLink
-              modal="privacy"
-              className="hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
-            >
-              {t('nav.privacy')}
-            </LegalModalLink>
-          </div>
-          <div className="text-center mt-1">
-            {t('common.poweredBy')}{' '}
-            <LegalModalLink
-              modal="about"
-              className="font-semibold text-amber-600 dark:text-amber-400 hover:underline transition-colors"
-            >
-              Elidune
-            </LegalModalLink>
-          </div>
-        </footer>
+        </div>
       </div>
     </div>
+  );
+}
+
+export default function Layout({ children }: LayoutProps) {
+  return (
+    <MobilePageTitleProvider>
+      <LayoutShell>{children}</LayoutShell>
+    </MobilePageTitleProvider>
   );
 }
 

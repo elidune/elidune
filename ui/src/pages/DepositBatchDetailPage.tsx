@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, BookOpen, ChevronDown, Library, Loader2 } from 'lucide-react';
-import { Badge, Button, Card, CardHeader, ConfirmDialog, Input, Modal, QueryErrorBanner, Table } from '@/components/common';
+import { ArrowLeft, BookOpen, ChevronDown, Loader2, PackageOpen } from 'lucide-react';
+import { Badge, Button, Card, CardHeader, ConfirmDialog, Input, Modal, QueryErrorBanner, Table, BarcodeScanField } from '@/components/common';
 import { MarcImportWorkflow } from '@/pages/ImportIsoPage';
 import ReturnToLenderNotice from '@/components/items/ReturnToLenderNotice';
 import { useAuth } from '@/contexts/AuthContext';
@@ -240,17 +240,17 @@ export default function DepositBatchDetailPage() {
   return (
     <div className={APP_PAGE_CLASS}>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="flex min-w-0 flex-1 items-start gap-3">
+        <div className="flex min-w-0 flex-1 items-stretch gap-3">
           <button
             type="button"
             onClick={() => navigateBack(navigate, '/deposits')}
-            className="shrink-0 rounded-lg p-2 hover:bg-gray-100 dark:hover:bg-gray-800"
+            className="shrink-0 self-center rounded-lg p-2 hover:bg-gray-100 dark:hover:bg-gray-800"
             aria-label={t('common.back')}
           >
             <ArrowLeft className="h-5 w-5" aria-hidden />
           </button>
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gray-100 dark:bg-gray-800">
-            <Library className="h-6 w-6 text-gray-700 dark:text-gray-200" aria-hidden />
+          <div className="flex w-14 shrink-0 items-center justify-center rounded-xl bg-gray-100 dark:bg-gray-800">
+            <PackageOpen className="h-8 w-8 text-gray-700 dark:text-gray-200" aria-hidden />
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
@@ -358,7 +358,6 @@ export default function DepositBatchDetailPage() {
         <Card>
           <CardHeader title={t('deposits.batch.scanTitle')} subtitle={t('deposits.batch.scanHint')} />
           <form
-            className="flex flex-col gap-3 sm:flex-row sm:items-end"
             onSubmit={(event) => {
               event.preventDefault();
               const code = barcode.trim();
@@ -366,18 +365,19 @@ export default function DepositBatchDetailPage() {
               scanMutation.mutate(code);
             }}
           >
-            <div className="min-w-0 flex-1">
-              <Input
-                ref={scanRef}
-                label={t('items.barcode')}
-                value={barcode}
-                autoFocus
-                onChange={(event) => setBarcode(event.target.value)}
-              />
-            </div>
-            <Button type="submit" isLoading={scanMutation.isPending} disabled={!barcode.trim()}>
-              {t('deposits.batch.scanOut')}
-            </Button>
+            <BarcodeScanField
+              ref={scanRef}
+              label={t('items.barcode')}
+              value={barcode}
+              autoFocus
+              onChange={(event) => setBarcode(event.target.value)}
+              onCameraScan={(code) => {
+                setBarcode(code);
+                const trimmed = code.trim();
+                if (trimmed && !scanMutation.isPending) scanMutation.mutate(trimmed);
+              }}
+              scannerTitle={t('loans.scanOrEnterBarcode')}
+            />
           </form>
           {returnToLenderMessage ? (
             <div className="mt-3">

@@ -11,14 +11,6 @@ import {
   X,
   ChevronLeft,
   ChevronRight,
-  BookOpen,
-  Newspaper,
-  Video,
-  Music,
-  Disc,
-  Image,
-  FileText,
-  Layers,
   Library,
   Eye,
   EyeOff,
@@ -38,6 +30,7 @@ import { useLibrarySchedule } from '@/hooks/common/useLibrarySchedule';
 import api from '@/services/api';
 import { loginFailureMessage } from '@/utils/apiError';
 import { formatIsbnDisplay } from '@/utils/isbnDisplay';
+import { normalizeMediaType, renderMediaTypeIcon } from '@/utils/mediaTypeIconUtils';
 import { deferFromEffect } from '@/utils/deferFromEffect';
 import type { MediaType } from '@/types';
 import PublicEventsPanel from '@/components/events/PublicEventsPanel';
@@ -50,18 +43,17 @@ const MEDIA_FILTERS: Array<{ key: MediaType | ''; labelKey: string }> = [
   { key: 'comics', labelKey: 'opac.filterComics' },
 ];
 
-function getMediaTypeIcon(mediaType?: string | null): React.ReactNode {
-  const cls = 'h-4 w-4';
-  switch (mediaType) {
+function opacMediaTypeGlyphClass(mediaType?: string | null): string {
+  switch (normalizeMediaType(mediaType)) {
     case 'printedText':
     case 'comics':
-      return <BookOpen className={`${cls} text-amber-600 dark:text-amber-400`} />;
+      return 'text-amber-600 dark:text-amber-400';
     case 'periodic':
-      return <Newspaper className={`${cls} text-orange-600 dark:text-orange-400`} />;
+      return 'text-orange-600 dark:text-orange-400';
     case 'video':
     case 'videoTape':
     case 'videoDvd':
-      return <Video className={`${cls} text-red-600 dark:text-red-400`} />;
+      return 'text-red-600 dark:text-red-400';
     case 'audio':
     case 'audioMusic':
     case 'audioMusicTape':
@@ -69,16 +61,20 @@ function getMediaTypeIcon(mediaType?: string | null): React.ReactNode {
     case 'audioNonMusic':
     case 'audioNonMusicTape':
     case 'audioNonMusicCd':
-      return <Music className={`${cls} text-blue-600 dark:text-blue-400`} />;
+      return 'text-blue-600 dark:text-blue-400';
     case 'cdRom':
-      return <Disc className={`${cls} text-purple-600 dark:text-purple-400`} />;
+      return 'text-purple-600 dark:text-purple-400';
     case 'images':
-      return <Image className={`${cls} text-green-600 dark:text-green-400`} />;
+      return 'text-green-600 dark:text-green-400';
     case 'multimedia':
-      return <Layers className={`${cls} text-indigo-600 dark:text-indigo-400`} />;
+      return 'text-indigo-600 dark:text-indigo-400';
     default:
-      return <FileText className={`${cls} text-gray-400 dark:text-gray-500`} />;
+      return 'text-gray-400 dark:text-gray-500';
   }
+}
+
+function getMediaTypeIcon(mediaType?: string | null): React.ReactNode {
+  return renderMediaTypeIcon(mediaType, 'h-4 w-4', opacMediaTypeGlyphClass(mediaType ?? undefined));
 }
 
 function getMediaTypeBgColor(mediaType?: string | null): string {
@@ -552,19 +548,17 @@ export default function LoginPage() {
                 t('auth.loginTitle')}
             </h1>
 
-            <form onSubmit={handleSearch} className="mb-4 flex max-w-3xl flex-col gap-2 sm:flex-row">
+            <form onSubmit={handleSearch} className="mb-4 max-w-3xl">
               <Input
                 ref={searchRef}
-                type="text"
+                type="search"
+                enterKeyHint="search"
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
                 placeholder={t('opac.searchPlaceholder')}
                 leftIcon={<Search className="h-4 w-4" />}
                 className="text-sm"
               />
-              <Button type="submit" variant="primary" size="md" className="shrink-0">
-                {t('common.search')}
-              </Button>
             </form>
 
             <div className="flex gap-1.5 flex-wrap">

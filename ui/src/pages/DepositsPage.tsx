@@ -1,6 +1,7 @@
-import { Library } from 'lucide-react';
+import { PackageOpen } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Navigate, useSearchParams } from 'react-router-dom';
+import { PageHeading, PageTabLeadGroup } from '@/components/common';
 import DepositsTabBar from '@/components/deposits/DepositsTabBar';
 import { DepositBatchesPanel } from '@/pages/DepositBatchesPage';
 import { LendersPanel } from '@/pages/LendersPage';
@@ -26,17 +27,15 @@ export default function DepositsPage() {
 
   return (
     <div className={`${APP_PAGE_CLASS} gap-6`}>
-      <div className="flex items-start gap-3">
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gray-100 dark:bg-gray-800">
-          <Library className="h-6 w-6 text-gray-700 dark:text-gray-200" aria-hidden />
-        </div>
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{t('deposits.pageTitle')}</h1>
-          <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">{t('deposits.pageSubtitle')}</p>
-        </div>
-      </div>
-
-      <DepositsTabBar activeTab={activeTab} onSelectTab={selectTab} />
+      <PageTabLeadGroup>
+        <PageHeading
+          icon={PackageOpen}
+          title={t('deposits.pageTitle')}
+          subtitle={t('deposits.pageSubtitle')}
+          subtitleClassName="mt-1 text-sm text-gray-600 dark:text-gray-300"
+        />
+        <DepositsTabBar activeTab={activeTab} onSelectTab={selectTab} />
+      </PageTabLeadGroup>
 
       <div
         role="tabpanel"

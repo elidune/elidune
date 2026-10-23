@@ -10,6 +10,7 @@ interface SearchInputProps {
   debounceMs?: number;
   submitMode?: boolean;
   onSubmit?: (value: string) => void;
+  /** @deprecated No separate submit button; use Enter when `submitMode` is true. */
   showSubmitButton?: boolean;
   submitLabel?: string;
 }
@@ -21,8 +22,6 @@ export default function SearchInput({
   debounceMs = 300,
   submitMode = false,
   onSubmit,
-  showSubmitButton = false,
-  submitLabel,
 }: SearchInputProps) {
   const { t } = useTranslation();
   const [localValue, setLocalValue] = useState(value);
@@ -32,7 +31,6 @@ export default function SearchInput({
     setLocalValue(value);
   }
   const effectivePlaceholder = placeholder ?? t('common.search');
-  const effectiveSubmitLabel = submitLabel ?? t('common.search');
 
   const onChangeRef = useRef(onChange);
   const debounceMsRef = useRef(debounceMs);
@@ -77,7 +75,8 @@ export default function SearchInput({
     <div className="relative">
       <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
       <input
-        type="text"
+        type="search"
+        enterKeyHint="search"
         value={localValue}
         onChange={handleChange}
         onKeyDown={(e) => {
@@ -89,26 +88,15 @@ export default function SearchInput({
         placeholder={effectivePlaceholder}
         aria-label={effectivePlaceholder}
         className={formControlClass({
-          className: `w-full pl-10 ${localValue ? 'pr-10' : ''} ${showSubmitButton ? 'sm:pr-28 pr-24' : ''}`,
+          className: `w-full pl-10 ${localValue ? 'pr-10' : ''}`,
         })}
       />
-      {showSubmitButton && (
-        <button
-          type="button"
-          onClick={handleSubmit}
-          aria-label={effectiveSubmitLabel}
-          className="absolute right-2 top-1/2 -translate-y-1/2 px-3 py-1.5 rounded-md text-sm font-medium bg-indigo-600 text-white hover:bg-indigo-700 focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-gray-900 disabled:opacity-50 disabled:cursor-not-allowed"
-          disabled={!submitMode}
-        >
-          {effectiveSubmitLabel}
-        </button>
-      )}
       {localValue && (
         <button
           type="button"
           onClick={handleClear}
           aria-label={t('common.clear')}
-          className={`absolute ${showSubmitButton ? 'right-24 sm:right-28' : 'right-3'} top-1/2 -translate-y-1/2 p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-gray-900`}
+          className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-gray-900"
         >
           <X className="h-4 w-4 text-gray-400" />
         </button>

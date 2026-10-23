@@ -20,7 +20,7 @@ import {
   Clock,
   CheckCircle,
 } from 'lucide-react';
-import { Card, Button, Badge, Modal, BarcodeScanField, SectionTabBar } from '@/components/common';
+import { Card, Button, Badge, Modal, BarcodeScanField, SectionTabBar, PageHeading } from '@/components/common';
 import MarcImportTargetSection from '@/components/marc/MarcImportTargetSection';
 import DepositMarcDuplicateDialog, {
   type DepositMarcDuplicateResolution,
@@ -1826,15 +1826,11 @@ export function MarcImportWorkflow({
   return (
     <div className={`space-y-6 min-w-0 overflow-x-hidden ${layout === 'embedded' ? '' : ''}`}>
       {layout === 'page' ? (
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-3">
-            <Upload className="h-7 w-7 text-amber-600 dark:text-amber-400" />
-            {t('importMarc.title')}
-          </h1>
-          <p className="text-gray-500 dark:text-gray-400 mt-1">
-            {t('importMarc.subtitle')}
-          </p>
-        </div>
+        <PageHeading
+          icon={Upload}
+          title={t('importMarc.title')}
+          subtitle={t('importMarc.subtitle')}
+        />
       ) : fixedDeposit && showDepositHeader ? (
         <div>
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white">{t('deposits.batch.marcImportTitle')}</h2>
@@ -2286,7 +2282,7 @@ export function MarcImportWorkflow({
                 </Button>
               </div>
 
-              <form onSubmit={handleScanSubmit} className="flex items-end gap-3">
+              <form onSubmit={handleScanSubmit}>
                 <BarcodeScanField
                   ref={scanInputRef}
                   value={scanInput}
@@ -2299,11 +2295,6 @@ export function MarcImportWorkflow({
                     setScanInput(code);
                     void processScanBarcode(code);
                   }}
-                  suffix={
-                    <Button type="submit">
-                      {t('importMarc.validate')}
-                    </Button>
-                  }
                 />
               </form>
 

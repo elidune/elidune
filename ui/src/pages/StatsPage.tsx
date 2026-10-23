@@ -12,8 +12,9 @@ import {
   ChevronRight,
   TrendingUp,
   Table2,
+  BarChart3,
 } from 'lucide-react';
-import { Card, CardHeader, Input, ScrollableListRegion, SectionTabBar } from '@/components/common';
+import { Card, CardHeader, Input, ScrollableListRegion, SectionTabBar, PageHeading } from '@/components/common';
 import api from '@/services/api';
 import type { Stats, AdvancedStatsParams, MediaType, MediaTypeOption, StatsInterval, UserAggregateStats, CatalogStats, CatalogStatsBreakdown } from '@/types';
 import { translateStatLabel } from '@/utils/codeLabels';
@@ -304,10 +305,7 @@ export default function StatsPage() {
 
   return (
     <div className="space-y-6 min-h-[40vh]">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{t('stats.title')}</h1>
-        <p className="text-gray-500 dark:text-gray-400">{t('stats.subtitle')}</p>
-      </div>
+      <PageHeading icon={BarChart3} title={t('stats.title')} subtitle={t('stats.subtitle')} />
 
       {/* Summary cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

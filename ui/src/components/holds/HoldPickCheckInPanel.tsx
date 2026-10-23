@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { BookOpen, Check } from 'lucide-react';
-import { BarcodeScanField, Button } from '@/components/common';
+import { BarcodeScanField } from '@/components/common';
 import {
   pickCheckInBannerMessage,
   pickCheckInErrorMessage,
@@ -107,18 +107,6 @@ export default function HoldPickCheckInPanel({
             setLastNotice(null);
             void submit(code);
           }}
-          suffix={
-            <Button
-              type="submit"
-              size="icon"
-              variant="primary"
-              disabled={busy || !barcode.trim()}
-              aria-label={t('holds.checkInSubmit')}
-              className="bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-600"
-            >
-              <Check className="h-4 w-4" />
-            </Button>
-          }
         />
       </form>
 

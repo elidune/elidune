@@ -1,6 +1,8 @@
+import { ShoppingCart } from 'lucide-react';
 import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router-dom';
+import { PageHeading, PageTabLeadGroup } from '@/components/common';
 import AcquisitionsTabBar from '@/components/acquisitions/AcquisitionsTabBar';
 import { useLibrary } from '@/contexts/LibraryContext';
 import { AcquisitionsFundsPanel } from '@/pages/AcquisitionsFundsPage';
@@ -47,12 +49,14 @@ export default function AcquisitionsPage() {
 
   return (
     <div className={`${APP_PAGE_CLASS} gap-6`}>
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{t('nav.sectionCataloging')}</h1>
-        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{t('acquisitions.pageSubtitle')}</p>
-      </div>
-
-      <AcquisitionsTabBar activeTab={activeTab} onSelectTab={selectTab} />
+      <PageTabLeadGroup>
+        <PageHeading
+          icon={ShoppingCart}
+          title={t('nav.sectionAcquisitions')}
+          subtitle={t('acquisitions.pageSubtitle')}
+        />
+        <AcquisitionsTabBar activeTab={activeTab} onSelectTab={selectTab} />
+      </PageTabLeadGroup>
 
       <div
         role="tabpanel"

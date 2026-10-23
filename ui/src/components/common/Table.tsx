@@ -20,6 +20,8 @@ interface TableProps<T> {
   isLoading?: boolean;
   emptyMessage?: string;
   hideHeader?: boolean;
+  tableClassName?: string;
+  colgroup?: React.ReactNode;
 }
 
 export default function Table<T>({
@@ -30,6 +32,8 @@ export default function Table<T>({
   isLoading = false,
   emptyMessage = 'Aucune donnée',
   hideHeader = false,
+  tableClassName = '',
+  colgroup,
 }: TableProps<T>) {
   if (isLoading) {
     return (
@@ -49,7 +53,8 @@ export default function Table<T>({
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full">
+      <table className={['w-full', tableClassName].filter(Boolean).join(' ')}>
+        {colgroup}
         {!hideHeader && (
           <thead className="sticky top-0 z-10 bg-white dark:bg-gray-900">
             <tr className="border-b border-gray-200 dark:border-gray-800">

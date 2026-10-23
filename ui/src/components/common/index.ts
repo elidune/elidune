@@ -1,4 +1,8 @@
 export { default as Layout } from './Layout';
+export { default as PageHeading } from './PageHeading';
+export { default as PageTabLeadGroup } from './PageTabLeadGroup';
+export { default as ListPageLayout } from './ListPageLayout';
+export { default as ListResultCountBar } from './ListResultCountBar';
 export { default as PublicPageChrome } from './PublicPageChrome';
 export { default as PublicLanguageSelector } from './PublicLanguageSelector';
 export { default as QueryErrorBanner } from './QueryErrorBanner';

@@ -1,22 +1,22 @@
-import { BookMarked, ChevronRight, Edit, RefreshCw, Trash2 } from 'lucide-react';
+import { BookMarked, ChevronRight, RefreshCw, Trash2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { Badge } from '@/components/common';
 import type { AccountTypeDefinition, PublicType, UserShort } from '@/types';
 import { isSubscriptionExpired } from '@/utils/userSubscription';
-import { formatSubscriptionExpiryLine } from '@/utils/subscriptionDisplay';
-import { LIST_ROW_ICON_BTN, LIST_ROW_ICON_BTN_DANGER, LIST_ROW_ICON_BTN_MUTED } from '@/utils/listRowActionIconClass';
-import { localizedAccountTypeLabel } from '@/utils/accountTypeDisplay';
-import { localizedPublicTypeById } from '@/utils/publicTypeDisplay';
+import {
+  LIST_ROW_ICON_BTN_DANGER,
+  LIST_ROW_RENEW_BTN,
+  LIST_ROW_SUBSCRIPTION_EXPIRED,
+} from '@/utils/listRowActionIconClass';
+import UserListAvatar from './UserListAvatar';
+import UserListProfileBadges from './UserListProfileBadges';
 
 interface UserListCardProps {
   user: UserShort;
   publicTypes: PublicType[];
   accountTypes: AccountTypeDefinition[];
   onOpen: () => void;
-  onEdit: () => void;
   onDelete: () => void;
   onRenew: () => void;
-  editLabel: string;
   deleteLabel: string;
   renewLabel: string;
   actionsAriaLabel: string;
@@ -27,89 +27,84 @@ export default function UserListCard({
   publicTypes,
   accountTypes,
   onOpen,
-  onEdit,
   onDelete,
   onRenew,
-  editLabel,
   deleteLabel,
   renewLabel,
   actionsAriaLabel,
 }: UserListCardProps) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const loanCount = user.nbLoans ?? 0;
-  const renewDisabled = !isSubscriptionExpired(user.expiryAt);
-  const accountLabel = localizedAccountTypeLabel(t, user.accountType, accountTypes);
-  const publicLabel = localizedPublicTypeById(t, publicTypes, user.publicType);
-
-  const created =
-    user.createdAt != null && user.createdAt !== ''
-      ? new Date(user.createdAt).toLocaleDateString(i18n.language, {
-          day: '2-digit',
-          month: 'short',
-          year: 'numeric',
-        })
-      : '—';
+  const lateLoanCount = user.nbLateLoans || 0;
+  const hasLateLoans = lateLoanCount > 0;
+  const loanToneClass = hasLateLoans
+    ? 'text-red-600 dark:text-red-400'
+    : 'text-gray-400 dark:text-gray-500';
+  const loanCountClass = hasLateLoans
+    ? 'text-red-600 dark:text-red-400'
+    : 'text-gray-600 dark:text-gray-300';
+  const showRenewSubscription = isSubscriptionExpired(user.expiryAt);
 
   return (
-    <div className="flex items-stretch border-b border-gray-100 dark:border-gray-800 last:border-b-0 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors min-h-[4.5rem]">
+    <div
+      className={[
+        'flex items-stretch border-b border-gray-100 transition-colors last:border-b-0 dark:border-gray-800',
+        showRenewSubscription ? LIST_ROW_SUBSCRIPTION_EXPIRED : 'hover:bg-gray-50 dark:hover:bg-gray-800/50',
+      ].join(' ')}
+    >
       <button
         type="button"
         onClick={onOpen}
-        className="flex-1 min-w-0 text-left flex items-stretch gap-3 p-4"
+        className="flex-1 min-w-0 text-left flex items-center gap-3 py-2 pl-3 pr-2"
       >
-        <div className="flex-shrink-0 h-12 w-12 rounded-full bg-indigo-100 dark:bg-indigo-900/50 flex items-center justify-center">
-          <span className="text-sm font-medium text-indigo-600 dark:text-indigo-400">
-            {user.firstname?.[0] || '?'}{user.lastname?.[0] || ''}
-          </span>
-        </div>
-        <div className="flex-1 min-w-0 space-y-1">
+        <UserListAvatar
+          size="lg"
+          firstname={user.firstname}
+          lastname={user.lastname}
+          accountType={user.accountType}
+          accountTypes={accountTypes}
+        />
+        <div className="flex-1 min-w-0 space-y-0.5">
           <p className="font-medium text-gray-900 dark:text-white truncate">
             {user.firstname} {user.lastname}
           </p>
-          <p className="text-xs text-gray-500 dark:text-gray-400">
-            {accountLabel}
-            {publicLabel ? <> · {publicLabel}</> : null}
-          </p>
+          <UserListProfileBadges user={user} publicTypes={publicTypes} />
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-600 dark:text-gray-300">
-            <span>
-              {t('users.createdAt')}: {created}
-            </span>
-            <span className="inline-flex items-center gap-1">
-              <BookMarked className="h-3.5 w-3.5 text-gray-400 shrink-0" />
-              {loanCount}
-              {(user.nbLateLoans || 0) > 0 && (
-                <Badge variant="danger" size="sm">
-                  {user.nbLateLoans} {t('users.lateLoans')}
-                </Badge>
-              )}
+            <span
+              className="inline-flex items-center gap-1"
+              title={
+                hasLateLoans ? t('loans.overdueCount', { count: lateLoanCount }) : undefined
+              }
+            >
+              <BookMarked className={['h-3.5 w-3.5 shrink-0', loanToneClass].join(' ')} />
+              <span className={loanCountClass}>{loanCount}</span>
             </span>
           </div>
-          <p className="text-xs text-gray-600 dark:text-gray-300 pt-0.5">
-            <span className="text-gray-500 dark:text-gray-400">{t('users.subscriptionExpiry')}: </span>
-            {formatSubscriptionExpiryLine(user.expiryAt, t, i18n)}
-          </p>
         </div>
         <div className="flex-shrink-0 self-center text-gray-400 dark:text-gray-500 pr-1">
           <ChevronRight className="h-5 w-5" aria-hidden />
         </div>
       </button>
+      {showRenewSubscription ? (
+        <div className="flex items-center px-2 border-l border-gray-100 dark:border-gray-800 shrink-0 self-stretch">
+          <button
+            type="button"
+            className={LIST_ROW_RENEW_BTN}
+            onClick={(e) => {
+              e.stopPropagation();
+              onRenew();
+            }}
+          >
+            <RefreshCw className="h-4 w-4 shrink-0" aria-hidden />
+            <span>{renewLabel}</span>
+          </button>
+        </div>
+      ) : null}
       <div
         className="flex items-center gap-1.5 px-2 border-l border-gray-100 dark:border-gray-800 shrink-0"
         role="group"
         aria-label={actionsAriaLabel}
       >
-        <button
-          type="button"
-          className={LIST_ROW_ICON_BTN}
-          title={editLabel}
-          aria-label={editLabel}
-          onClick={(e) => {
-            e.stopPropagation();
-            onEdit();
-          }}
-        >
-          <Edit className="h-4 w-4" aria-hidden />
-        </button>
         <button
           type="button"
           className={LIST_ROW_ICON_BTN_DANGER}
@@ -121,19 +116,6 @@ export default function UserListCard({
           }}
         >
           <Trash2 className="h-4 w-4" aria-hidden />
-        </button>
-        <button
-          type="button"
-          className={LIST_ROW_ICON_BTN_MUTED}
-          title={renewLabel}
-          aria-label={renewLabel}
-          disabled={renewDisabled}
-          onClick={(e) => {
-            e.stopPropagation();
-            if (!renewDisabled) onRenew();
-          }}
-        >
-          <RefreshCw className="h-4 w-4" aria-hidden />
         </button>
       </div>
     </div>

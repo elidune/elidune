@@ -189,7 +189,7 @@ describe('reader and copy vocabulary', () => {
     assert.equal(/l[’']lecteur/i.test(blob), false);
     assert.equal(/\bspecimen\b/i.test(blob), false);
     assert.equal(fr.nav.users, 'Lecteurs');
-    assert.equal(fr.nav.sectionPatron, 'Lecteur');
+    assert.equal(fr.nav.sectionMySpace, 'Mon espace');
     assert.match(fr.items.specimens, /Exemplaire/);
     assert.equal(en.nav.users, 'Readers');
     assert.equal(de.nav.users, 'Leser');

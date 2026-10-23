@@ -15,13 +15,14 @@ import {
   FlaskConical,
   ChevronDown,
   ClipboardList,
+  ArrowLeftRight,
 } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useDeskPatronLoansQuery } from '@/hooks/loans/useDeskPatronLoansQuery';
 import { invalidateCirculationCaches } from '@/hooks/loans/invalidateCirculationCaches';
 import { OVERDUE_LOANS_QUERY_ROOT } from '@/hooks/loans/queryKeys';
 import { useOverdueLoansQuery } from '@/hooks/loans/useOverdueLoansQuery';
-import { Card, CardHeader, Button, Badge, Table, MessageModal, ConfirmDialog, ScrollableListRegion, ResponsiveRecordList, ListSkeleton, BarcodeScanField, SectionTabBar } from '@/components/common';
+import { Card, CardHeader, Button, Badge, Table, MessageModal, ConfirmDialog, ScrollableListRegion, ResponsiveRecordList, ListSkeleton, BarcodeScanField, SectionTabBar, PageHeading, PageTabLeadGroup } from '@/components/common';
 import ItemAvailabilityBadge from '@/components/items/ItemAvailabilityBadge';
 import ActiveLoanCard from '@/components/loans/ActiveLoanCard';
 import CirculationExceptionDialog from '@/components/loans/CirculationExceptionDialog';
@@ -1329,17 +1330,9 @@ export default function LoansPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-          {t('loans.title')}
-        </h1>
-        <p className="text-gray-500 dark:text-gray-400 mt-1">
-          {t('loans.subtitle')}
-        </p>
-      </div>
-
-      <SectionTabBar
+      <PageTabLeadGroup>
+        <PageHeading icon={ArrowLeftRight} title={t('loans.title')} subtitle={t('loans.subtitle')} />
+        <SectionTabBar
         ariaLabel={t('loans.title')}
         activeTab={activeTab}
         onSelectTab={(tab) => {
@@ -1365,7 +1358,8 @@ export default function LoansPage() {
             icon: ClipboardList,
           },
         ]}
-      />
+        />
+      </PageTabLeadGroup>
 
       {/* Borrow Tab */}
       {activeTab === 'borrow' && (
@@ -1736,18 +1730,6 @@ export default function LoansPage() {
                           void handleReturnByBarcode(barcode);
                         }
                       }}
-                      rightIcon={
-                        <Button
-                          type="submit"
-                          size="icon"
-                          variant="primary"
-                          disabled={isProcessingReturn || lostFound !== null || !returnBarcodeInput.trim()}
-                          aria-label={t('common.validate')}
-                          className="bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-600"
-                        >
-                          <Check className="h-4 w-4" />
-                        </Button>
-                      }
                     />
                   </form>
                   {returnScanAlert ? <DeskScanNotice alert={returnScanAlert} place="return" /> : null}
@@ -2746,19 +2728,6 @@ function BorrowForm({
           if (error) setError('');
           void runBorrow(barcode);
         }}
-        rightIcon={
-          isInline ? (
-            <Button
-              type="submit"
-              size="icon"
-              variant="primary"
-              disabled={isLoading || !barcodeInput.trim()}
-              aria-label={t('common.validate')}
-            >
-              <Check className="h-4 w-4" />
-            </Button>
-          ) : undefined
-        }
       />
       {error && (
         <div

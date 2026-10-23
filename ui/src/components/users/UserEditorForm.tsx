@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { invalidateUsersListQueries, userDetailQueryKey } from '@/hooks/users/queryKeys';
 import { useTranslation } from 'react-i18next';
 import { AlertTriangle, Loader2, Mail, MapPin, Phone } from 'lucide-react';
-import { Input } from '@/components/common';
+import { Input, BarcodeScanField } from '@/components/common';
 import AccountTypeSelect from '@/components/users/AccountTypeSelect';
 import EventsConsentFields from '@/components/users/EventsConsentFields';
 import GuardianPicker from '@/components/users/GuardianPicker';
@@ -506,10 +506,12 @@ export default function UserEditorForm({
                   <p className="mt-1 text-sm text-red-600 dark:text-red-400">{fieldErrors.sex}</p>
                 )}
               </div>
-              <Input
+              <BarcodeScanField
                 label={t('profile.barcode')}
                 value={formData.barcode}
                 onChange={(e) => setFormData({ ...formData, barcode: e.target.value })}
+                onCameraScan={(code) => setFormData({ ...formData, barcode: code })}
+                scannerTitle={t('loans.scanOrEnterCard')}
               />
               <div className={FORM_FIELD_WIDTH.medium}>
                 <label htmlFor={`${formId}-language`} className={formLabelClass()}>

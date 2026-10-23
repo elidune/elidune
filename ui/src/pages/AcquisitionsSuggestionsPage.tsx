@@ -11,6 +11,7 @@ import {
   Pagination,
   QueryErrorBanner,
   ResponsiveRecordList,
+  ListResultCountBar,
   Table,
 } from '@/components/common';
 import SuggestionStatusBadge from '@/components/acquisitions/SuggestionStatusBadge';
@@ -133,6 +134,7 @@ export function AcquisitionsSuggestionsPanel() {
           </div>
         ) : (
           <>
+            <ListResultCountBar>{t('common.listCount', { count: total })}</ListResultCountBar>
             <ResponsiveRecordList
               desktop={
                 <Table

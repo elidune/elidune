@@ -1,4 +1,4 @@
-import { useState, type ComponentType } from 'react';
+import { useLayoutEffect, useState, type ComponentType } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { ChevronDown } from 'lucide-react';
@@ -16,6 +16,8 @@ export type SidebarNavSection = {
   label?: string;
   /** Accordion title on compact nav when there is no visible section `label`. */
   collapseLabel?: string;
+  /** When false, no section title (desktop or compact accordion). Items stay visible. */
+  showHeader?: boolean;
   items: SidebarNavItem[];
 };
 
@@ -24,6 +26,8 @@ type SidebarNavSectionsProps = {
   pinnedItems?: SidebarNavItem[];
   sections: SidebarNavSection[];
   onNavigate?: () => void;
+  /** Fired when accordion expand/collapse changes nav height. */
+  onLayoutChange?: () => void;
 };
 
 function NavItemLink({
@@ -95,6 +99,7 @@ export default function SidebarNavSections({
   pinnedItems = [],
   sections,
   onNavigate,
+  onLayoutChange,
 }: SidebarNavSectionsProps) {
   const { t } = useTranslation();
   const location = useLocation();
@@ -123,6 +128,10 @@ export default function SidebarNavSections({
     setExpandedSectionId((prev) => (prev === sectionId ? null : sectionId));
   };
 
+  useLayoutEffect(() => {
+    onLayoutChange?.();
+  }, [expandedSectionId, compactNav, sectionKey, onLayoutChange]);
+
   return (
     <>
       {pinnedItems.length > 0 && (
@@ -138,10 +147,12 @@ export default function SidebarNavSections({
         </div>
       )}
       {sections.map((section) => {
-        const sectionExpanded = !compactNav || expandedSectionId === section.id;
+        const showHeader = section.showHeader !== false;
+        const sectionExpanded =
+          !compactNav || !showHeader || expandedSectionId === section.id;
         const accordionTitle = sectionAccordionTitle(section, t);
-        const showStaticLabel = !compactNav && section.label;
-        const showAccordionHeader = compactNav;
+        const showStaticLabel = showHeader && !compactNav && section.label;
+        const showAccordionHeader = showHeader && compactNav;
 
         return (
           <div key={section.id} className="space-y-1">

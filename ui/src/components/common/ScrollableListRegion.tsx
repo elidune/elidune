@@ -2,26 +2,26 @@ import type { ReactNode } from 'react';
 
 /**
  * Root class for scroll containers so features like IntersectionObserver can use
- * `element.closest('.app-list-scroll')` site-wide.
+ * `getListScrollRoot()` site-wide.
  */
 export const APP_LIST_SCROLL_ROOT_CLASS = 'app-list-scroll';
 
-const SCROLL_CLASSES = `${APP_LIST_SCROLL_ROOT_CLASS} overflow-auto max-h-[calc(100vh-18rem)] min-h-0`;
+const SCROLL_CLASSES = `${APP_LIST_SCROLL_ROOT_CLASS} min-h-0 max-lg:overflow-visible max-lg:max-h-none lg:overflow-auto lg:min-h-0`;
 
-/** Grows inside a flex column parent so the list scrolls instead of the page (e.g. inventory). */
-const SCROLL_FILL_CLASSES = `${APP_LIST_SCROLL_ROOT_CLASS} flex-1 min-h-0 overflow-auto`;
+/** Grows inside a flex column parent so the list scrolls instead of the page (lg+). */
+const SCROLL_FILL_CLASSES = `${APP_LIST_SCROLL_ROOT_CLASS} min-h-0 max-lg:overflow-visible lg:flex-1 lg:min-h-0 lg:overflow-auto`;
 
 interface ScrollableListRegionProps {
   children: ReactNode;
   className?: string;
   'aria-label'?: string;
-  /** Use when the parent is a flex column with bounded height; this region takes remaining space. */
+  /** Use when the parent is a flex column with bounded height; this region takes remaining space (lg+). */
   fill?: boolean;
 }
 
 /**
- * Fixed-height band for list/table content: page chrome stays static, only this region scrolls.
- * Same strategy as Users / Biblios catalog lists.
+ * Desktop (`lg+`): fixed-height band — page chrome stays static, only this region scrolls.
+ * Mobile: flows with the page; scroll via the main app shell (`#app-page-scroll`).
  */
 export default function ScrollableListRegion({
   children,

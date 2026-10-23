@@ -610,22 +610,60 @@ impl Repository {
 
         if let Some(ref name) = query.name {
             params.push(format!("%{}%", name.to_lowercase()));
-            conditions.push(format!("(LOWER(firstname) LIKE ${} OR LOWER(lastname) LIKE ${})", params.len(), params.len()));
+            conditions.push(format!(
+                "(LOWER(u.firstname) LIKE ${} OR LOWER(u.lastname) LIKE ${})",
+                params.len(),
+                params.len()
+            ));
         }
 
         if let Some(ref barcode) = query.barcode {
             params.push(barcode.clone());
-            conditions.push(format!("barcode = ${}", params.len()));
+            conditions.push(format!("u.barcode = ${}", params.len()));
+        }
+
+        if let Some(ref account_type) = query.account_type {
+            params.push(account_type.as_str().to_string());
+            conditions.push(format!("u.account_type = ${}", params.len()));
+        }
+
+        if let Some(public_type) = query.public_type {
+            params.push(public_type.to_string());
+            conditions.push(format!("u.public_type = ${}::bigint", params.len()));
+        }
+
+        if query.subscription_expired == Some(true) {
+            conditions.push("u.expiry_at IS NOT NULL AND u.expiry_at < NOW()".to_string());
+        }
+
+        if query.overdue_loans == Some(true) {
+            conditions.push(
+                "EXISTS (SELECT 1 FROM loans l WHERE l.user_id = u.id AND l.returned_at IS NULL AND l.expiry_at < NOW())".to_string(),
+            );
+        }
+
+        if query.unpaid_fines == Some(true) {
+            conditions.push(
+                "EXISTS (SELECT 1 FROM fines f WHERE f.user_id = u.id AND f.status IN ('pending','partial') AND f.amount > f.paid_amount)"
+                    .to_string(),
+            );
         }
 
         let where_clause = if conditions.is_empty() { String::new() } else { format!("WHERE {}", conditions.join(" AND ")) };
 
+        let status_filter = if conditions.is_empty() {
+            "WHERE (u.status IS NULL OR u.status <> 'deleted')".to_string()
+        } else {
+            " AND (u.status IS NULL OR u.status <> 'deleted')".to_string()
+        };
+
         // Count total
         let count_query = format!(
             r#"
-            SELECT COUNT(*) as count FROM users {}
+            SELECT COUNT(*) as count FROM users u
+            {}{}
             "#,
-            where_clause
+            where_clause, status_filter
         );
 
         let mut count_builder = sqlx::query_scalar::<_, i64>(&count_query);
@@ -633,13 +671,6 @@ impl Repository {
             count_builder = count_builder.bind(param);
         }
         let total = count_builder.fetch_one(&self.pool).await?;
-
-        // Fetch users (exclude deleted users by default)
-        let status_filter = if conditions.is_empty() {
-            "WHERE (u.status IS NULL OR u.status <> 'deleted')".to_string()
-        } else {
-            " AND (u.status IS NULL OR u.status <> 'deleted')".to_string()
-        };
 
         use crate::models::user::UserShortRow;
         let select_query = format!(

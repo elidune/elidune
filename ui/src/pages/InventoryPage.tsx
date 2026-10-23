@@ -19,6 +19,8 @@ import {
   ChevronDown,
   ExternalLink,
   Archive,
+  FolderOpen,
+  HelpCircle,
 } from 'lucide-react';
 import {
   useInfiniteQuery,
@@ -26,8 +28,9 @@ import {
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query';
-import { Card, Button, Modal, Input, Badge, ScrollableListRegion, BarcodeScanField } from '@/components/common';
+import { Card, Button, Modal, Input, Badge, ScrollableListRegion, BarcodeScanField, SectionTabBar, PageHeading, PageTabLeadGroup } from '@/components/common';
 import { getApiErrorMessage } from '@/utils/apiError';
+import { getListScrollRoot } from '@/utils/listScrollRoot';
 import { useBackgroundTasks } from '@/contexts/BackgroundTasksContext';
 import { formatTaskProgressDetail, taskProgressPercent } from '@/utils/backgroundTaskDisplay';
 import { formControlClass, formTextareaClass, formLabelClass } from '@/utils/formControl';
@@ -102,6 +105,7 @@ export default function InventoryPage() {
   }, []);
 
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showListHelpModal, setShowListHelpModal] = useState(false);
   const [createName, setCreateName] = useState('');
   const [createLocationFilter, setCreateLocationFilter] = useState('');
   const [createNotes, setCreateNotes] = useState('');
@@ -193,7 +197,7 @@ export default function InventoryPage() {
   useEffect(() => {
     const el = infiniteSentinelRef.current;
     if (!el || !sessionId) return;
-    const root = el.closest('.app-list-scroll');
+    const root = getListScrollRoot(el);
     const hasNext = subTab === 'scans' ? scansInfinite.hasNextPage : missingInfinite.hasNextPage;
     const isFetching =
       subTab === 'scans' ? scansInfinite.isFetchingNextPage : missingInfinite.isFetchingNextPage;
@@ -530,66 +534,40 @@ export default function InventoryPage() {
 
         {activeSession.status === 'open' && (
           <Card>
-            <div className="flex flex-wrap gap-2 border-b border-gray-200 dark:border-gray-800 pb-3 mb-4">
-              <button
-                type="button"
-                onClick={() => setInputSubTab('scan')}
-                className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                  inputSubTab === 'scan'
-                    ? 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-900 dark:text-indigo-100'
-                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
-                }`}
-              >
-                <Scan className="h-4 w-4" />
-                {t('inventory.scanBarcode')}
-              </button>
-              <button
-                type="button"
-                onClick={() => setInputSubTab('batch')}
-                className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                  inputSubTab === 'batch'
-                    ? 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-900 dark:text-indigo-100'
-                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
-                }`}
-              >
-                <Upload className="h-4 w-4" />
-                {t('inventory.batchTab')}
-              </button>
-            </div>
+            <SectionTabBar
+              ariaLabel={t('inventory.inputMethodTabs')}
+              activeTab={inputSubTab}
+              onSelectTab={setInputSubTab}
+              size="compact"
+              className="mb-4"
+              tabs={[
+                { id: 'scan', label: t('inventory.scanBarcode'), icon: Scan },
+                { id: 'batch', label: t('inventory.batchTab'), icon: Upload },
+              ]}
+            />
 
             {inputSubTab === 'scan' && (
               <>
                 <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">{t('inventory.scanBarcodeHint')}</p>
-                <div className="flex gap-3 flex-wrap items-end">
-                  <BarcodeScanField
-                    ref={barcodeRef}
-                    value={barcode}
-                    onChange={(e) => setBarcode(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') handleScan();
-                    }}
-                    placeholder={t('inventory.barcodePlaceholder')}
-                    autoFocus
-                    inputClassName="min-w-[200px]"
-                    wrapperClassName="flex-1 min-w-[200px]"
-                    scannerTitle={t('inventory.scanBarcode')}
-                    onCameraScan={(code) => {
-                      setBarcode(code);
-                      if (activeSession && activeSession.status === 'open') {
-                        scanMutation.mutate({ id: activeSession.id, bc: code.trim() });
-                      }
-                    }}
-                    suffix={
-                      <Button
-                        onClick={handleScan}
-                        isLoading={scanMutation.isPending}
-                        leftIcon={<Scan className="h-4 w-4" />}
-                      >
-                        {t('inventory.scan')}
-                      </Button>
+                <BarcodeScanField
+                  ref={barcodeRef}
+                  value={barcode}
+                  onChange={(e) => setBarcode(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleScan();
+                  }}
+                  placeholder={t('inventory.barcodePlaceholder')}
+                  autoFocus
+                  inputClassName="min-w-0"
+                  wrapperClassName="min-w-0 w-full sm:min-w-[12rem]"
+                  scannerTitle={t('inventory.scanBarcode')}
+                  onCameraScan={(code) => {
+                    setBarcode(code);
+                    if (activeSession && activeSession.status === 'open') {
+                      scanMutation.mutate({ id: activeSession.id, bc: code.trim() });
                     }
-                  />
-                </div>
+                  }}
+                />
 
                 {scanFlash && (
                   <div
@@ -769,38 +747,19 @@ export default function InventoryPage() {
 
         <Card padding="none" className="flex flex-col">
           <div className="space-y-3 border-b border-gray-200 p-4 sm:p-6 dark:border-gray-800">
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setExpandedKey(null);
-                  setSubTab('scans');
-                }}
-                className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                  subTab === 'scans'
-                    ? 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-900 dark:text-indigo-100'
-                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
-                }`}
-              >
-                <ListOrdered className="h-4 w-4" />
-                {t('inventory.scansTitle')}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setExpandedKey(null);
-                  setSubTab('missing');
-                }}
-                className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                  subTab === 'missing'
-                    ? 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-900 dark:text-indigo-100'
-                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
-                }`}
-              >
-                <PackageSearch className="h-4 w-4" />
-                {t('inventory.missingTab')}
-              </button>
-            </div>
+            <SectionTabBar
+              ariaLabel={t('inventory.sessionListsTabs')}
+              activeTab={subTab}
+              onSelectTab={(tab) => {
+                setExpandedKey(null);
+                setSubTab(tab);
+              }}
+              size="compact"
+              tabs={[
+                { id: 'scans', label: t('inventory.scansTitle'), icon: ListOrdered },
+                { id: 'missing', label: t('inventory.missingTab'), icon: PackageSearch },
+              ]}
+            />
             <p className="text-sm text-gray-500 dark:text-gray-400">
               {subTab === 'scans' ? t('inventory.scansTabHintLazy') : t('inventory.missingTabHintLazy')}
             </p>
@@ -1020,48 +979,47 @@ export default function InventoryPage() {
 
   return (
     <div className="space-y-6">
-      <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40 px-4 py-3 text-sm text-gray-700 dark:text-gray-300">
-        <p className="font-medium text-gray-900 dark:text-white">{t('inventory.listHelpTitle')}</p>
-        <p className="mt-1">{t('inventory.listHelpBody')}</p>
-        <ul className="mt-2 list-disc list-inside space-y-1 text-gray-600 dark:text-gray-400">
-          <li>{t('inventory.listHelpStep1')}</li>
-          <li>{t('inventory.listHelpStep2')}</li>
-          <li>{t('inventory.listHelpStep3')}</li>
-          <li>{t('inventory.listHelpStep4')}</li>
-          <li>{t('inventory.listHelpStep5')}</li>
-        </ul>
-      </div>
+      <PageTabLeadGroup>
+        <PageHeading
+          icon={ClipboardList}
+          title={t('inventory.title')}
+          subtitle={t('inventory.subtitle')}
+          actions={
+            <>
+              <Button
+                type="button"
+                variant="secondary"
+                leftIcon={<HelpCircle className="h-4 w-4" />}
+                onClick={() => setShowListHelpModal(true)}
+              >
+                {t('inventory.listHelpButton')}
+              </Button>
+              <Button onClick={openCreateModal} leftIcon={<Plus className="h-4 w-4" />}>
+                {t('inventory.newSession')}
+              </Button>
+            </>
+          }
+        />
+        <SectionTabBar
+          ariaLabel={t('inventory.sessionStatusTabs')}
+          activeTab={sessionsStatus}
+          onSelectTab={(tab) => {
+            setSessionsStatus(tab);
+            setSessionsPage(1);
+          }}
+          tabs={[
+            { id: 'all', label: t('common.all'), icon: ClipboardList },
+            { id: 'open', label: t('inventory.statuses.open'), icon: FolderOpen },
+            { id: 'closed', label: t('inventory.statuses.closed'), icon: Archive },
+          ]}
+        />
+      </PageTabLeadGroup>
 
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{t('inventory.title')}</h1>
-          <p className="text-gray-500 dark:text-gray-400">{t('inventory.subtitle')}</p>
-        </div>
-        <Button onClick={openCreateModal} leftIcon={<Plus className="h-4 w-4" />}>
-          {t('inventory.newSession')}
-        </Button>
-      </div>
-
-      <div className="flex flex-wrap gap-2">
-        {(['all', 'open', 'closed'] as const).map((key) => (
-          <button
-            key={key}
-            type="button"
-            onClick={() => {
-              setSessionsStatus(key);
-              setSessionsPage(1);
-            }}
-            className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-              sessionsStatus === key
-                ? 'bg-indigo-600 text-white'
-                : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
-            }`}
-          >
-            {key === 'all' ? t('common.all') : t(`inventory.statuses.${key}`)}
-          </button>
-        ))}
-      </div>
-
+      <div
+        role="tabpanel"
+        id={`section-panel-${sessionsStatus}`}
+        aria-labelledby={`section-tab-${sessionsStatus}`}
+      >
       <Card padding="none" className="flex flex-col">
         {sessionsQuery.isLoading ? (
           <div className="flex justify-center py-12">
@@ -1121,6 +1079,32 @@ export default function InventoryPage() {
           </>
         )}
       </Card>
+      </div>
+
+      <Modal
+        isOpen={showListHelpModal}
+        onClose={() => setShowListHelpModal(false)}
+        title={t('inventory.listHelpTitle')}
+        size="md"
+        footer={
+          <div className="flex justify-end">
+            <Button variant="secondary" onClick={() => setShowListHelpModal(false)}>
+              {t('common.close')}
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-3 text-sm text-gray-700 dark:text-gray-300">
+          <p>{t('inventory.listHelpBody')}</p>
+          <ul className="list-disc list-inside space-y-1 text-gray-600 dark:text-gray-400">
+            <li>{t('inventory.listHelpStep1')}</li>
+            <li>{t('inventory.listHelpStep2')}</li>
+            <li>{t('inventory.listHelpStep3')}</li>
+            <li>{t('inventory.listHelpStep4')}</li>
+            <li>{t('inventory.listHelpStep5')}</li>
+          </ul>
+        </div>
+      </Modal>
 
       <Modal
         isOpen={showCreateModal}

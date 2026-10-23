@@ -5,6 +5,7 @@ import { useManageEventsQuery } from '@/hooks/events/useManageEventsQuery';
 import {
   Plus,
   Calendar,
+  CalendarDays,
   Clock,
   Users,
   Tag,
@@ -14,7 +15,7 @@ import {
   CheckCircle,
   AlertCircle,
 } from 'lucide-react';
-import { Card, Button, Table, Pagination, ScrollableListRegion } from '@/components/common';
+import { Card, Button, Table, Pagination, ScrollableListRegion, ResponsiveRecordList, PageHeading, ListResultCountBar } from '@/components/common';
 import AnnouncementSendDialog from '@/components/events/AnnouncementSendDialog';
 import EventAttachmentLead from '@/components/events/EventAttachmentLead';
 import EventManageDialogs from '@/components/events/EventManageDialogs';
@@ -244,39 +245,138 @@ export default function EventsPage() {
         <ChevronLeft className="h-4 w-4" />
         {t('events.backToPublic')}
       </Link>
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{t('events.title')}</h1>
-          <p className="text-gray-500 dark:text-gray-400">
-            {showPast ? t('events.pastEvents') : t('events.currentEvents')} ·{' '}
-            {t('events.count', { count: total })}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="secondary"
-            onClick={handleTogglePast}
-            leftIcon={showPast ? <ChevronLeft className="h-4 w-4" /> : <History className="h-4 w-4" />}
-          >
-            {showPast ? t('events.showCurrent') : t('events.showPast')}
-          </Button>
-          <Button onClick={() => setShowCreateModal(true)} leftIcon={<Plus className="h-4 w-4" />}>
-            {t('events.newEvent')}
-          </Button>
-        </div>
-      </div>
+      <PageHeading
+        icon={CalendarDays}
+        title={t('events.title')}
+        subtitle={showPast ? t('events.pastEvents') : t('events.currentEvents')}
+        actions={
+          <>
+            <Button
+              variant="secondary"
+              onClick={handleTogglePast}
+              leftIcon={showPast ? <ChevronLeft className="h-4 w-4" /> : <History className="h-4 w-4" />}
+            >
+              {showPast ? t('events.showCurrent') : t('events.showPast')}
+            </Button>
+            <Button onClick={() => setShowCreateModal(true)} leftIcon={<Plus className="h-4 w-4" />}>
+              {t('events.newEvent')}
+            </Button>
+          </>
+        }
+      />
 
       {/* Events table */}
       <Card padding="none" className="flex flex-col min-h-0">
+        <ListResultCountBar>{t('events.count', { count: total })}</ListResultCountBar>
         <ScrollableListRegion aria-label={t('events.title')}>
-          <Table
-            columns={columns}
-            data={events}
-            keyExtractor={(event) => event.id}
-            onRowClick={handleRowClick}
-            isLoading={isLoading}
-            emptyMessage={showPast ? t('events.noPastEvents') : t('events.noCurrentEvents')}
+          <ResponsiveRecordList
+            desktop={
+              <Table
+                columns={columns}
+                data={events}
+                keyExtractor={(event) => event.id}
+                onRowClick={handleRowClick}
+                isLoading={isLoading}
+                emptyMessage={showPast ? t('events.noPastEvents') : t('events.noCurrentEvents')}
+              />
+            }
+            mobile={
+              isLoading && events.length === 0 ? (
+                <Table
+                  columns={columns}
+                  data={[]}
+                  keyExtractor={(event) => event.id}
+                  isLoading
+                  emptyMessage={showPast ? t('events.noPastEvents') : t('events.noCurrentEvents')}
+                />
+              ) : events.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 text-gray-500 dark:text-gray-400 px-4">
+                  {showPast ? t('events.noPastEvents') : t('events.noCurrentEvents')}
+                </div>
+              ) : (
+                <div className="rounded-lg border border-gray-200 dark:border-gray-800 overflow-hidden bg-white dark:bg-gray-900 mx-2 sm:mx-4 mb-2">
+                  {events.map((event) => {
+                    const state = announcementState[event.id];
+                    return (
+                      <button
+                        key={event.id}
+                        type="button"
+                        className="w-full text-left border-b border-gray-100 dark:border-gray-800 last:border-b-0 p-4 space-y-2 hover:bg-gray-50 dark:hover:bg-gray-800/50"
+                        onClick={() => handleRowClick(event)}
+                      >
+                        <div className="flex items-start gap-3 min-w-0">
+                          <EventAttachmentLead event={event} isSelected={false} />
+                          <div className="min-w-0 flex-1 space-y-1">
+                            <p className="font-medium text-gray-900 dark:text-white">{event.name}</p>
+                            {event.description ? (
+                              <p className="text-sm text-gray-500 dark:text-gray-400 line-clamp-2">{event.description}</p>
+                            ) : null}
+                            <span
+                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
+                                EVENT_TYPE_COLORS[event.eventType] ?? EVENT_TYPE_COLORS[6]
+                              }`}
+                            >
+                              <Tag className="h-3 w-3" />
+                              {getEventTypeLabel(event.eventType)}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-600 dark:text-gray-300">
+                          <span className="inline-flex items-center gap-1">
+                            <Calendar className="h-4 w-4 text-gray-400 shrink-0" />
+                            {formatDate(event.eventDate)}
+                          </span>
+                          {(event.startTime || event.endTime) && (
+                            <span className="inline-flex items-center gap-1 text-gray-500 dark:text-gray-400">
+                              <Clock className="h-3.5 w-3.5" />
+                              {event.startTime && event.endTime
+                                ? `${event.startTime}–${event.endTime}`
+                                : event.startTime || event.endTime}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-sm text-gray-600 dark:text-gray-300">
+                          {eventAudienceDisplayLabel(event, publicTypes, t('events.targetPublic.all'), t)}
+                        </p>
+                        <div
+                          className="pt-1"
+                          onClick={(e) => e.stopPropagation()}
+                          onKeyDown={(e) => e.stopPropagation()}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => handleSendAnnouncement(event)}
+                            disabled={state === 'loading'}
+                            className={`inline-flex min-h-[2.75rem] items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
+                              state === 'success'
+                                ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300'
+                                : state === 'error'
+                                  ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
+                                  : 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300'
+                            } disabled:opacity-50`}
+                          >
+                            {state === 'loading' ? (
+                              <div className="h-3.5 w-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                            ) : state === 'success' ? (
+                              <CheckCircle className="h-3.5 w-3.5" />
+                            ) : state === 'error' ? (
+                              <AlertCircle className="h-3.5 w-3.5" />
+                            ) : (
+                              <Mail className="h-3.5 w-3.5" />
+                            )}
+                            {state === 'success'
+                              ? t('events.announcementSent')
+                              : state === 'error'
+                                ? t('common.error')
+                                : t('events.sendAnnouncement')}
+                          </button>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )
+            }
           />
         </ScrollableListRegion>
         {totalPages > 1 && (

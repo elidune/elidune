@@ -10,6 +10,9 @@ import {
   CardHeader,
   ConfirmDialog,
   Pagination,
+  BarcodeScanField,
+  PageHeading,
+  ListResultCountBar,
 } from '@/components/common';
 import { APP_PAGE_CLASS } from '@/utils/appPageLayout';
 import { useAuth } from '@/contexts/AuthContext';
@@ -190,15 +193,12 @@ export default function WeedingPage() {
 
   return (
     <div className={APP_PAGE_CLASS}>
-      <div className="flex items-start gap-3">
-        <div className="h-11 w-11 rounded-xl bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center shrink-0">
-          <Leaf className="h-6 w-6 text-amber-700 dark:text-amber-300" aria-hidden />
-        </div>
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{t('weeding.pageTitle')}</h1>
-          <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">{t('weeding.pageSubtitle')}</p>
-        </div>
-      </div>
+      <PageHeading
+        icon={Leaf}
+        title={t('weeding.pageTitle')}
+        subtitle={t('weeding.pageSubtitle')}
+        subtitleClassName="mt-1 text-sm text-gray-600 dark:text-gray-300"
+      />
 
       <Card>
         <CardHeader title={t('weeding.filtersTitle')} />
@@ -446,7 +446,6 @@ export default function WeedingPage() {
         <Card>
           <CardHeader title={t('weeding.scanTitle')} subtitle={t('weeding.scanHint')} />
           <form
-            className="flex flex-wrap gap-2"
             onSubmit={(event) => {
               event.preventDefault();
               const code = barcode.trim();
@@ -455,24 +454,43 @@ export default function WeedingPage() {
               scanMutation.mutate(code);
             }}
           >
-            <input
-              className={formControlClass({ className: 'min-w-[16rem] flex-1' })}
+            <BarcodeScanField
               value={barcode}
               onChange={(event) => setBarcode(event.target.value)}
               placeholder={t('weeding.scanPlaceholder')}
               aria-label={t('weeding.scanPlaceholder')}
+              onCameraScan={(code) => {
+                setBarcode(code);
+                const trimmed = code.trim();
+                if (trimmed && !scanMutation.isPending) {
+                  setScanError(null);
+                  scanMutation.mutate(trimmed);
+                }
+              }}
+              scannerTitle={t('loans.scanOrEnterBarcode')}
             />
-            <Button type="submit" variant="secondary" isLoading={scanMutation.isPending}>
-              {t('weeding.scanAdd')}
-            </Button>
-            <Button
-              type="button"
-              variant={scanList.length === 0 ? 'secondary' : 'danger'}
-              disabled={scanList.length === 0}
-              onClick={() => setBatchOpen(true)}
-            >
-              {t('weeding.withdrawSelected', { count: scanList.length })}
-            </Button>
+            <div className="mt-2 hidden sm:flex">
+              <Button
+                type="button"
+                variant={scanList.length === 0 ? 'secondary' : 'danger'}
+                disabled={scanList.length === 0}
+                className="min-h-[2.75rem]"
+                onClick={() => setBatchOpen(true)}
+              >
+                {t('weeding.withdrawSelected', { count: scanList.length })}
+              </Button>
+            </div>
+            <div className="mt-2 sm:hidden">
+              <Button
+                type="button"
+                variant={scanList.length === 0 ? 'secondary' : 'danger'}
+                disabled={scanList.length === 0}
+                className="min-h-[2.75rem] w-full"
+                onClick={() => setBatchOpen(true)}
+              >
+                {t('weeding.withdrawSelected', { count: scanList.length })}
+              </Button>
+            </div>
           </form>
           {scanError ? (
             <p role="alert" className="mt-3 text-sm text-red-600 dark:text-red-400">{scanError}</p>
@@ -523,10 +541,11 @@ export default function WeedingPage() {
         destinations={listQuery.data?.totalsByDestination ?? []}
       />
 
-      <Card>
+      <Card padding="none" className="overflow-hidden">
+        <ListResultCountBar>{t('weeding.listCount', { count: total })}</ListResultCountBar>
+        <div className="px-4 sm:px-6 pt-4 sm:pt-6">
         <CardHeader
           title={t('weeding.listTitle')}
-          subtitle={t('weeding.listCount', { count: total })}
           action={
             canDispose && eligibleOnPage.length > 0 ? (
               <label className={formChoiceLabelClass()}>
@@ -566,12 +585,13 @@ export default function WeedingPage() {
             />
           ))}
         </ul>
-        <div className="mt-4">
+        <div className="mt-4 pb-4 sm:pb-6">
           <Pagination
             currentPage={filters.page}
             totalPages={totalPages}
             onPageChange={(page) => setFilters((prev) => ({ ...prev, page }))}
           />
+        </div>
         </div>
       </Card>
 

@@ -12,6 +12,7 @@ import {
   Modal,
   QueryErrorBanner,
   Table,
+  ResponsiveRecordList,
 } from '@/components/common';
 import OrderAuditPanel from '@/components/acquisitions/OrderAuditPanel';
 import OrderLineEditor from '@/components/acquisitions/OrderLineEditor';
@@ -228,6 +229,74 @@ export default function AcquisitionsOrderDetailPage() {
   const numberValue = headerNumber ?? order.orderNumber;
   const notesValue = headerNotes ?? order.notes ?? '';
 
+  const lineTableColumns = [
+    {
+      key: 'intent',
+      header: t('acquisitions.lines.item'),
+      render: (line: PurchaseOrderLine) => (
+        <div>
+          <p>{lineIntentLabel(line)}</p>
+          <p className="text-xs text-gray-500">
+            {line.biblioId ? (
+              <Link className="text-amber-700 hover:underline dark:text-amber-400" to={`/biblios/${line.biblioId}`}>
+                {t('acquisitions.lines.openBiblio')}
+              </Link>
+            ) : line.isbn ? (
+              t('acquisitions.lines.isbnIntent')
+            ) : (
+              t('acquisitions.lines.titleIntent')
+            )}
+          </p>
+        </div>
+      ),
+    },
+    {
+      key: 'qty',
+      header: t('acquisitions.lines.qty'),
+      render: (line: PurchaseOrderLine) => `${line.quantityReceived}/${line.quantityOrdered}`,
+    },
+    {
+      key: 'price',
+      header: t('acquisitions.lines.unitPrice'),
+      align: 'right' as const,
+      render: (line: PurchaseOrderLine) => formatMoney(line.unitPrice, line.currency, i18n.language),
+    },
+    {
+      key: 'left',
+      header: t('acquisitions.receive.remainingShort'),
+      render: (line: PurchaseOrderLine) => String(quantityRemaining(line)),
+    },
+    ...(editable
+      ? [{
+          key: 'actions',
+          header: t('common.actions'),
+          align: 'right' as const,
+          render: (line: PurchaseOrderLine) => (
+            <div className="flex justify-end gap-1">
+              <button
+                type="button"
+                className="rounded-lg p-1.5 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800"
+                aria-label={t('common.edit')}
+                disabled={busy}
+                onClick={() => { setLineError(null); setLineEditor(line); }}
+              >
+                <Pencil className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                className="rounded-lg p-1.5 text-gray-500 hover:bg-red-50 hover:text-red-600"
+                aria-label={t('common.delete')}
+                disabled={busy}
+                onClick={() => setDeleteLine(line)}
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </div>
+          ),
+        }]
+      : []),
+  ];
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-3">
@@ -381,77 +450,84 @@ export default function AcquisitionsOrderDetailPage() {
             </Button>
           ) : null}
         </div>
-        <Table
-          data={lines}
-          keyExtractor={(line) => line.id}
-          emptyMessage={t('acquisitions.lines.empty')}
-          columns={[
-            {
-              key: 'intent',
-              header: t('acquisitions.lines.item'),
-              render: (line) => (
-                <div>
-                  <p>{lineIntentLabel(line)}</p>
-                  <p className="text-xs text-gray-500">
-                    {line.biblioId ? (
-                      <Link className="text-amber-700 hover:underline dark:text-amber-400" to={`/biblios/${line.biblioId}`}>
-                        {t('acquisitions.lines.openBiblio')}
-                      </Link>
-                    ) : line.isbn ? (
-                      t('acquisitions.lines.isbnIntent')
-                    ) : (
-                      t('acquisitions.lines.titleIntent')
-                    )}
-                  </p>
-                </div>
-              ),
-            },
-            {
-              key: 'qty',
-              header: t('acquisitions.lines.qty'),
-              render: (line) => `${line.quantityReceived}/${line.quantityOrdered}`,
-            },
-            {
-              key: 'price',
-              header: t('acquisitions.lines.unitPrice'),
-              align: 'right',
-              render: (line) => formatMoney(line.unitPrice, line.currency, i18n.language),
-            },
-            {
-              key: 'left',
-              header: t('acquisitions.receive.remainingShort'),
-              render: (line) => String(quantityRemaining(line)),
-            },
-            ...(editable
-              ? [{
-                  key: 'actions',
-                  header: t('common.actions'),
-                  align: 'right' as const,
-                  render: (line: PurchaseOrderLine) => (
-                    <div className="flex justify-end gap-1">
-                      <button
-                        type="button"
-                        className="rounded-lg p-1.5 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800"
-                        aria-label={t('common.edit')}
-                        disabled={busy}
-                        onClick={() => { setLineError(null); setLineEditor(line); }}
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </button>
-                      <button
-                        type="button"
-                        className="rounded-lg p-1.5 text-gray-500 hover:bg-red-50 hover:text-red-600"
-                        aria-label={t('common.delete')}
-                        disabled={busy}
-                        onClick={() => setDeleteLine(line)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
-                  ),
-                }]
-              : []),
-          ]}
+        <ResponsiveRecordList
+          desktop={
+            <Table
+              data={lines}
+              keyExtractor={(line) => line.id}
+              emptyMessage={t('acquisitions.lines.empty')}
+              columns={lineTableColumns}
+            />
+          }
+          mobile={
+            lines.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12 text-gray-500 dark:text-gray-400 px-4">
+                {t('acquisitions.lines.empty')}
+              </div>
+            ) : (
+              <div className="rounded-lg border border-gray-200 dark:border-gray-800 overflow-hidden bg-white dark:bg-gray-900 mx-2 sm:mx-4 mb-2">
+                {lines.map((line) => (
+                  <div
+                    key={line.id}
+                    className="border-b border-gray-100 dark:border-gray-800 last:border-b-0 p-4 space-y-2"
+                  >
+                    <p className="font-medium text-gray-900 dark:text-white">{lineIntentLabel(line)}</p>
+                    <p className="text-xs text-gray-500">
+                      {line.biblioId ? (
+                        <Link className="text-amber-700 hover:underline dark:text-amber-400" to={`/biblios/${line.biblioId}`}>
+                          {t('acquisitions.lines.openBiblio')}
+                        </Link>
+                      ) : line.isbn ? (
+                        t('acquisitions.lines.isbnIntent')
+                      ) : (
+                        t('acquisitions.lines.titleIntent')
+                      )}
+                    </p>
+                    <dl className="grid grid-cols-2 gap-2 text-sm text-gray-600 dark:text-gray-300">
+                      <div>
+                        <dt className="text-xs text-gray-500">{t('acquisitions.lines.qty')}</dt>
+                        <dd>{line.quantityReceived}/{line.quantityOrdered}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs text-gray-500">{t('acquisitions.receive.remainingShort')}</dt>
+                        <dd>{quantityRemaining(line)}</dd>
+                      </div>
+                      <div className="col-span-2">
+                        <dt className="text-xs text-gray-500">{t('acquisitions.lines.unitPrice')}</dt>
+                        <dd>{formatMoney(line.unitPrice, line.currency, i18n.language)}</dd>
+                      </div>
+                    </dl>
+                    {editable ? (
+                      <div className="flex gap-2 pt-1">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="secondary"
+                          className="min-h-[2.75rem]"
+                          leftIcon={<Pencil className="h-4 w-4" />}
+                          disabled={busy}
+                          onClick={() => { setLineError(null); setLineEditor(line); }}
+                        >
+                          {t('common.edit')}
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="danger"
+                          className="min-h-[2.75rem]"
+                          leftIcon={<Trash2 className="h-4 w-4" />}
+                          disabled={busy}
+                          onClick={() => setDeleteLine(line)}
+                        >
+                          {t('common.delete')}
+                        </Button>
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            )
+          }
         />
       </Card>
 

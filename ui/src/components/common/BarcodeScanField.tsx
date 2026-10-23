@@ -1,16 +1,13 @@
-import { forwardRef, useCallback, useRef, useState, type ComponentProps, type ReactNode } from 'react';
+import { forwardRef, useCallback, useRef, useState, type ComponentProps } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Camera } from 'lucide-react';
 import Input from './Input';
-import Button from './Button';
 import BarcodeCameraScannerModal from './BarcodeCameraScannerModal';
 import { getCameraBlockReason, requestCameraStream, stopMediaStream } from '@/utils/cameraSupport';
 
 export type BarcodeScanFieldProps = Omit<ComponentProps<typeof Input>, 'className'> & {
   onCameraScan: (barcode: string) => void;
   scannerTitle?: string;
-  /** Extra controls between the input and the camera button (e.g. submit). */
-  suffix?: ReactNode;
   wrapperClassName?: string;
   inputClassName?: string;
 };
@@ -20,7 +17,6 @@ const BarcodeScanField = forwardRef<HTMLInputElement, BarcodeScanFieldProps>(
     {
       onCameraScan,
       scannerTitle,
-      suffix,
       wrapperClassName = '',
       inputClassName = '',
       disabled,
@@ -60,23 +56,29 @@ const BarcodeScanField = forwardRef<HTMLInputElement, BarcodeScanFieldProps>(
       }
     }, []);
 
+    const cameraButton = (
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => void openScanner()}
+        className="rounded-md p-1.5 text-gray-500 hover:bg-gray-100 hover:text-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 disabled:opacity-50 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200 touch-manipulation"
+        aria-label={t('common.barcodeScanner.openCamera')}
+      >
+        <Camera className="h-4 w-4" aria-hidden />
+      </button>
+    );
+
     return (
       <>
-        <div className={`flex items-end gap-2 ${wrapperClassName}`}>
-          <div className="min-w-0 flex-1">
-            <Input ref={ref} disabled={disabled} className={inputClassName} {...inputProps} />
-          </div>
-          {suffix}
-          <Button
-            type="button"
-            variant="secondary"
-            className="h-10 shrink-0 px-3"
+        <div className={wrapperClassName}>
+          <Input
+            ref={ref}
             disabled={disabled}
-            onClick={() => void openScanner()}
-            aria-label={t('common.barcodeScanner.openCamera')}
-          >
-            <Camera className="h-4 w-4" />
-          </Button>
+            className={`w-full min-w-0 ${inputClassName}`}
+            rightIcon={cameraButton}
+            {...inputProps}
+            enterKeyHint={inputProps.enterKeyHint ?? 'go'}
+          />
         </div>
 
         <BarcodeCameraScannerModal

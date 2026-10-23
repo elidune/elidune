@@ -1,15 +1,13 @@
 import { ChevronRight, Edit, Trash2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { BiblioShort, Author } from '@/types';
-import { CopyDepositBadges } from '@/components/items/DepositBadge';
 import { staffCopyAvailabilityLabel } from '@/utils/itemAvailability';
 import { formatIsbnDisplay } from '@/utils/isbnDisplay';
+import { LoanMediaTypeBadge } from '@/utils/mediaTypeIcon';
 import { LIST_ROW_ICON_BTN, LIST_ROW_ICON_BTN_DANGER } from '@/utils/listRowActionIconClass';
 
 interface BiblioCatalogItemCardProps {
   item: BiblioShort;
-  mediaIcon: React.ReactNode;
-  mediaBgClassName: string;
   formatAuthor: (author?: Author | null) => string;
   notSpecified: string;
   statusBadge: React.ReactNode;
@@ -24,8 +22,6 @@ interface BiblioCatalogItemCardProps {
 
 export default function BiblioCatalogItemCard({
   item,
-  mediaIcon,
-  mediaBgClassName,
   formatAuthor,
   notSpecified,
   statusBadge,
@@ -47,11 +43,11 @@ export default function BiblioCatalogItemCard({
         onClick={onOpen}
         className="flex-1 min-w-0 text-left flex items-stretch gap-3 p-4"
       >
-        <div
-          className={`flex-shrink-0 h-12 w-12 rounded-lg flex items-center justify-center ${mediaBgClassName}`}
-        >
-          {mediaIcon}
-        </div>
+        <LoanMediaTypeBadge
+          mediaType={item.mediaType}
+          size="catalog"
+          depositCopies={item.items}
+        />
         <div className="flex-1 min-w-0 space-y-1">
           <p className="font-medium text-gray-900 dark:text-white line-clamp-2">
             {item.title || notSpecified}
@@ -64,7 +60,6 @@ export default function BiblioCatalogItemCard({
             <span className="text-xs text-gray-500 dark:text-gray-400">{specimensText}</span>
             {statusBadge}
           </div>
-          <CopyDepositBadges copies={item.items} />
         </div>
         <div className="flex-shrink-0 self-center text-gray-400 dark:text-gray-500">
           <ChevronRight className="h-5 w-5" aria-hidden />
