@@ -185,12 +185,12 @@ async fn loans_only_card_scan_is_minimal_and_users_read_is_full() {
     let (biblio_a, item_a) = borrowable_item(&app, &admin_token).await;
     let (biblio_b, item_b) = borrowable_item(&app, &admin_token).await;
     let (biblio_c, item_c) = borrowable_item(&app, &admin_token).await;
-    let site_a: i64 = sqlx::query_scalar(r#"INSERT INTO sources (name, is_archive, "default") VALUES ($1, 0, FALSE) RETURNING id"#)
+    let site_a: i64 = sqlx::query_scalar(r#"INSERT INTO sites (name, is_archive, "default") VALUES ($1, 0, FALSE) RETURNING id"#)
         .bind(format!("site-a-{}", fixtures::unique_suffix()))
         .fetch_one(app.state.services.repository.pool())
         .await
         .expect("site a");
-    let site_b: i64 = sqlx::query_scalar(r#"INSERT INTO sources (name, is_archive, "default") VALUES ($1, 0, FALSE) RETURNING id"#)
+    let site_b: i64 = sqlx::query_scalar(r#"INSERT INTO sites (name, is_archive, "default") VALUES ($1, 0, FALSE) RETURNING id"#)
         .bind(format!("site-b-{}", fixtures::unique_suffix()))
         .fetch_one(app.state.services.repository.pool())
         .await

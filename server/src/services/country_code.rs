@@ -5,8 +5,6 @@
 //! kept only when it is a country in the shared zone table (`fr` → `FR`). The
 //! non-ISO token `uk` is an alias for GB. Language codes `el` and `en` are not
 //! countries and are rejected, as is any other unrecognized value.
-//! Migration `043_library_country_iso.sql` applies the same rules and
-//! sets every unrecognized `addr_country` to NULL. It does not change the zone column.
 //! French overseas territories are their own codes (`Réunion` → `RE`), never `FR`.
 
 use crate::error::{AppError, AppResult};
@@ -560,16 +558,4 @@ mod tests {
         assert_eq!(normalize_optional_country(Some("france".into())).unwrap().as_deref(), Some("FR"));
     }
 
-    #[test]
-    fn migration_lists_every_alias() {
-        let sql = include_str!("../../migrations/043_library_country_iso.sql");
-        for (alias, code) in COUNTRY_ALIASES {
-            let escaped = alias.replace('\'', "''");
-            let needle = format!("WHEN '{escaped}' THEN '{code}'");
-            assert!(sql.contains(&needle), "migration missing alias {alias} → {code}");
-        }
-        assert!(sql.contains("SET addr_country = NULL"));
-        let executable = sql.lines().map(|line| line.split("--").next().unwrap_or("")).collect::<Vec<_>>().join("\n");
-        assert!(!executable.to_lowercase().contains("timezone"), "migration must not touch the zone column");
-    }
 }

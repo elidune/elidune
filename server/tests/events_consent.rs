@@ -1,4 +1,4 @@
-//! Event-announcement consent: migration backfill, recipient filter, unsubscribe, notice.
+//! Event-announcement consent: backfill helper, recipient filter, unsubscribe, notice.
 
 mod common;
 
@@ -8,25 +8,6 @@ use common::fixtures;
 use common::TestApp;
 use http_body_util::BodyExt;
 use serde_json::json;
-
-#[test]
-fn backfill_sql_opts_in_active_non_children_without_using_reminders() {
-    let sql = include_str!("../migrations/037_events_consent.sql");
-    let lower = sql.lines().filter(|line| !line.trim_start().starts_with("--")).collect::<Vec<_>>().join("\n").to_ascii_lowercase();
-    assert!(!lower.contains("receive_reminders"), "backfill must not copy the overdue-reminder flag");
-    assert!(sql.contains("events_consent_source = 'migration'"));
-    assert!(sql.contains("u.status <> 'deleted'"));
-    assert!(sql.contains("pt.name = 'child'"), "a child is public_types.name = 'child', the same test #81 uses");
-    assert!(!lower.contains("birthdate"), "age is not how this codebase identifies a child account");
-    assert!(
-        sql.contains("u.account_type NOT IN ('librarian', 'admin')"),
-        "staff logins are account_types.code, stored on users.account_type"
-    );
-    assert!(
-        lower.contains("u.expiry_at is not null") && lower.contains("interval '1 year'"),
-        "only a subscription that ended more than one year ago is excluded"
-    );
-}
 
 #[tokio::test]
 async fn backfill_sets_consent_for_active_non_children_only() {
@@ -348,12 +329,28 @@ async fn desk_and_profile_stamp_source_and_child_consent_is_ignored() {
 }
 
 fn scoped_backfill_sql() -> String {
-    let migration = include_str!("../migrations/037_events_consent.sql");
-    let start = migration.find("-- BEGIN EVENTS CONSENT BACKFILL").expect("start marker");
-    let end = migration.find("-- END EVENTS CONSENT BACKFILL").expect("end marker");
-    let statement = migration[start..end].lines().filter(|line| !line.trim_start().starts_with("--")).collect::<Vec<_>>().join("\n");
-    let statement = statement.trim().trim_end_matches(';').trim();
-    format!("{statement}\n  AND u.id = ANY($1::bigint[])")
+    // Former migration 037 backfill, scoped to fixture ids for tests.
+    let statement = r#"
+UPDATE users AS u
+SET
+    events_consent_at = NOW(),
+    events_consent_source = 'migration',
+    events_consent_changed_at = NOW()
+WHERE (u.status IS NULL OR u.status <> 'deleted')
+  AND u.account_type NOT IN ('librarian', 'admin')
+  AND NOT (
+      u.expiry_at IS NOT NULL
+      AND u.expiry_at < NOW() - INTERVAL '1 year'
+  )
+  AND NOT EXISTS (
+      SELECT 1
+      FROM public_types AS pt
+      WHERE pt.id = u.public_type
+        AND pt.name = 'child'
+  )
+"#;
+    format!("{statement}
+  AND u.id = ANY($1::bigint[])")
 }
 
 async fn clear_and_backfill(app: &TestApp, ids: &[i64]) {

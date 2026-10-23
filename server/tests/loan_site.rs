@@ -36,7 +36,7 @@ async fn seed_item(app: &TestApp, token: &str, site_id: i64) -> (i64, String) {
 }
 
 async fn library_default_site(app: &TestApp) -> i64 {
-    let sql = format!("SELECT id FROM sources WHERE id = {}", elidune_server::services::calendar::LIBRARY_DEFAULT_SITE_ID_SQL);
+    let sql = format!("SELECT id FROM sites WHERE id = {}", elidune_server::services::calendar::LIBRARY_DEFAULT_SITE_ID_SQL);
     sqlx::query_scalar(&sql).fetch_one(app.state.services.repository.pool()).await.expect("library default site")
 }
 
@@ -249,7 +249,7 @@ async fn deleting_a_site_referenced_by_an_archive_is_refused() {
         .expect("archived site");
     assert_eq!(archived, Some(desk));
 
-    let error = sqlx::query("DELETE FROM sources WHERE id = $1")
+    let error = sqlx::query("DELETE FROM sites WHERE id = $1")
         .bind(desk)
         .execute(pool)
         .await

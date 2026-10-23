@@ -77,17 +77,6 @@ fn checkout_body(user_id: i64, item_id: i64, force: bool, reason: Option<&str>) 
     payload
 }
 
-#[test]
-fn migration_062_copies_every_settings_write_type() {
-    let sql = include_str!("../migrations/062_circulation_override_rights.sql");
-    let update = sql.split("UPDATE account_types").nth(1).expect("update");
-    assert!(update.contains("circulation_override_rights = 'w'"));
-    assert!(update.contains("WHERE settings_rights = 'w'"));
-    let predicate = update.split("WHERE").nth(1).expect("predicate").to_ascii_lowercase();
-    assert!(!predicate.contains("code"), "{predicate}");
-    assert!(!predicate.contains("admin"), "{predicate}");
-}
-
 #[tokio::test]
 async fn built_in_types_keep_today_force_capability() {
     let Some(app) = TestApp::spawn().await else {

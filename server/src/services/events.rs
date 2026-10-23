@@ -602,14 +602,10 @@ mod audience_tests {
     }
 
     #[test]
-    fn migration_036_keeps_legacy_public_type_column() {
-        let sql = include_str!("../../migrations/036_events_audiences.sql");
-        let upper = sql.to_ascii_uppercase();
-        assert!(!upper.contains("DROP COLUMN"), "legacy public_type stays until a later migration");
-        assert!(!upper.contains("DROP CONSTRAINT"), "legacy public_type FK stays until a later migration");
-        assert!(sql.contains("CREATE TABLE IF NOT EXISTS event_audiences"));
-        assert!(sql.contains("ADD COLUMN IF NOT EXISTS all_audiences"));
-        assert!(sql.contains("WHERE public_type IS NULL"));
+    fn initial_schema_has_event_audiences() {
+        let sql = include_str!("../../migrations/001_initial_schema.sql");
+        assert!(sql.contains("CREATE TABLE event_audiences"));
+        assert!(sql.contains("all_audiences"));
     }
 }
 

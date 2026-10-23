@@ -703,7 +703,7 @@ async fn return_after_closure_is_not_fined_for_closed_days() {
 }
 
 async fn library_default_site(app: &TestApp) -> i64 {
-    let sql = format!("SELECT id FROM sources WHERE id = {}", elidune_server::services::calendar::LIBRARY_DEFAULT_SITE_ID_SQL);
+    let sql = format!("SELECT id FROM sites WHERE id = {}", elidune_server::services::calendar::LIBRARY_DEFAULT_SITE_ID_SQL);
     sqlx::query_scalar(&sql).fetch_one(app.state.services.repository.pool()).await.expect("library default site")
 }
 

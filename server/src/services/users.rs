@@ -336,8 +336,7 @@ impl UsersService {
     ///
     /// This is the only reader-create entry point (`POST /users`, and any future
     /// self-registration handler). There is no separate CSV or batch user import
-    /// in the HTTP API. Legacy file import is `database/migrate_data.py`, which
-    /// uses the same age rule and records per-row errors instead of aborting.
+    /// in the HTTP API.
     ///
     /// `consent_source` is chosen by the caller from the route (`desk` for staff
     /// create, `registration` for a future self-registration handler). It is

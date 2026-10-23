@@ -20,7 +20,7 @@ fn command(lender_id: i64, reference: &str, site_id: i64, selection: Selection, 
 }
 
 async fn source(pool: &PgPool, name: &str) -> i64 {
-    sqlx::query_scalar("INSERT INTO sources (name) VALUES ($1) RETURNING id")
+    sqlx::query_scalar("INSERT INTO sites (name) VALUES ($1) RETURNING id")
         .bind(name)
         .fetch_one(pool)
         .await

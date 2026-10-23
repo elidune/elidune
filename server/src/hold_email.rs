@@ -268,18 +268,6 @@ mod tests {
         assert!(!html.contains("disponible au retrait"));
     }
 
-    #[test]
-    fn migration_rewrites_only_the_shipped_french_default() {
-        let sql = include_str!("../migrations/044_hold_ready_french_wording.sql");
-        assert!(sql.contains("Réservation disponible"));
-        assert!(sql.contains("Votre réservation est disponible"));
-        assert!(sql.contains("Le document que vous avez réservé vous attend :"));
-        assert!(sql.contains("À retirer jusqu'au {{expires_at}} inclus."));
-        assert!(sql.contains("Votre mise en attente est prête au retrait"));
-        assert!(sql.contains("AND name = 'Réservation prête au retrait'"));
-        assert!(sql.contains("que vous aviez mis en attente"));
-        assert!(!sql.contains("{{pickup_site}}"), "pickup site wording belongs to migration 056");
-    }
 
     fn hold_ready_file(language: &str) -> EmailTemplate {
         let path = format!("{}/data/email_templates/hold_ready.{language}.json", env!("CARGO_MANIFEST_DIR"));
@@ -359,22 +347,4 @@ mod tests {
         assert!(!plain.contains("Home Site"));
     }
 
-    #[test]
-    fn migration_056_rewrites_only_unmodified_hold_ready_rows() {
-        let sql = include_str!("../migrations/056_hold_ready_pickup_site.sql");
-        for language in ["french", "english"] {
-            let template = hold_ready_file(language);
-            assert!(sql.contains(template.subject.as_str()), "{language} subject missing from migration");
-            assert!(sql.contains(template.body_plain.as_str()), "{language} plain body missing from migration");
-            let html = template.body_html.as_deref().unwrap_or("");
-            assert!(sql.contains(html), "{language} html missing from migration");
-        }
-        assert!(sql.contains("template_id = 'hold_ready'"));
-        assert!(sql.contains("AND language = 'french'"));
-        assert!(sql.contains("AND language = 'english'"));
-        assert!(sql.contains("Le document que vous avez réservé vous attend :"));
-        assert!(sql.contains("The following item you placed on hold is now available:"));
-        assert!(sql.contains("{{pickup_site}}"));
-        assert!(!sql.to_lowercase().contains("account_type"));
-    }
 }

@@ -109,7 +109,7 @@ fn snowflake() -> i64 {
 }
 
 async fn insert_source(app: &TestApp, name: &str) -> i64 {
-    sqlx::query_scalar(r#"INSERT INTO sources (name, is_archive, "default") VALUES ($1, 0, FALSE) RETURNING id"#)
+    sqlx::query_scalar(r#"INSERT INTO sites (name, is_archive, "default") VALUES ($1, 0, FALSE) RETURNING id"#)
         .bind(name)
         .fetch_one(app.state.services.repository.pool())
         .await
@@ -161,7 +161,7 @@ async fn withdraw_validates_reason_and_refuses_loan_transit_and_pickup_hold() {
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "on loan: {on_loan}");
     assert_eq!(on_loan["code"], "item_on_loan");
 
-    let from_site: i64 = sqlx::query_scalar("SELECT id FROM sources ORDER BY id LIMIT 1")
+    let from_site: i64 = sqlx::query_scalar("SELECT id FROM sites ORDER BY id LIMIT 1")
         .fetch_one(app.state.services.repository.pool())
         .await
         .expect("source");

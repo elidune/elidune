@@ -254,6 +254,8 @@ export DATABASE_URL="postgres://elidune:elidune@localhost:5432/elidune"
 sqlx migrate run
 ```
 
+If the database already applied the former incremental migrations (`002`–`072`), see [Squashed migrations](#squashed-migrations-existing-databases) before deploying.
+
 See sections above for Docker-on-host and manual install examples if you need step-by-step SQL.
 
 ### First setup (no default administrator)
@@ -277,15 +279,15 @@ curl -s "http://localhost:8080/api/v1/items?title=tolkien" \
   -H "Authorization: Bearer TOKEN"
 ```
 
-## Migration from the legacy system
+## Squashed migrations (existing databases)
+
+Fresh installs only need `sqlx migrate run` (single file `001_initial_schema.sql`).
+
+Databases that already applied the former `002`–`072` chain must realign `_sqlx_migrations` **once** before deploying a build that only contains `001`:
 
 ```bash
-python scripts/migrate_data.py \
-  --source-db "postgres://old_user:old_pass@old_host/old_db" \
-  --target-db "postgres://elidune:elidune@localhost/elidune"
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f database/reset_sqlx_migrations.sql
 ```
-
-Sample legacy data flow is described in older docs if you maintain `scripts/sample_legacy_data.sql`.
 
 ## Project layout
 

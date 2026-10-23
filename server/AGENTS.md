@@ -96,11 +96,10 @@ Special variants for UI confirmation flows:
 
 ## Database & Migrations
 
-- Migrations live in `migrations/` as numbered SQL files (`NNN_description.sql`).
+- Canonical schema: `migrations/001_initial_schema.sql` (also linked as `database/init_database.sql`).
 - Run via SQLx CLI: `sqlx migrate run`.
-- Never modify an existing migration; always add a new numbered file.
-- always update the `scripts/migrate_data.py` script when changes are made or on  migrations/ changes
-- keep the `scripts/init_database.py` up to date when changes are made or on  migrations/ changes
+- Never modify an applied migration on shared/prod DBs; add a new numbered file (`002_…`) for schema changes.
+- Existing DBs that were migrated through the former `002`–`072` chain: run once `database/reset_sqlx_migrations.sql` before deploying a build that only ships `001`.
 
 ### Transaction ownership
 

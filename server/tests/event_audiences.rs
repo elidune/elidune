@@ -1,4 +1,4 @@
-//! Event audiences: API create/update/read and legacy column migration.
+//! Event audiences: API create/update/read.
 
 mod common;
 
@@ -9,81 +9,6 @@ use common::fixtures;
 use common::TestApp;
 use serde_json::json;
 use sqlx::Row;
-
-fn legacy_copy_statements() -> Vec<String> {
-    let migration = include_str!("../migrations/036_events_audiences.sql");
-    let start = migration.find("-- BEGIN LEGACY AUDIENCE COPY").expect("start marker");
-    let end = migration.find("-- END LEGACY AUDIENCE COPY").expect("end marker");
-    migration[start..end]
-        .lines()
-        .filter(|line| !line.trim_start().starts_with("--"))
-        .collect::<Vec<_>>()
-        .join("\n")
-        .split(';')
-        .map(|statement| statement.trim().to_string())
-        .filter(|statement| !statement.is_empty())
-        .collect()
-}
-
-#[tokio::test]
-async fn migration_copies_null_and_single_public_type() {
-    if std::env::var("DATABASE_URL").is_err() && std::env::var("CI").is_err() {
-        eprintln!("Skipping integration test: DATABASE_URL not set");
-        return;
-    }
-    let url = std::env::var("DATABASE_URL").expect("DATABASE_URL");
-    let pool = sqlx::postgres::PgPoolOptions::new().max_connections(1).connect(&url).await.expect("connect");
-    sqlx::migrate!("./migrations").run(&pool).await.expect("migrate");
-
-    let mut tx = pool.begin().await.expect("begin");
-
-    sqlx::query(
-        r#"
-        CREATE TEMP TABLE events (
-            id BIGINT PRIMARY KEY,
-            public_type VARCHAR(50),
-            all_audiences BOOLEAN NOT NULL DEFAULT FALSE
-        ) ON COMMIT DROP
-        "#,
-    )
-    .execute(&mut *tx)
-    .await
-    .expect("temp events");
-
-    sqlx::query(
-        r#"
-        CREATE TEMP TABLE event_audiences (
-            event_id BIGINT NOT NULL,
-            audience VARCHAR(50) NOT NULL,
-            PRIMARY KEY (event_id, audience)
-        ) ON COMMIT DROP
-        "#,
-    )
-    .execute(&mut *tx)
-    .await
-    .expect("temp event_audiences");
-
-    sqlx::query("INSERT INTO events (id, public_type, all_audiences) VALUES (1, NULL, FALSE), (2, 'child', FALSE)")
-        .execute(&mut *tx)
-        .await
-        .expect("fixture rows");
-
-    for statement in legacy_copy_statements() {
-        sqlx::query(&statement).execute(&mut *tx).await.unwrap_or_else(|err| panic!("legacy copy failed: {statement}\n{err}"));
-    }
-
-    let all_flag: bool = sqlx::query_scalar("SELECT all_audiences FROM events WHERE id = 1").fetch_one(&mut *tx).await.unwrap();
-    assert!(all_flag, "NULL public_type becomes all_audiences");
-    let all_links: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM event_audiences WHERE event_id = 1").fetch_one(&mut *tx).await.unwrap();
-    assert_eq!(all_links, 0);
-
-    let child_flag: bool = sqlx::query_scalar("SELECT all_audiences FROM events WHERE id = 2").fetch_one(&mut *tx).await.unwrap();
-    assert!(!child_flag);
-    let audience: String = sqlx::query_scalar("SELECT audience FROM event_audiences WHERE event_id = 2").fetch_one(&mut *tx).await.unwrap();
-    assert_eq!(audience, "child");
-
-    tx.rollback().await.unwrap();
-}
 
 #[tokio::test]
 async fn event_audiences_create_update_read_and_reject_empty() {

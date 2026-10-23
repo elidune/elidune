@@ -97,14 +97,4 @@ mod tests {
         }
     }
 
-    #[test]
-    fn migration_keeps_only_codes_from_this_table() {
-        let sql = include_str!("../../migrations/043_library_country_iso.sql");
-        assert!(sql.contains("SET addr_country = NULL"));
-        let executable = sql.lines().map(|line| line.split("--").next().unwrap_or("")).collect::<Vec<_>>().join("\n");
-        assert!(!executable.to_lowercase().contains("timezone"));
-        for code in zones_by_country().keys() {
-            assert!(sql.contains(&format!("'{code}'")), "migration missing country {code}");
-        }
-    }
 }
