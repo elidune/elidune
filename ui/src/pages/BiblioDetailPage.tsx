@@ -285,7 +285,7 @@ export default function BiblioDetailPage() {
 
     setDeleteSpecimenLoading(true);
     setDeleteSpecimenApiError(null);
-    const apiForce = force || (selectedSpecimen.deposit && deleteSpecimenDepositConfirm);
+    const apiForce = Boolean(force || (selectedSpecimen.deposit && deleteSpecimenDepositConfirm));
     try {
       await api.deleteItem(selectedSpecimen.id, apiForce);
       setShowDeleteSpecimenModal(false);
