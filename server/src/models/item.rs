@@ -152,6 +152,7 @@ impl ReturnScanCopy {
 /// 3. `onHold` — a hold assigned to this copy with status `to_pick` or `ready`.
 /// 4. `toSearch` — `circulation_status` 4 (to be searched; still in the public list).
 /// 5. `unavailable` — any other non-borrowable state:
+///    deposit copy scanned out to the lender (`deposit_returned_at` set);
 ///    reception incomplete (`borrowable` false);
 ///    lost (`circulation_status` 1);
 ///    damaged (`circulation_status` 2, including in repair);

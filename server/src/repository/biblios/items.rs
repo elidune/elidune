@@ -20,7 +20,8 @@ use crate::models::item::WeedingStatus;
 /// `copy_state.availability` applies this precedence (first match wins):
 /// `onLoan`, `inTransit`, `onHold` (`to_pick`/`ready`), `toSearch`
 /// (`circulation_status` 4), `unavailable` (not borrowable, lost, damaged,
-/// claimed returned, declared missing, withdrawn), else `available`.
+/// claimed returned, declared missing, withdrawn, deposit returned to lender),
+/// else `available`.
 const ITEM_STATE_JOINS: &str = r#"
 LEFT JOIN LATERAL (
     SELECT l.id, l.expiry_at
@@ -52,6 +53,7 @@ LEFT JOIN LATERAL (
         WHEN active_transit.id IS NOT NULL THEN 'inTransit'
         WHEN assigned_hold.user_id IS NOT NULL THEN 'onHold'
         WHEN COALESCE(i.circulation_status, 0) = 4 THEN 'toSearch'
+        WHEN i.deposit_returned_at IS NOT NULL THEN 'unavailable'
         WHEN i.borrowable = FALSE
           OR i.weeding_status = 'withdrawn'
           OR COALESCE(i.circulation_status, 0) IN (1, 2, 3, 5)
@@ -447,66 +449,227 @@ impl Repository {
         Ok(item)
     }
 
-    /// Delete an item (physical copy — soft delete, sets archived_at).
+    /// Delete an item (physical copy — soft delete, sets `archived_at`).
     ///
-    /// `force` does not bypass circulation history. A copy with any loan, hold, or fine
-    /// must be weeded instead.
+    /// **Own stock:** for cataloguing mistakes only. Open circulation, unpaid fines, or past
+    /// loan history require weeding or withdrawal instead. `force` does not bypass that.
+    ///
+    /// **Deposit copies:** allowed while the batch is `active` after explicit confirmation
+    /// (`force=true`). The first attempt returns `deposit_item_delete_needs_confirmation`.
+    /// Not a substitute for scan-out — batches in `returning` must use the deposit return workflow.
+    /// Past loans in `loans_archives` do not block deposit deletes.
     #[tracing::instrument(skip(self), err)]
     pub async fn items_delete(&self, id: i64, force: bool) -> AppResult<()> {
-        let _ = force;
         let now = Utc::now();
 
-        let (has_loan, has_hold, has_fine): (bool, bool, bool) = sqlx::query_as(
+        let mut tx = self.pool.begin().await?;
+
+        let locked: Option<(Option<i64>, Option<String>)> = sqlx::query_as(
             r#"
-            SELECT
-                (
-                    EXISTS (SELECT 1 FROM loans WHERE item_id = $1)
-                    OR EXISTS (SELECT 1 FROM loans_archives WHERE item_id = $1)
-                ),
-                EXISTS (SELECT 1 FROM holds WHERE item_id = $1),
-                (
-                    EXISTS (
-                        SELECT 1 FROM fines f
-                        JOIN loans l ON l.id = f.loan_id
-                        WHERE l.item_id = $1
-                    )
-                    OR EXISTS (
-                        SELECT 1 FROM fines f
-                        JOIN loans_archives la ON la.id = f.loan_id
-                        WHERE la.item_id = $1
-                    )
-                )
+            SELECT i.deposit_batch_id, db.status
+            FROM items i
+            LEFT JOIN deposit_batches db ON db.id = i.deposit_batch_id
+            WHERE i.id = $1 AND i.archived_at IS NULL
+            FOR UPDATE OF i
             "#,
         )
         .bind(id)
-        .fetch_one(&self.pool)
+        .fetch_optional(&mut *tx)
         .await?;
+        let Some((deposit_batch_id, batch_status)) = locked else {
+            return Err(AppError::NotFound(format!("Item {id} not found")));
+        };
 
-        if has_loan || has_hold || has_fine {
-            let mut kinds = Vec::new();
-            if has_loan {
-                kinds.push("loan");
+        if deposit_batch_id.is_some() {
+            self.items_delete_deposit_copy_tx(&mut tx, id, batch_status.as_deref(), now, force)
+                .await?;
+        } else {
+            let _ = force;
+            self.items_delete_own_stock_tx(&mut tx, id, now).await?;
+        }
+
+        tx.commit().await?;
+        Ok(())
+    }
+
+    async fn items_delete_deposit_copy_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        id: i64,
+        batch_status: Option<&str>,
+        now: chrono::DateTime<chrono::Utc>,
+        force: bool,
+    ) -> AppResult<()> {
+        match batch_status {
+            Some("returning") => {
+                return Err(AppError::coded(
+                    422,
+                    error_code::DEPOSIT_ITEM_DELETE_USE_BATCH_RETURN,
+                    "This copy belongs to a deposit batch that is being returned to the lender. \
+                     Use scan-out in the deposit batch to record that it was sent back; \
+                     catalog delete is not available during batch return.",
+                ));
             }
-            if has_hold {
-                kinds.push("hold");
+            Some("closed") => {
+                return Err(AppError::coded(
+                    422,
+                    error_code::DEPOSIT_ITEM_DELETE_USE_BATCH_RETURN,
+                    "This copy belongs to a closed deposit batch and is no longer on the active catalog.",
+                ));
             }
-            if has_fine {
-                kinds.push("fine");
+            Some("active") | None => {}
+            Some(other) => {
+                return Err(AppError::Internal(format!("Unknown deposit batch status: {other}")));
             }
+        }
+
+        let on_loan: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM loans WHERE item_id = $1 AND returned_at IS NULL)",
+        )
+        .bind(id)
+        .fetch_one(&mut **tx)
+        .await?;
+        if on_loan {
+            return Err(AppError::coded(
+                422,
+                error_code::DEPOSIT_ITEM_ON_LOAN,
+                "This deposit copy is still on loan. Check it in at the desk before removing it from the catalog.",
+            ));
+        }
+
+        if self.item_has_unpaid_fine_tx(tx, id).await? {
+            return Err(AppError::coded(
+                422,
+                error_code::DEPOSIT_ITEM_DELETE_UNPAID_FINE,
+                "This deposit copy has an unpaid fine. Settle or waive the fine before removing it from the catalog.",
+            ));
+        }
+
+        if !force {
+            return Err(AppError::coded(
+                409,
+                error_code::DEPOSIT_ITEM_DELETE_NEEDS_CONFIRMATION,
+                "This copy belongs to a lender deposit. Removing it from the catalog does not send it back to the \
+                 lender — use scan-out in the deposit batch for that. Confirm with force=true only to fix a cataloguing \
+                 mistake (the copy will count as missing when the batch is closed unless it was scanned out first).",
+            ));
+        }
+
+        self.holds_release_deposit_copies_tx(tx, &[id]).await?;
+
+        sqlx::query("UPDATE items SET archived_at = $1, updated_at = $1 WHERE id = $2 AND archived_at IS NULL")
+            .bind(now)
+            .bind(id)
+            .execute(&mut **tx)
+            .await?;
+
+        Ok(())
+    }
+
+    async fn items_delete_own_stock_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        id: i64,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> AppResult<()> {
+        let on_loan: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM loans WHERE item_id = $1 AND returned_at IS NULL)",
+        )
+        .bind(id)
+        .fetch_one(&mut **tx)
+        .await?;
+        if on_loan {
+            return Err(AppError::coded(
+                422,
+                error_code::ITEM_ON_LOAN,
+                "This copy is still on loan. Check it in before removing it from the catalog.",
+            ));
+        }
+
+        let in_transit: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM item_transits WHERE item_id = $1 AND status IN ('requested', 'in_transit'))",
+        )
+        .bind(id)
+        .fetch_one(&mut **tx)
+        .await?;
+        if in_transit {
+            return Err(AppError::coded(
+                422,
+                error_code::ITEM_IN_TRANSIT,
+                "This copy is in transit. Finish or cancel the transit before removing it from the catalog.",
+            ));
+        }
+
+        let on_hold: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM holds WHERE item_id = $1 AND status IN ('pending', 'to_pick', 'ready'))",
+        )
+        .bind(id)
+        .fetch_one(&mut **tx)
+        .await?;
+        if on_hold {
+            return Err(AppError::coded(
+                422,
+                error_code::ITEM_ON_HOLD,
+                "This copy is reserved for a reader. Cancel the hold or assign another copy before removing it from the catalog.",
+            ));
+        }
+
+        if self.item_has_unpaid_fine_tx(tx, id).await? {
+            return Err(AppError::coded(
+                422,
+                error_code::ITEM_DELETE_UNPAID_FINE,
+                "This copy has an unpaid fine. Settle or waive the fine before removing it from the catalog.",
+            ));
+        }
+
+        let has_loan_history: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM loans_archives WHERE item_id = $1)")
+            .bind(id)
+            .fetch_one(&mut **tx)
+            .await?;
+        if has_loan_history {
             return Err(AppError::coded(
                 422,
                 error_code::ITEM_HAS_HISTORY_USE_WEEDING,
-                format!("This copy has {} history and cannot be deleted. Weed it instead.", kinds.join(", ")),
+                "This library-owned copy was loaned before and cannot be deleted from the catalog. \
+                 Weed or withdraw it instead to keep a proper disposal record.",
             ));
         }
 
         sqlx::query("UPDATE items SET archived_at = $1, updated_at = $1 WHERE id = $2 AND archived_at IS NULL")
             .bind(now)
             .bind(id)
-            .execute(&self.pool)
+            .execute(&mut **tx)
             .await?;
 
         Ok(())
+    }
+
+    async fn item_has_unpaid_fine_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        item_id: i64,
+    ) -> AppResult<bool> {
+        let open: bool = sqlx::query_scalar(
+            r#"
+            SELECT EXISTS (
+                SELECT 1
+                FROM fines f
+                WHERE f.status IN ('pending', 'partial')
+                  AND (
+                      f.item_id = $1
+                      OR EXISTS (SELECT 1 FROM loans l WHERE l.id = f.loan_id AND l.item_id = $1)
+                      OR EXISTS (
+                          SELECT 1 FROM loans_archives la
+                          WHERE la.id = f.loan_id AND la.item_id = $1
+                      )
+                  )
+            )
+            "#,
+        )
+        .bind(item_id)
+        .fetch_one(&mut **tx)
+        .await?;
+        Ok(open)
     }
 
     /// Check if item barcode already exists

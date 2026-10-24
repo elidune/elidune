@@ -328,6 +328,12 @@ pub fn own_stock_sql(item_alias: &str) -> String {
     format!("{item_alias}.deposit_batch_id IS NULL")
 }
 
+/// True when copy alias `i` was scanned out or checked in for lender return (`deposit_returned_at`).
+#[must_use]
+pub fn deposit_copy_returned_to_lender_sql(item_alias: &str) -> String {
+    format!("{item_alias}.deposit_returned_at IS NOT NULL")
+}
+
 /// True when copy alias `i` must not be assigned to a hold.
 ///
 /// The batch is `returning` or `closed`, or `return_due_on` is before today

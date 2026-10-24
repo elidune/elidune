@@ -221,6 +221,17 @@ describe('deposit error mappings', () => {
       'This copy belongs to a deposit and cannot be weeded or withdrawn.',
     );
     assert.equal(
+      getApiErrorMessage(
+        axiosError(
+          422,
+          'deposit_item_on_loan',
+          'Check this copy in at the desk before scanning it out to the lender. It still has an open loan',
+        ),
+        t,
+      ),
+      'Check this copy in at the desk before scanning it out to the lender. It still has an open loan.',
+    );
+    assert.equal(
       marcImportFailureMessage({ code: 'barcode_already_exists', error: 'An item with barcode X already exists.' }, t),
       'This barcode is already used by another copy.',
     );

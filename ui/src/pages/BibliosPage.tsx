@@ -16,6 +16,7 @@ import api from '@/services/api';
 import type { BiblioShort, Author, PaginatedResponse } from '@/types';
 import { PUBLIC_TYPE_OPTIONS } from '@/utils/codeLabels';
 import { getApiErrorCode, getApiErrorMessage } from '@/utils/apiError';
+import { isCatalogDeletionRefusal } from '@/utils/withdrawals';
 import { getListScrollRoot } from '@/utils/listScrollRoot';
 import { LIST_ROW_ICON_BTN, LIST_ROW_ICON_BTN_DANGER } from '@/utils/listRowActionIconClass';
 import { formatIsbnDisplay } from '@/utils/isbnDisplay';
@@ -241,6 +242,7 @@ export default function BibliosPage() {
 
   const [catalogBiblioToDelete, setCatalogBiblioToDelete] = useState<BiblioShort | null>(null);
   const [catalogDeleteBorrowedError, setCatalogDeleteBorrowedError] = useState(false);
+  const [catalogDeleteForceBlocked, setCatalogDeleteForceBlocked] = useState(false);
   const [catalogDeleteLoading, setCatalogDeleteLoading] = useState(false);
   const [catalogDeleteApiError, setCatalogDeleteApiError] = useState<string | null>(null);
   const [showBatchDeleteSpecimens, setShowBatchDeleteSpecimens] = useState(false);
@@ -368,16 +370,22 @@ export default function BibliosPage() {
     if (!catalogBiblioToDelete) return;
     setCatalogDeleteLoading(true);
     setCatalogDeleteApiError(null);
+    setCatalogDeleteForceBlocked(false);
     try {
       await api.deleteBiblio(catalogBiblioToDelete.id, force);
       setCatalogBiblioToDelete(null);
       setCatalogDeleteBorrowedError(false);
+      setCatalogDeleteForceBlocked(false);
       await queryClient.invalidateQueries({ queryKey: ['biblios'] });
     } catch (error: unknown) {
       const code = getApiErrorCode(error);
       const msg =
         (error as { response?: { data?: { message?: string } } })?.response?.data?.message ?? '';
-      if (
+      if (isCatalogDeletionRefusal(code)) {
+        setCatalogDeleteBorrowedError(false);
+        setCatalogDeleteForceBlocked(true);
+        setCatalogDeleteApiError(getApiErrorMessage(error, t));
+      } else if (
         !force &&
         (code === 'business_rule_violation' ||
           code === 'conflict' ||
@@ -839,6 +847,7 @@ export default function BibliosPage() {
           if (catalogDeleteLoading) return;
           setCatalogBiblioToDelete(null);
           setCatalogDeleteBorrowedError(false);
+          setCatalogDeleteForceBlocked(false);
           setCatalogDeleteApiError(null);
         }}
         title={t('common.confirm')}
@@ -851,30 +860,32 @@ export default function BibliosPage() {
                 if (catalogDeleteLoading) return;
                 setCatalogBiblioToDelete(null);
                 setCatalogDeleteBorrowedError(false);
+                setCatalogDeleteForceBlocked(false);
                 setCatalogDeleteApiError(null);
               }}
             >
               {t('common.cancel')}
             </Button>
-            {catalogDeleteBorrowedError ? (
-              <Button
-                variant="danger"
-                disabled={catalogDeleteLoading}
-                isLoading={catalogDeleteLoading}
-                onClick={() => void handleCatalogBiblioDelete(true)}
-              >
-                {t('items.forceDeleteItem')}
-              </Button>
-            ) : (
-              <Button
-                variant="danger"
-                disabled={catalogDeleteLoading}
-                isLoading={catalogDeleteLoading}
-                onClick={() => void handleCatalogBiblioDelete(false)}
-              >
-                {t('common.delete')}
-              </Button>
-            )}
+            {!catalogDeleteForceBlocked &&
+              (catalogDeleteBorrowedError ? (
+                <Button
+                  variant="danger"
+                  disabled={catalogDeleteLoading}
+                  isLoading={catalogDeleteLoading}
+                  onClick={() => void handleCatalogBiblioDelete(true)}
+                >
+                  {t('common.forceDelete')}
+                </Button>
+              ) : (
+                <Button
+                  variant="danger"
+                  disabled={catalogDeleteLoading}
+                  isLoading={catalogDeleteLoading}
+                  onClick={() => void handleCatalogBiblioDelete(false)}
+                >
+                  {t('common.delete')}
+                </Button>
+              ))}
           </div>
         }
       >

@@ -617,10 +617,13 @@ async fn delete_refuses_history_and_a_biblio_keeps_withdrawn_copies() {
     .expect("fine");
     let (status, refused) = app.delete_with_auth(&format!("/api/v1/items/{}?force=true", loan_items[0]), &admin_token).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "delete loan: {refused}");
-    assert_eq!(refused["code"], "item_has_history_use_weeding");
-    let message = refused["message"].as_str().unwrap_or_default();
-    assert!(message.contains("loan"), "{refused}");
-    assert!(message.contains("fine"), "{refused}");
+    assert_eq!(refused["code"], "item_on_loan");
+
+    let (status, returned) = app.post_empty(&format!("/api/v1/loans/{loan_id}/return"), Some(&admin_token)).await;
+    assert_eq!(status, StatusCode::OK, "return loan: {returned}");
+    let (status, history_refused) = app.delete_with_auth(&format!("/api/v1/items/{}?force=true", loan_items[0]), &admin_token).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "delete after return: {history_refused}");
+    assert_eq!(history_refused["code"], "item_has_history_use_weeding");
 
     let (hold_biblio, hold_items) = create_title(&app, &admin_token, "Delete hold history", 1).await;
     let (holder_id, _) = fixtures::create_reader(&app, &admin_token, "wvdelh").await;

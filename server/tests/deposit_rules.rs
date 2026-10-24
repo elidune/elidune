@@ -384,6 +384,19 @@ async fn close_archives_without_delete_and_reports_missing_and_loans() {
     assert_eq!(status, StatusCode::OK, "{scanned}");
     assert_eq!(scanned["alreadyScanned"], false);
 
+    let (status, staff_copy) = app.get_json_with_auth(&format!("/api/v1/items/{}", items[0].0), &token).await;
+    assert_eq!(status, StatusCode::OK, "{staff_copy}");
+    let staff_items = staff_copy["items"].as_array().expect("staff items");
+    let scanned_copy = staff_items
+        .iter()
+        .find(|i| fixtures::json_id(&i["id"]) == items[0].0)
+        .expect("scanned copy in staff biblio");
+    assert_eq!(scanned_copy["availability"].as_str(), Some("unavailable"), "{staff_copy}");
+    assert_eq!(scanned_copy["borrowable"], false, "{staff_copy}");
+    let (status, checkout_refused) = checkout(&app, &token, reader_id, items[0].0, false).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{checkout_refused}");
+    assert_error(&checkout_refused, "deposit_item_returned_to_lender");
+
     let (status, global) = app.post_json("/api/v1/deposit-batches/scan-out", &json!({"barcode": items[1].1}), Some(&token)).await;
     assert_eq!(status, StatusCode::OK, "{global}");
     assert_eq!(global["depositBatchId"], batch_id.to_string(), "{global}");
@@ -1133,4 +1146,71 @@ async fn cancel_deposit_return_restores_active_and_clears_scan_out() {
         .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{scan_again}");
     assert_error(&scan_again, "deposit_batch_not_returning");
+}
+
+#[tokio::test]
+async fn catalog_delete_deposit_after_returned_loan_and_blocks_open_loan() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let token = fixtures::ensure_first_setup(&app).await;
+    let site_id = site(&app, &token).await;
+    let lender_id = lender(&app, &token, None).await;
+    let batch_id = batch(&app, &token, lender_id, site_id).await;
+    let (_, items) = copies(&app, &token, 2, None).await;
+    attach(&app, batch_id, site_id, items[0].0).await;
+    attach(&app, batch_id, site_id, items[1].0).await;
+    let (reader_id, _) = fixtures::create_reader(&app, &token, "depdel").await;
+
+    let (status, loan_body) = checkout(&app, &token, reader_id, items[0].0, false).await;
+    assert_eq!(status, StatusCode::CREATED, "{loan_body}");
+    let (status, on_loan) = app.delete_with_auth(&format!("/api/v1/items/{}", items[0].0), &token).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{on_loan}");
+    assert_error(&on_loan, "deposit_item_on_loan");
+
+    let (status, returned) = app
+        .post_empty(&format!("/api/v1/loans/items/{}/return", items[0].1), Some(&token))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{returned}");
+    let archive_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM loans_archives WHERE item_id = $1")
+        .bind(items[0].0)
+        .fetch_one(app.state.services.repository.pool())
+        .await
+        .unwrap();
+    assert_eq!(archive_count, 1);
+
+    let (status, needs_confirm) = app.delete_with_auth(&format!("/api/v1/items/{}", items[0].0), &token).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{needs_confirm}");
+    assert_error(&needs_confirm, "deposit_item_delete_needs_confirmation");
+
+    let (status, deleted) = app
+        .delete_with_auth(&format!("/api/v1/items/{}?force=true", items[0].0), &token)
+        .await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{deleted:?}");
+    let archived_at: Option<chrono::DateTime<chrono::Utc>> = sqlx::query_scalar("SELECT archived_at FROM items WHERE id = $1")
+        .bind(items[0].0)
+        .fetch_one(app.state.services.repository.pool())
+        .await
+        .unwrap();
+    assert!(archived_at.is_some());
+}
+
+#[tokio::test]
+async fn catalog_delete_deposit_refused_while_batch_returning() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let token = fixtures::ensure_first_setup(&app).await;
+    let site_id = site(&app, &token).await;
+    let lender_id = lender(&app, &token, None).await;
+    let batch_id = batch(&app, &token, lender_id, site_id).await;
+    let (_, items) = copies(&app, &token, 1, None).await;
+    attach(&app, batch_id, site_id, items[0].0).await;
+
+    let (status, _) = app.post_empty(&format!("/api/v1/deposit-batches/{batch_id}/start-return"), Some(&token)).await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (status, refused) = app.delete_with_auth(&format!("/api/v1/items/{}", items[0].0), &token).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{refused}");
+    assert_error(&refused, "deposit_item_delete_use_batch_return");
 }

@@ -45,7 +45,7 @@ import type { Author, AuthorPublic, BiblioStaffView, ItemPublicView, ItemStaffVi
 import { isBiblioStaffView, isItemStaffView } from '@/utils/catalogView';
 import { isItemWithdrawn, isTitleWithdrawn } from '@/utils/weeding';
 import { isDepositCopy } from '@/utils/deposits';
-import { isCatalogDeletionRefusal } from '@/utils/withdrawals';
+import { isCatalogDeletionRefusal, isDeleteForceUnavailable } from '@/utils/withdrawals';
 import { staffUnavailableDetailKey, type AvailabilityAudience } from '@/utils/itemAvailability';
 import { useTranslation } from 'react-i18next';
 import { FUNCTION_OPTIONS, PUBLIC_TYPE_OPTIONS, getCodeLabel } from '@/utils/codeLabels';
@@ -167,8 +167,11 @@ export default function BiblioDetailPage() {
   const [isEditSpecimenLoading, setIsEditSpecimenLoading] = useState(false);
   const [selectedSpecimen, setSelectedSpecimen] = useState<ItemStaffView | null>(null);
   const [deleteSpecimenBorrowedError, setDeleteSpecimenBorrowedError] = useState(false);
+  const [deleteSpecimenDepositConfirm, setDeleteSpecimenDepositConfirm] = useState(false);
+  const [deleteSpecimenForceBlocked, setDeleteSpecimenForceBlocked] = useState(false);
   const [deleteSpecimenLoading, setDeleteSpecimenLoading] = useState(false);
   const [deleteItemBorrowedError, setDeleteItemBorrowedError] = useState(false);
+  const [deleteBiblioForceBlocked, setDeleteBiblioForceBlocked] = useState(false);
   const [deleteItemLoading, setDeleteItemLoading] = useState(false);
   const [deleteBiblioApiError, setDeleteBiblioApiError] = useState<string | null>(null);
   const [deleteSpecimenApiError, setDeleteSpecimenApiError] = useState<string | null>(null);
@@ -210,6 +213,7 @@ export default function BiblioDetailPage() {
     if (deleteItemLoading) return;
     setDeleteItemLoading(true);
     setDeleteBiblioApiError(null);
+    setDeleteBiblioForceBlocked(false);
     try {
       await api.deleteBiblio(item.id, force);
       // Ensure deleted biblio disappears from cached catalog searches immediately.
@@ -232,6 +236,7 @@ export default function BiblioDetailPage() {
       const msg = (error as { response?: { data?: { message?: string } } })?.response?.data?.message ?? '';
       if (isCatalogDeletionRefusal(code)) {
         setDeleteItemBorrowedError(false);
+        setDeleteBiblioForceBlocked(true);
         setDeleteBiblioApiError(getApiErrorMessage(error, t));
       } else if (
         !force &&
@@ -266,19 +271,38 @@ export default function BiblioDetailPage() {
 
   const handleDeleteSpecimen = async (force: boolean) => {
     if (!selectedSpecimen?.id || !item || item.id == null) return;
+
+    if (
+      selectedSpecimen.deposit &&
+      !force &&
+      !deleteSpecimenBorrowedError &&
+      !deleteSpecimenDepositConfirm
+    ) {
+      setDeleteSpecimenDepositConfirm(true);
+      setDeleteSpecimenApiError(null);
+      return;
+    }
+
     setDeleteSpecimenLoading(true);
     setDeleteSpecimenApiError(null);
+    const apiForce = force || (selectedSpecimen.deposit && deleteSpecimenDepositConfirm);
     try {
-      await api.deleteItem(selectedSpecimen.id, force);
+      await api.deleteItem(selectedSpecimen.id, apiForce);
       setShowDeleteSpecimenModal(false);
       setSelectedSpecimen(null);
       setDeleteSpecimenBorrowedError(false);
+      setDeleteSpecimenDepositConfirm(false);
       invalidateBiblio();
     } catch (error: unknown) {
       const code = getApiErrorCode(error);
-      if (isCatalogDeletionRefusal(code)) {
+      if (isDeleteForceUnavailable(code)) {
         setDeleteSpecimenBorrowedError(false);
+        setDeleteSpecimenDepositConfirm(false);
+        setDeleteSpecimenForceBlocked(true);
         setDeleteSpecimenApiError(getApiErrorMessage(error, t));
+      } else if (!force && code === 'deposit_item_delete_needs_confirmation') {
+        setDeleteSpecimenDepositConfirm(true);
+        setDeleteSpecimenApiError(null);
       } else if (!force) {
         const msg = (error as { response?: { data?: { message?: string } } })?.response?.data?.message ?? '';
         if (
@@ -598,7 +622,7 @@ export default function BiblioDetailPage() {
                       onClick={() => setShowAddSpecimenModal(true)}
                       leftIcon={<Plus className="h-4 w-4" />}
                     >
-                      {t('items.addSpecimen')}
+                      {t('common.add')}
                     </Button>
                   </div>
                 )
@@ -642,6 +666,10 @@ export default function BiblioDetailPage() {
                     onDelete={() => {
                       if (!isItemStaffView(specimen) || specimen.id == null) return;
                       setSelectedSpecimen(specimen);
+                      setDeleteSpecimenBorrowedError(false);
+                      setDeleteSpecimenDepositConfirm(false);
+                      setDeleteSpecimenForceBlocked(false);
+                      setDeleteSpecimenApiError(null);
                       setShowDeleteSpecimenModal(true);
                     }}
                   />
@@ -806,6 +834,7 @@ export default function BiblioDetailPage() {
           if (deleteItemLoading) return;
           setShowDeleteModal(false);
           setDeleteItemBorrowedError(false);
+          setDeleteBiblioForceBlocked(false);
           setDeleteBiblioApiError(null);
         }}
         title={t('common.confirmDeletion')}
@@ -818,20 +847,22 @@ export default function BiblioDetailPage() {
                 if (deleteItemLoading) return;
                 setShowDeleteModal(false);
                 setDeleteItemBorrowedError(false);
+                setDeleteBiblioForceBlocked(false);
                 setDeleteBiblioApiError(null);
               }}
             >
               {t('common.cancel')}
             </Button>
-            {deleteItemBorrowedError ? (
-              <Button variant="danger" disabled={deleteItemLoading} onClick={() => handleDelete(true)}>
-                {t('items.forceDeleteItem')}
-              </Button>
-            ) : (
-              <Button variant="danger" disabled={deleteItemLoading} onClick={() => handleDelete(false)}>
-                {t('common.delete')}
-              </Button>
-            )}
+            {!deleteBiblioForceBlocked &&
+              (deleteItemBorrowedError ? (
+                <Button variant="danger" disabled={deleteItemLoading} onClick={() => handleDelete(true)}>
+                  {t('common.forceDelete')}
+                </Button>
+              ) : (
+                <Button variant="danger" disabled={deleteItemLoading} onClick={() => handleDelete(false)}>
+                  {t('common.delete')}
+                </Button>
+              ))}
           </div>
         }
       >
@@ -910,6 +941,8 @@ export default function BiblioDetailPage() {
           setShowDeleteSpecimenModal(false);
           setSelectedSpecimen(null);
           setDeleteSpecimenBorrowedError(false);
+          setDeleteSpecimenDepositConfirm(false);
+          setDeleteSpecimenForceBlocked(false);
           setDeleteSpecimenApiError(null);
         }}
         title={t('common.confirm')}
@@ -922,27 +955,43 @@ export default function BiblioDetailPage() {
                 setShowDeleteSpecimenModal(false);
                 setSelectedSpecimen(null);
                 setDeleteSpecimenBorrowedError(false);
+                setDeleteSpecimenDepositConfirm(false);
+                setDeleteSpecimenForceBlocked(false);
                 setDeleteSpecimenApiError(null);
               }}
             >
               {t('common.cancel')}
             </Button>
-            <Button
-              variant="danger"
-              disabled={deleteSpecimenLoading}
-              onClick={() => handleDeleteSpecimen(deleteSpecimenBorrowedError)}
-            >
-              {deleteSpecimenBorrowedError ? t('items.forceDeleteSpecimen') : t('common.delete')}
-            </Button>
+            {!deleteSpecimenForceBlocked && (
+              <Button
+                variant="danger"
+                disabled={deleteSpecimenLoading}
+                onClick={() =>
+                  handleDeleteSpecimen(deleteSpecimenBorrowedError || deleteSpecimenDepositConfirm)
+                }
+              >
+                {deleteSpecimenBorrowedError || deleteSpecimenDepositConfirm
+                  ? t('common.forceDelete')
+                  : t('common.delete')}
+              </Button>
+            )}
           </div>
         }
       >
         {selectedSpecimen && (
           <>
             <p className="text-gray-600 dark:text-gray-300">
-              {deleteSpecimenBorrowedError
-                ? t('items.specimenBorrowedForceDelete')
-                : t('items.confirmDeleteSpecimen', { identification: selectedSpecimen.barcode || 'Sans code' })}
+              {deleteSpecimenDepositConfirm
+                ? t('items.depositDeleteForceConfirm')
+                : deleteSpecimenBorrowedError
+                  ? t('items.specimenBorrowedForceDelete')
+                  : selectedSpecimen.deposit
+                    ? t('items.depositDeleteWarning', {
+                        identification: selectedSpecimen.barcode || t('items.noBarcode'),
+                      })
+                    : t('items.confirmDeleteSpecimen', {
+                        identification: selectedSpecimen.barcode || t('items.noBarcode'),
+                      })}
             </p>
             {deleteSpecimenApiError && (
               <p className="mt-3 text-sm text-red-600 dark:text-red-400">{deleteSpecimenApiError}</p>

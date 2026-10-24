@@ -222,15 +222,19 @@ export default function BatchDeleteSpecimensDialog({
         const code = getApiErrorCode(err);
         const rawMsg =
           (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? '';
+        const depositConfirm = !forceDelete && code === 'deposit_item_delete_needs_confirmation';
         const borrowed =
           !forceDelete &&
           code !== 'item_has_history_use_weeding' &&
+          !depositConfirm &&
           (code === 'business_rule_violation' ||
             code === 'conflict' ||
             (typeof rawMsg === 'string' && (rawMsg.includes('borrowed') || rawMsg.includes('force=true'))));
-        const message = borrowed
-          ? t('items.batchDeleteScan.borrowedHint')
-          : getApiErrorMessage(err, t);
+        const message = depositConfirm
+          ? t('items.batchDeleteScan.depositConfirmHint')
+          : borrowed
+            ? t('items.batchDeleteScan.borrowedHint')
+            : getApiErrorMessage(err, t);
         appendLog({
           kind: 'error',
           id: entryId(),
@@ -365,6 +369,7 @@ export default function BatchDeleteSpecimensDialog({
             {t('items.batchDeleteScan.forceWarning')}
           </p>
         )}
+        <p className="text-xs text-gray-500 dark:text-gray-400">{t('items.batchDeleteScan.depositNotice')}</p>
 
         <div className="border-t border-gray-200 dark:border-gray-800 pt-3">
           <div className="flex items-center justify-between mb-2">

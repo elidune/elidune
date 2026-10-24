@@ -166,6 +166,16 @@ pub mod error_code {
     pub const DEPOSIT_BATCH_HAS_ACTIVE_LOANS: &str = "deposit_batch_has_active_loans";
     /// Scan-out refused while this copy still has an open loan.
     pub const DEPOSIT_ITEM_ON_LOAN: &str = "deposit_item_on_loan";
+    /// Checkout refused after scan-out or check-in marked the copy returned to the lender.
+    pub const DEPOSIT_ITEM_RETURNED_TO_LENDER: &str = "deposit_item_returned_to_lender";
+    /// `DELETE /items/{id}` on a deposit copy without `force=true` (staff must confirm).
+    pub const DEPOSIT_ITEM_DELETE_NEEDS_CONFIRMATION: &str = "deposit_item_delete_needs_confirmation";
+    /// `DELETE /items/{id}` on a deposit copy while its batch is being returned or closed.
+    pub const DEPOSIT_ITEM_DELETE_USE_BATCH_RETURN: &str = "deposit_item_delete_use_batch_return";
+    /// `DELETE /items/{id}` on a deposit copy with an unpaid fine.
+    pub const DEPOSIT_ITEM_DELETE_UNPAID_FINE: &str = "deposit_item_delete_unpaid_fine";
+    /// `DELETE /items/{id}` on own stock with an unpaid fine.
+    pub const ITEM_DELETE_UNPAID_FINE: &str = "item_delete_unpaid_fine";
     /// Global deposit scan-out on a copy that is not attached to a deposit batch.
     pub const ITEM_NOT_DEPOSIT_COPY: &str = "item_not_deposit_copy";
     /// `POST /items/{id}/deposit-loss-notified` on a copy that is not a deposit copy declared lost or damaged.

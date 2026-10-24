@@ -237,12 +237,12 @@ pub(crate) async fn update_item(
     security(("bearer_auth" = [])),
     params(
         ("id" = i64, Path, description = "Physical copy (item) ID"),
-        ("force" = Option<bool>, Query, description = "Force delete even if borrowed")
+        ("force" = Option<bool>, Query, description = "Confirm deposit copy delete (required after deposit_item_delete_needs_confirmation). Does not bypass circulation blocks on own stock.")
     ),
     responses(
         (status = 204, description = "Physical item deleted"),
         (status = 404, description = "Item not found"),
-        (status = 409, description = "Item is borrowed")
+        (status = 422, description = "Cannot delete: open loan, transit, hold, unpaid fine, circulation history (own stock), or deposit batch return in progress", body = crate::error::ErrorResponse)
     )
 )]
 pub async fn delete_item(

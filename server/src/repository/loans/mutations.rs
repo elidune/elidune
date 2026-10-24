@@ -52,7 +52,7 @@ impl Repository {
             sqlx::query(
                 r#"
                 SELECT it.id, it.biblio_id, it.borrowable, it.circulation_status, it.weeding_status,
-                       b.media_type
+                       it.deposit_returned_at, b.media_type
                 FROM items it
                 JOIN biblios b ON it.biblio_id = b.id
                 WHERE it.id = $1
@@ -66,7 +66,7 @@ impl Repository {
             sqlx::query(
                 r#"
                 SELECT it.id, it.biblio_id, it.borrowable, it.circulation_status, it.weeding_status,
-                       b.media_type
+                       it.deposit_returned_at, b.media_type
                 FROM items it
                 JOIN biblios b ON it.biblio_id = b.id
                 WHERE it.barcode = $1
@@ -83,9 +83,22 @@ impl Repository {
         let item_id: i64 = item_row.get("id");
         let biblio_id: i64 = item_row.get("biblio_id");
         let borrowable: bool = item_row.get("borrowable");
+        let deposit_returned_at: Option<chrono::DateTime<chrono::Utc>> = item_row.get("deposit_returned_at");
         let circulation_status = crate::models::circulation::CirculationStatus::from_db(item_row.get("circulation_status"));
         let weeding_status: crate::models::item::WeedingStatus = item_row.get("weeding_status");
         let media_type: Option<String> = item_row.get("media_type");
+
+        if deposit_returned_at.is_some() {
+            push_checkout_refusal(
+                progress,
+                loan.force,
+                CheckoutRefusal::new(
+                    error_code::DEPOSIT_ITEM_RETURNED_TO_LENDER,
+                    "This deposit copy has been sent back to the lender and cannot be borrowed",
+                    caller_rights,
+                ),
+            )?;
+        }
 
         if weeding_status.blocks_circulation() {
             push_checkout_refusal(progress, loan.force, CheckoutRefusal::business(crate::models::item::WeedingStatus::CHECKOUT_BLOCKED, caller_rights))?;
@@ -438,6 +451,7 @@ impl Repository {
                 r#"
                 UPDATE items i
                 SET deposit_returned_at = COALESCE(i.deposit_returned_at, $2),
+                    borrowable = FALSE,
                     updated_at = $2
                 FROM deposit_batches b
                 WHERE i.id = $1

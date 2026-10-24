@@ -507,9 +507,17 @@ impl Repository {
             .await?;
             sqlx::query(
                 r#"
-                UPDATE items
-                SET deposit_returned_at = NULL, updated_at = now()
-                WHERE deposit_batch_id = $1 AND deposit_returned_at IS NOT NULL
+                UPDATE items i
+                SET deposit_returned_at = NULL,
+                    borrowable = CASE
+                        WHEN EXISTS (
+                            SELECT 1 FROM loans l
+                            WHERE l.item_id = i.id AND l.returned_at IS NULL
+                        ) THEN FALSE
+                        ELSE TRUE
+                    END,
+                    updated_at = now()
+                WHERE i.deposit_batch_id = $1 AND i.deposit_returned_at IS NOT NULL
                 "#,
             )
             .bind(id)
@@ -576,7 +584,9 @@ impl Repository {
         let returned_at: chrono::DateTime<chrono::Utc> = sqlx::query_scalar(
             r#"
             UPDATE items
-            SET deposit_returned_at = now(), updated_at = now()
+            SET deposit_returned_at = now(),
+                borrowable = FALSE,
+                updated_at = now()
             WHERE id = $1
             RETURNING deposit_returned_at
             "#,

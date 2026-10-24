@@ -1546,7 +1546,7 @@ export default function UserDetailPage() {
                 .filter(Boolean)
                 .join('\n\n')
         }
-        confirmLabel={deleteUserActiveLoansError ? t('users.forceDelete') : t('common.delete')}
+        confirmLabel={deleteUserActiveLoansError ? t('common.forceDelete') : t('common.delete')}
         confirmVariant="danger"
         isLoading={deleteUserLoading}
       />
