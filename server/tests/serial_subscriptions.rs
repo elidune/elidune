@@ -563,7 +563,7 @@ async fn two_generated_horizons_match_one_prediction_without_duplicates() {
 }
 
 #[tokio::test]
-async fn supplement_with_null_slot_does_not_shift_predicted_issues() {
+async fn supplement_with_null_slot_and_sequence_does_not_shift_predicted_issues() {
     let Some(app) = TestApp::spawn().await else {
         return;
     };
@@ -631,7 +631,7 @@ async fn supplement_with_null_slot_does_not_shift_predicted_issues() {
         "INSERT INTO serial_issues ( \
             id, serial_subscription_id, planned_date, display_label, sequence, slot, \
             value_x, value_y, value_z, status, supplement \
-         ) VALUES ($1, $2, DATE '2026-07-01', 'hors-série', 1000000, NULL, 0, 0, 0, 'expected', true)",
+         ) VALUES ($1, $2, DATE '2026-07-01', 'hors-série', NULL, NULL, 0, 0, 0, 'expected', true)",
     )
     .bind(supplement_id)
     .bind(subscription_id)
@@ -653,6 +653,20 @@ async fn supplement_with_null_slot_does_not_shift_predicted_issues() {
         regular_without_slot.is_err(),
         "a regular issue needs a publication slot"
     );
+    let regular_without_sequence = sqlx::query(
+        "INSERT INTO serial_issues ( \
+            id, serial_subscription_id, planned_date, display_label, sequence, slot, \
+            value_x, value_y, value_z, status, supplement \
+         ) VALUES ($1, $2, DATE '2026-07-02', 'not a supplement', NULL, 999999, 0, 0, 0, 'expected', false)",
+    )
+    .bind(supplement_id + 2)
+    .bind(subscription_id)
+    .execute(pool)
+    .await;
+    assert!(
+        regular_without_sequence.is_err(),
+        "a regular issue needs a sequence"
+    );
 
     let (status, after_insert) = app
         .get_json_with_auth(&format!("/api/v1/serials/subscriptions/{id}"), &admin)
@@ -667,12 +681,18 @@ async fn supplement_with_null_slot_does_not_shift_predicted_issues() {
             Some(&admin),
         )
         .await;
-    assert_eq!(status, StatusCode::OK, "{generated}");
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "null sequence supplement must not conflict with the next horizon: {generated}"
+    );
     assert!(generated["issues"]
         .as_array()
         .expect("new issues")
         .iter()
-        .all(|issue| issue["supplement"] == false && issue["slot"].is_u64()));
+        .all(|issue| {
+            issue["supplement"] == false && issue["slot"].is_u64() && issue["sequence"].is_u64()
+        }));
 
     let (status, stored) = app
         .get_json_with_auth(
@@ -688,6 +708,7 @@ async fn supplement_with_null_slot_does_not_shift_predicted_issues() {
         .collect();
     assert_eq!(supplements.len(), 1);
     assert!(supplements[0]["slot"].is_null(), "{supplements:?}");
+    assert!(supplements[0]["sequence"].is_null(), "{supplements:?}");
     assert_eq!(supplements[0]["displayLabel"], "hors-série");
 
     let regular: Vec<_> = stored

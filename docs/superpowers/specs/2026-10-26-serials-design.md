@@ -256,7 +256,7 @@ Creating a serial subscription predicts the first horizon of `serial_issues` (st
 - `serial_subscription_id` not null.
 - `planned_date` date not null.
 - `display_label` text not null. This is what the desk, the OPAC, holds, and claims show.
-- `sequence` integer not null. `slot` integer null. `slot` counts skipped irregularities for a regular issue. `sequence` counts emitted rows. A supplement (`supplement` true) may omit `slot`. A regular row must have one: `CHECK (supplement OR slot IS NOT NULL)`. Uniqueness is a partial index on (`serial_subscription_id`, `slot`) where `slot` is not null, so several hors-série rows do not collide with each other or with predicted slots. Generation ignores supplement rows and continues from `next_slot`.
+- `sequence` integer null. `slot` integer null. `slot` counts skipped irregularities for a regular issue. `sequence` counts emitted regular rows. A supplement (`supplement` true) may omit both. A regular row must have both: `CHECK (supplement OR slot IS NOT NULL)` and `CHECK (supplement OR sequence IS NOT NULL)`. Uniqueness is a partial index on (`serial_subscription_id`, `slot`) where `slot` is not null, and a partial index on (`serial_subscription_id`, `sequence`) where `sequence` is not null, so several hors-série rows do not collide with each other or with predicted issues. Generation ignores supplement rows: the next horizon continues from `next_slot`, and its sequences continue from the count of non-supplement rows.
 - `value_x`, `value_y`, `value_z`.
 - `status` (below).
 - `supplement` boolean not null default false. Staff can insert a supplement without rerunning prediction (MVP 3).

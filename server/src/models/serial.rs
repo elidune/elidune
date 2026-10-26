@@ -667,7 +667,8 @@ pub struct SerialIssue {
     pub serial_subscription_id: i64,
     pub planned_date: NaiveDate,
     pub display_label: String,
-    pub sequence: u32,
+    /// Absent for a supplement (hors-série). Regular predicted issues always have a sequence.
+    pub sequence: Option<u32>,
     /// Absent for a supplement (hors-série). Regular predicted issues always have a slot.
     pub slot: Option<u32>,
     pub x: i32,

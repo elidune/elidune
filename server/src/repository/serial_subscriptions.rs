@@ -118,7 +118,7 @@ struct IssueRow {
     serial_subscription_id: i64,
     planned_date: NaiveDate,
     display_label: String,
-    sequence: i32,
+    sequence: Option<i32>,
     slot: Option<i32>,
     value_x: i32,
     value_y: i32,
@@ -151,7 +151,7 @@ fn map_subscription_sql(err: sqlx::Error) -> AppError {
             AppError::Conflict("This horizon was already generated".to_string())
         }
         Some("23505")
-            if constraint.as_deref() == Some("serial_issues_subscription_sequence_key") =>
+            if constraint.as_deref() == Some("serial_issues_subscription_sequence_uidx") =>
         {
             AppError::Conflict("This horizon was already generated".to_string())
         }
@@ -261,7 +261,10 @@ fn issue_from_row(row: IssueRow) -> AppResult<SerialIssue> {
         serial_subscription_id: row.serial_subscription_id,
         planned_date: row.planned_date,
         display_label: row.display_label,
-        sequence: non_negative_i32(row.sequence, "sequence")?,
+        sequence: row
+            .sequence
+            .map(|sequence| non_negative_i32(sequence, "sequence"))
+            .transpose()?,
         slot: row
             .slot
             .map(|slot| non_negative_i32(slot, "slot"))

@@ -217,9 +217,9 @@ impl SerialsService {
 
     /// Append the next 12-month horizon from the stored cursor. Existing rows stay.
     ///
-    /// `next_slot` is that cursor. Supplement rows are not publication slots, so
-    /// they are excluded from the count of issues already emitted and do not
-    /// move the cursor.
+    /// `next_slot` is that cursor. The sequence offset counts rows with
+    /// `supplement = false` (regular issues, which have a slot and a sequence).
+    /// A supplement may omit both and does not move the cursor or the next sequence.
     pub async fn generate_subscription(&self, id: i64) -> AppResult<SerialIssueGenerateResponse> {
         let existing = self.repository.subscriptions_get(id).await?;
         if existing.status != SerialSubscriptionStatus::Active {
@@ -253,7 +253,12 @@ impl SerialsService {
         let issues = subscription
             .issues
             .iter()
-            .filter(|issue| !issue.supplement && u64::from(issue.sequence) > u64::from(emitted))
+            .filter(|issue| {
+                !issue.supplement
+                    && issue
+                        .sequence
+                        .is_some_and(|sequence| u64::from(sequence) > u64::from(emitted))
+            })
             .cloned()
             .collect();
         Ok(SerialIssueGenerateResponse {

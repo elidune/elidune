@@ -105,7 +105,7 @@ CREATE TABLE serial_issues (
     serial_subscription_id bigint NOT NULL,
     planned_date date NOT NULL,
     display_label text NOT NULL,
-    sequence integer NOT NULL,
+    sequence integer,
     slot integer,
     value_x integer NOT NULL,
     value_y integer NOT NULL,
@@ -121,7 +121,8 @@ CREATE TABLE serial_issues (
     CONSTRAINT serial_issues_subscription_fk FOREIGN KEY (serial_subscription_id)
         REFERENCES serial_subscriptions (id),
     CONSTRAINT serial_issues_item_fk FOREIGN KEY (item_id) REFERENCES items (id) ON DELETE SET NULL,
-    CONSTRAINT serial_issues_sequence_chk CHECK (sequence >= 1),
+    CONSTRAINT serial_issues_sequence_chk CHECK (sequence IS NULL OR sequence >= 1),
+    CONSTRAINT serial_issues_sequence_required_chk CHECK (supplement OR sequence IS NOT NULL),
     CONSTRAINT serial_issues_slot_chk CHECK (slot IS NULL OR slot >= 1),
     CONSTRAINT serial_issues_slot_required_chk CHECK (supplement OR slot IS NOT NULL),
     CONSTRAINT serial_issues_status_chk CHECK (
@@ -129,9 +130,12 @@ CREATE TABLE serial_issues (
             'expected', 'arrived', 'late', 'missing', 'claimed',
             'not_available', 'deleted', 'bound'
         )
-    ),
-    CONSTRAINT serial_issues_subscription_sequence_key UNIQUE (serial_subscription_id, sequence)
+    )
 );
+
+CREATE UNIQUE INDEX serial_issues_subscription_sequence_uidx
+    ON serial_issues (serial_subscription_id, sequence)
+    WHERE sequence IS NOT NULL;
 
 CREATE UNIQUE INDEX serial_issues_subscription_slot_uidx
     ON serial_issues (serial_subscription_id, slot)
@@ -142,6 +146,9 @@ COMMENT ON TABLE serial_issues IS
 
 COMMENT ON COLUMN serial_issues.display_label IS
     'Human-readable numbering and date, stored at prediction time.';
+
+COMMENT ON COLUMN serial_issues.sequence IS
+    'Count of regular issues emitted for this subscription. NULL only when supplement is true. Prediction ignores supplement rows when choosing the next sequence.';
 
 COMMENT ON COLUMN serial_issues.slot IS
     'Absolute publication slot from the subscription anchor, including skipped irregularities. NULL only when supplement is true (a hors-série has no publication slot). Prediction ignores supplement rows and continues from serial_subscriptions.next_slot.';
