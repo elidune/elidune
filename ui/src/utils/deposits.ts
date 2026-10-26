@@ -245,6 +245,9 @@ const DEPOSIT_ERROR_CODES = [
   'deposit_batch_not_returning',
   'deposit_replacement_amount_required',
   'item_not_deposit_copy',
+  'deposit_item_on_loan',
+  'deposit_loss_not_declared',
+  'deposit_loss_already_notified',
 ] as const;
 
 
@@ -361,6 +364,44 @@ export function parseReplacementRateEuros(raw: string): ReplacementRateParse {
   if (!Number.isSafeInteger(cents)) return { ok: false, reason: 'invalid' };
   if (cents <= 0) return { ok: false, reason: 'notPositive' };
   return { ok: true, cents };
+}
+
+export interface LenderFormWrite {
+  name: string;
+  contact: string | null;
+  notes: string | null;
+  /** JSON null clears the rate. A positive integer sets it. Never zero. */
+  replacementRateCents: number | null;
+}
+
+/**
+ * Lender create and edit always send `replacementRateCents`.
+ * An empty field is JSON `null` (clears the stored rate on edit).
+ * Callers must reject zero before calling this.
+ */
+export function buildLenderWrite(input: {
+  name: string;
+  contact: string;
+  notes: string;
+  replacementRateCents: number | null;
+}): LenderFormWrite {
+  return {
+    name: input.name.trim(),
+    contact: input.contact.trim() || null,
+    notes: input.notes.trim() || null,
+    replacementRateCents: input.replacementRateCents,
+  };
+}
+
+/** Staff line when the lender was told this copy was lost or damaged. */
+export function depositLossNotifiedText(
+  deposit: { depositLossNotifiedAt?: string | null } | null | undefined,
+  t: TFunction,
+  language: string,
+): string | null {
+  const iso = deposit?.depositLossNotifiedAt?.trim();
+  if (!iso) return null;
+  return t('deposits.losses.notifiedOn', { date: formatLocaleDate(iso, language) });
 }
 
 /** Editable euro string for a stored rate. Empty when there is no rate. */

@@ -173,10 +173,28 @@
       "empty": "Ningún prestamista",
       "nameConflict": "Ya existe un prestamista con este nombre.",
       "replacementRate": "Tarifa de reposición",
-      "replacementRateHint": "En euros. Vacío: sin tarifa. El cero no se acepta. Al editar, un campo vacío conserva la tarifa guardada.",
+      "replacementRateHint": "En euros. Vacío: sin tarifa. Al editar, un campo vacío borra la tarifa guardada. El cero no se acepta.",
       "replacementRateNone": "Ninguna",
       "replacementRateInvalid": "Indique un importe en euros, con dos decimales como máximo.",
       "replacementRateNotPositive": "La tarifa debe estar vacía o ser mayor que cero."
+    },
+    "losses": {
+      "title": "Pérdidas por avisar al prestamista",
+      "subtitle": "Ejemplares en depósito perdidos o dañados de los que el prestamista aún no ha sido avisado.",
+      "subtitleNotified": "Ejemplares en depósito perdidos o dañados ya avisados al prestamista.",
+      "toNotify": "Por avisar",
+      "notified": "Ya avisadas",
+      "empty": "Ninguna pérdida por avisar",
+      "emptyNotified": "Ninguna pérdida ya avisada",
+      "kind": "Motivo",
+      "kindLost": "Perdido",
+      "kindDamaged": "Dañado",
+      "amount": "Importe",
+      "titleColumn": "Título",
+      "notify": "Avisado el …",
+      "notifyDate": "Fecha del aviso",
+      "notifiedOn": "Prestamista avisado el {{date}}",
+      "saved": "Prestamista avisado"
     },
     "batches": {
       "title": "Lotes de depósito",
@@ -2510,7 +2528,10 @@
       "deposit_batch_has_active_loans": "El lote sigue en devolución: hay ejemplares en préstamo.",
       "deposit_batch_not_returning": "El lote no está en devolución. Inicie la devolución antes de registrar una salida o de cerrarlo.",
       "deposit_replacement_amount_required": "Indique el importe de reposición. Orden: tarifa del prestamista, luego el precio del ejemplar si es mayor que cero, si no el importe indicado. El cero no se acepta.",
-      "item_not_deposit_copy": "Este ejemplar no forma parte de un lote en depósito."
+      "item_not_deposit_copy": "Este ejemplar no forma parte de un lote en depósito.",
+      "deposit_item_on_loan": "Este ejemplar sigue en préstamo. Registre la devolución en el mostrador antes de escanear la salida.",
+      "deposit_loss_not_declared": "Este ejemplar no es una pérdida de depósito declarada (perdido o dañado).",
+      "deposit_loss_already_notified": "El prestamista ya fue avisado por este ejemplar."
     }
   },
   "inventory": {

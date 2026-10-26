@@ -10,6 +10,7 @@ import { canManageItems, type Lender } from '@/types';
 import { getApiErrorMessage } from '@/utils/apiError';
 import { APP_PAGE_CLASS } from '@/utils/appPageLayout';
 import {
+  buildLenderWrite,
   formatReplacementRateCents,
   lenderNameConflictMessage,
   parseReplacementRateEuros,
@@ -54,12 +55,12 @@ export function LendersPanel() {
       if (!rate.ok) {
         return Promise.reject(rate.reason);
       }
-      const body = {
-        name: name.trim(),
-        contact: contact.trim() || null,
-        notes: notes.trim() || null,
-        ...(editing && rate.cents == null ? {} : { replacementRateCents: rate.cents }),
-      };
+      const body = buildLenderWrite({
+        name,
+        contact,
+        notes,
+        replacementRateCents: rate.cents,
+      });
       if (editing) return api.updateLender(editing.id, body);
       return api.createLender(body);
     },

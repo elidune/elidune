@@ -173,10 +173,28 @@
       "empty": "No lenders",
       "nameConflict": "A lender with this name already exists.",
       "replacementRate": "Replacement rate",
-      "replacementRateHint": "In euros. Empty means no rate. Zero is not accepted. On edit, an empty field keeps the stored rate.",
+      "replacementRateHint": "In euros. Empty means no rate. On edit, an empty field clears the stored rate. Zero is not accepted.",
       "replacementRateNone": "None",
       "replacementRateInvalid": "Enter an amount in euros, with at most two decimal places.",
       "replacementRateNotPositive": "The rate must be empty or greater than zero."
+    },
+    "losses": {
+      "title": "Losses to report to the lender",
+      "subtitle": "Lost or damaged deposit copies the lender has not been told about yet.",
+      "subtitleNotified": "Lost or damaged deposit copies already reported to the lender.",
+      "toNotify": "To report",
+      "notified": "Already reported",
+      "empty": "No losses to report",
+      "emptyNotified": "No reported losses",
+      "kind": "Kind",
+      "kindLost": "Lost",
+      "kindDamaged": "Damaged",
+      "amount": "Amount",
+      "titleColumn": "Title",
+      "notify": "Notified on …",
+      "notifyDate": "Notice date",
+      "notifiedOn": "Lender notified on {{date}}",
+      "saved": "Lender notified"
     },
     "batches": {
       "title": "Deposit batches",
@@ -2510,7 +2528,10 @@
       "deposit_batch_has_active_loans": "The batch stays in return: copies are still on loan.",
       "deposit_batch_not_returning": "This batch is not in return. Start the return before scanning copies out or closing it.",
       "deposit_replacement_amount_required": "Enter the replacement amount. Order: lender rate, then the copy price when it is greater than zero, otherwise the amount you enter. Zero is not accepted.",
-      "item_not_deposit_copy": "This copy is not part of a deposit batch."
+      "item_not_deposit_copy": "This copy is not part of a deposit batch.",
+      "deposit_item_on_loan": "This copy is still on loan. Check it in at the desk before scanning it out.",
+      "deposit_loss_not_declared": "This copy is not a declared deposit loss (lost or damaged).",
+      "deposit_loss_already_notified": "The lender has already been notified for this copy."
     }
   },
   "inventory": {

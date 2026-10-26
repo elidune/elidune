@@ -1,4 +1,4 @@
-import { Building2, Package } from 'lucide-react';
+import { AlertTriangle, Building2, Package } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { SectionTabBar } from '@/components/common';
 import type { DepositsTab } from '@/utils/depositsTabs';
@@ -19,6 +19,7 @@ export default function DepositsTabBar({ activeTab, onSelectTab }: DepositsTabBa
       tabs={[
         { id: 'batches', label: t('deposits.batches.title'), icon: Package },
         { id: 'lenders', label: t('deposits.lenders.title'), icon: Building2 },
+        { id: 'losses', label: t('deposits.losses.title'), icon: AlertTriangle },
       ]}
     />
   );

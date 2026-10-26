@@ -749,6 +749,11 @@ export interface ItemDeposit {
   reference: string;
   returnDueOn: string | null;
   batchStatus: DepositBatchStatus;
+  /**
+   * When staff recorded that the lender was told this copy was lost or damaged.
+   * Absent or null until `POST /items/{id}/deposit-loss-notified`.
+   */
+  depositLossNotifiedAt?: string | null;
 }
 
 export interface Lender {
@@ -758,7 +763,6 @@ export interface Lender {
   notes: string | null;
   /** Integer cents. Null means no lender rate. Never zero. */
   replacementRateCents: number | null;
-  lossFlaggedAt: string | null;
   archivedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -769,10 +773,29 @@ export interface LenderWrite {
   contact?: string | null;
   notes?: string | null;
   /**
-   * Integer cents. Null on create means no rate.
-   * Omit on update to keep the stored rate. Zero is rejected.
+   * Integer cents. JSON `null` clears the rate.
+   * Omit the field on update to keep the stored rate. Zero is rejected.
    */
   replacementRateCents?: number | null;
+}
+
+export type DepositLossKind = 'lost' | 'damaged';
+
+/** One row of `GET /deposit-losses`. */
+export interface DepositLoss {
+  itemId: string;
+  barcode: string | null;
+  title: string | null;
+  lenderId: string;
+  lenderName: string;
+  batchId: string;
+  reference: string;
+  kind: DepositLossKind;
+  /** Frozen replacement amount in integer cents. */
+  amountCents: number;
+  fineId: string;
+  declaredAt: string;
+  depositLossNotifiedAt: string | null;
 }
 
 export interface DepositBatch {

@@ -173,10 +173,28 @@
       "empty": "Keine Verleiher",
       "nameConflict": "Ein Verleiher mit diesem Namen existiert bereits.",
       "replacementRate": "Ersatzbetrag",
-      "replacementRateHint": "In Euro. Leer: kein Tarif. Null wird nicht akzeptiert. Beim Bearbeiten behält ein leeres Feld den gespeicherten Tarif.",
+      "replacementRateHint": "In Euro. Leer: kein Tarif. Beim Bearbeiten löscht ein leeres Feld den gespeicherten Tarif. Null wird nicht akzeptiert.",
       "replacementRateNone": "Keiner",
       "replacementRateInvalid": "Geben Sie einen Betrag in Euro mit höchstens zwei Nachkommastellen ein.",
       "replacementRateNotPositive": "Der Tarif muss leer oder größer als null sein."
+    },
+    "losses": {
+      "title": "Verluste an den Verleiher melden",
+      "subtitle": "Verlorene oder beschädigte Depotexemplare, über die der Verleiher noch nicht informiert wurde.",
+      "subtitleNotified": "Verlorene oder beschädigte Depotexemplare, die dem Verleiher bereits gemeldet wurden.",
+      "toNotify": "Zu melden",
+      "notified": "Bereits gemeldet",
+      "empty": "Keine Verluste zu melden",
+      "emptyNotified": "Keine bereits gemeldeten Verluste",
+      "kind": "Art",
+      "kindLost": "Verloren",
+      "kindDamaged": "Beschädigt",
+      "amount": "Betrag",
+      "titleColumn": "Titel",
+      "notify": "Benachrichtigt am …",
+      "notifyDate": "Datum der Meldung",
+      "notifiedOn": "Verleiher benachrichtigt am {{date}}",
+      "saved": "Verleiher benachrichtigt"
     },
     "batches": {
       "title": "Depotlose",
@@ -2510,7 +2528,10 @@
       "deposit_batch_has_active_loans": "Das Los bleibt in Rückgabe: Exemplare sind noch ausgeliehen.",
       "deposit_batch_not_returning": "Dieses Los ist nicht in Rückgabe. Starten Sie die Rückgabe, bevor Sie Exemplare ausbuchen oder das Los schließen.",
       "deposit_replacement_amount_required": "Geben Sie den Ersatzbetrag ein. Reihenfolge: Tarif des Verleihers, dann Exemplarpreis wenn größer als null, sonst der eingegebene Betrag. Null wird nicht akzeptiert.",
-      "item_not_deposit_copy": "Dieses Exemplar gehört zu keiner Depot-Charge."
+      "item_not_deposit_copy": "Dieses Exemplar gehört zu keiner Depot-Charge.",
+      "deposit_item_on_loan": "Dieses Exemplar ist noch ausgeliehen. Verbuchen Sie die Rückgabe am Schalter, bevor Sie es ausbuchen.",
+      "deposit_loss_not_declared": "Dieses Exemplar ist kein gemeldeter Depotverlust (verloren oder beschädigt).",
+      "deposit_loss_already_notified": "Der Verleiher wurde für dieses Exemplar bereits benachrichtigt."
     }
   },
   "inventory": {
