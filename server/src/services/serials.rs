@@ -316,12 +316,6 @@ impl SerialsService {
                 Some(barcode) => barcode,
                 None => self.repository.allocate_item_barcode().await?,
             };
-            let existing = self
-                .repository
-                .subscriptions_issues(subscription_id)
-                .await?;
-            let in_library_only = subscription.latest_issue_library_use_only
-                && becomes_latest_regular(&issue, &existing);
             let created = self
                 .catalog
                 .create_item(
@@ -339,7 +333,7 @@ impl SerialsService {
                             .issue_price_cents
                             .map(|cents| Cents(i64::from(cents))),
                         price_deferred: false,
-                        borrowable: in_library_only.then_some(false),
+                        borrowable: None,
                     }),
                 )
                 .await?;
@@ -703,23 +697,4 @@ fn received_at(received_on: Option<NaiveDate>) -> DateTime<Utc> {
             .and_utc(),
         None => Utc::now(),
     }
-}
-
-/// True when this regular issue's planned date is at least as recent as every arrived regular issue.
-fn becomes_latest_regular(issue: &SerialIssue, existing: &[SerialIssue]) -> bool {
-    if issue.supplement {
-        return false;
-    }
-    !existing.iter().any(|other| {
-        other.id != issue.id
-            && other.status == SerialIssueStatus::Arrived
-            && !other.supplement
-            && planned_is_later(other, issue)
-    })
-}
-
-fn planned_is_later(other: &SerialIssue, issue: &SerialIssue) -> bool {
-    other.planned_date > issue.planned_date
-        || (other.planned_date == issue.planned_date
-            && other.slot.unwrap_or(0) > issue.slot.unwrap_or(0))
 }

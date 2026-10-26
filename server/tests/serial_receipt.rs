@@ -484,3 +484,124 @@ async fn staff_statuses_late_grace_and_receipt_without_an_item() {
         "the only regular issue stays in the library"
     );
 }
+
+async fn set_borrowable(app: &TestApp, item_id: i64, borrowable: bool) {
+    sqlx::query("UPDATE items SET borrowable = $2 WHERE id = $1")
+        .bind(item_id)
+        .bind(borrowable)
+        .execute(app.state.services.repository.pool())
+        .await
+        .expect("set borrowable");
+}
+
+async fn receive(app: &TestApp, token: &str, subscription_id: &str, issue_id: &str) -> Value {
+    let (status, body) = app
+        .post_json(
+            &format!("/api/v1/serials/subscriptions/{subscription_id}/issues/{issue_id}/receive"),
+            &json!({}),
+            Some(token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    body
+}
+
+#[tokio::test]
+async fn manual_not_borrowable_survives_a_later_receipt() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin = fixtures::ensure_first_setup(&app).await;
+    let monthly = frequency_id(&app, &admin, "1/month").await;
+    let pattern = pattern_id(&app, &admin, "n° {X}").await;
+    let site_id = create_site_id(&app, &admin).await;
+    let suffix = fixtures::unique_suffix();
+    let biblio_id = create_periodical(&app, &admin, &format!("Revue fragile {suffix}")).await;
+
+    let (status, created) = app
+        .post_json(
+            "/api/v1/serials/subscriptions",
+            &json!({
+                "biblioId": biblio_id,
+                "siteId": site_id,
+                "frequencyId": monthly,
+                "numberingPatternId": pattern,
+                "firstIssueDate": "2024-01-31",
+                "x": 412,
+                "y": 0,
+                "z": 0,
+                "length": { "kind": "months", "count": 3 },
+                "latestIssueLibraryUseOnly": false
+            }),
+            Some(&admin),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let subscription_id = created["id"].as_str().expect("id");
+    let issues = created["issues"].as_array().expect("issues");
+    let id_412 = issue_with_x(issues, 412)["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let id_413 = issue_with_x(issues, 413)["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let id_414 = issue_with_x(issues, 414)["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let received_413 = receive(&app, &admin, subscription_id, &id_413).await;
+    let item_413: i64 = received_413["itemId"].as_str().unwrap().parse().unwrap();
+    assert!(
+        copy_row(&app, item_413).await.borrowable,
+        "the rule is off, so the first copy stays loanable"
+    );
+    set_borrowable(&app, item_413, false).await;
+
+    let (status, stored) = app
+        .get_json_with_auth(
+            &format!("/api/v1/serials/subscriptions/{subscription_id}"),
+            &admin,
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{stored}");
+    let mut update = stored.clone();
+    update["latestIssueLibraryUseOnly"] = json!(true);
+    let (status, updated) = app
+        .put_json(
+            &format!("/api/v1/serials/subscriptions/{subscription_id}"),
+            &update,
+            Some(&admin),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{updated}");
+
+    let received_412 = receive(&app, &admin, subscription_id, &id_412).await;
+    let item_412: i64 = received_412["itemId"].as_str().unwrap().parse().unwrap();
+    assert!(
+        copy_row(&app, item_412).await.borrowable,
+        "412 is older than 413, so it is loanable"
+    );
+    assert!(
+        !copy_row(&app, item_413).await.borrowable,
+        "413 was already non-borrowable before the rule held it"
+    );
+    set_borrowable(&app, item_412, false).await;
+
+    let received_414 = receive(&app, &admin, subscription_id, &id_414).await;
+    let item_414: i64 = received_414["itemId"].as_str().unwrap().parse().unwrap();
+    assert!(
+        !copy_row(&app, item_414).await.borrowable,
+        "414 is the new latest issue"
+    );
+    assert!(
+        !copy_row(&app, item_412).await.borrowable,
+        "an older copy marked non-borrowable by staff stays that way"
+    );
+    assert!(
+        !copy_row(&app, item_413).await.borrowable,
+        "the previous latest was non-borrowable before the rule, so it stays that way"
+    );
+}

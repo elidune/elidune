@@ -782,34 +782,90 @@ impl Repository {
         rows.into_iter().map(issue_from_row).collect()
     }
 
-    /// The arrived regular issue with the latest planned date stays non-borrowable.
-    /// Every other received copy of the subscription, including supplements, is borrowable.
+    /// Hold only the newest arrived regular issue in the library.
+    ///
+    /// The new latest copy becomes non-borrowable. The copy this rule previously
+    /// held returns to the `borrowable` value saved on that row. Every other copy
+    /// stays as it is, including one a librarian marked non-borrowable.
     pub async fn apply_latest_issue_borrowable(&self, subscription_id: i64) -> AppResult<()> {
-        sqlx::query(
-            "UPDATE items AS i \
-             SET borrowable = ( \
-                 ( \
-                     SELECT item_id FROM serial_issues \
-                     WHERE serial_subscription_id = $1 \
-                       AND supplement = false \
-                       AND status = 'arrived' \
-                       AND item_id IS NOT NULL \
-                     ORDER BY planned_date DESC, slot DESC NULLS LAST, id DESC \
-                     LIMIT 1 \
-                 ) IS DISTINCT FROM i.id \
-             ), \
-             updated_at = now() \
-             WHERE i.id IN ( \
-                 SELECT item_id FROM serial_issues \
-                 WHERE serial_subscription_id = $1 \
-                   AND status = 'arrived' \
-                   AND item_id IS NOT NULL \
-             )",
+        let mut tx = self.pool.begin().await?;
+        let latest = sqlx::query_as::<_, (i64, i64, Option<bool>)>(
+            "SELECT id, item_id, library_only_borrowable_before \
+             FROM serial_issues \
+             WHERE serial_subscription_id = $1 \
+               AND supplement = false \
+               AND status = 'arrived' \
+               AND item_id IS NOT NULL \
+             ORDER BY planned_date DESC, slot DESC NULLS LAST, id DESC \
+             LIMIT 1 \
+             FOR UPDATE",
         )
         .bind(subscription_id)
-        .execute(&self.pool)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(map_subscription_sql)?;
+        let Some((latest_id, latest_item, latest_saved)) = latest else {
+            tx.commit().await?;
+            return Ok(());
+        };
+
+        let held = sqlx::query_as::<_, (i64, i64, bool)>(
+            "SELECT id, item_id, library_only_borrowable_before \
+             FROM serial_issues \
+             WHERE serial_subscription_id = $1 \
+               AND library_only_borrowable_before IS NOT NULL \
+               AND id <> $2 \
+               AND item_id IS NOT NULL \
+             FOR UPDATE",
+        )
+        .bind(subscription_id)
+        .bind(latest_id)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(map_subscription_sql)?;
+        for (issue_id, item_id, borrowable_before) in held {
+            sqlx::query("UPDATE items SET borrowable = $2, updated_at = now() WHERE id = $1")
+                .bind(item_id)
+                .bind(borrowable_before)
+                .execute(&mut *tx)
+                .await
+                .map_err(map_subscription_sql)?;
+            sqlx::query(
+                "UPDATE serial_issues \
+                 SET library_only_borrowable_before = NULL, updated_at = now() \
+                 WHERE id = $1",
+            )
+            .bind(issue_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(map_subscription_sql)?;
+        }
+
+        if latest_saved.is_none() {
+            let borrowable_before: bool =
+                sqlx::query_scalar("SELECT borrowable FROM items WHERE id = $1 FOR UPDATE")
+                    .bind(latest_item)
+                    .fetch_one(&mut *tx)
+                    .await
+                    .map_err(map_subscription_sql)?;
+            sqlx::query(
+                "UPDATE serial_issues \
+                 SET library_only_borrowable_before = $2, updated_at = now() \
+                 WHERE id = $1",
+            )
+            .bind(latest_id)
+            .bind(borrowable_before)
+            .execute(&mut *tx)
+            .await
+            .map_err(map_subscription_sql)?;
+            sqlx::query("UPDATE items SET borrowable = false, updated_at = now() WHERE id = $1")
+                .bind(latest_item)
+                .execute(&mut *tx)
+                .await
+                .map_err(map_subscription_sql)?;
+        }
+
+        tx.commit().await.map_err(map_subscription_sql)?;
         Ok(())
     }
 }
