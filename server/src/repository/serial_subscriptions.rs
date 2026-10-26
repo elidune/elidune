@@ -1,7 +1,6 @@
 //! Persistence for serial subscriptions and their predicted issue rows.
 
 use chrono::{DateTime, NaiveDate, Utc};
-use rust_decimal::Decimal;
 use sqlx::{Postgres, Transaction};
 
 use super::serials::next_id;
@@ -24,7 +23,7 @@ JOIN serial_frequencies f ON f.id = s.frequency_id";
 fn subscription_select() -> String {
     format!(
         "s.id, s.biblio_id, b.title AS biblio_title, {ISSNS} AS issns, \
-         s.site_id, s.vendor_id, s.fund_id, s.cost, s.issue_price_cents, \
+         s.site_id, s.vendor_id, s.fund_id, s.cost_cents, s.issue_price_cents, \
          s.frequency_id, s.numbering_pattern_id, \
          f.unit AS frequency_unit, f.issues_per_unit, f.units_per_issue, \
          s.first_issue_date, s.start_date, s.end_date, \
@@ -76,7 +75,7 @@ struct SubscriptionRow {
     site_id: i64,
     vendor_id: Option<i64>,
     fund_id: Option<i64>,
-    cost: Option<Decimal>,
+    cost_cents: Option<i64>,
     issue_price_cents: Option<i32>,
     frequency_id: i64,
     numbering_pattern_id: i64,
@@ -120,7 +119,7 @@ struct IssueRow {
     planned_date: NaiveDate,
     display_label: String,
     sequence: i32,
-    slot: i32,
+    slot: Option<i32>,
     value_x: i32,
     value_y: i32,
     value_z: i32,
@@ -148,7 +147,7 @@ fn map_subscription_sql(err: sqlx::Error) -> AppError {
                     .to_string(),
             )
         }
-        Some("23505") if constraint.as_deref() == Some("serial_issues_subscription_slot_key") => {
+        Some("23505") if constraint.as_deref() == Some("serial_issues_subscription_slot_uidx") => {
             AppError::Conflict("This horizon was already generated".to_string())
         }
         Some("23505")
@@ -215,7 +214,7 @@ fn subscription_from_row(row: SubscriptionRow) -> AppResult<SerialSubscription> 
         site_id: row.site_id,
         vendor_id: row.vendor_id,
         fund_id: row.fund_id,
-        cost: row.cost,
+        cost_cents: row.cost_cents,
         issue_price_cents: row.issue_price_cents,
         frequency_id: row.frequency_id,
         numbering_pattern_id: row.numbering_pattern_id,
@@ -263,7 +262,10 @@ fn issue_from_row(row: IssueRow) -> AppResult<SerialIssue> {
         planned_date: row.planned_date,
         display_label: row.display_label,
         sequence: non_negative_i32(row.sequence, "sequence")?,
-        slot: non_negative_i32(row.slot, "slot")?,
+        slot: row
+            .slot
+            .map(|slot| non_negative_i32(slot, "slot"))
+            .transpose()?,
         x: row.value_x,
         y: row.value_y,
         z: row.value_z,
@@ -392,6 +394,17 @@ impl Repository {
         subscription_from_row(row)
     }
 
+    pub async fn subscriptions_regular_issue_count(&self, subscription_id: i64) -> AppResult<i64> {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*)::bigint FROM serial_issues \
+             WHERE serial_subscription_id = $1 AND supplement = false AND status <> 'deleted'",
+        )
+        .bind(subscription_id)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(count)
+    }
+
     pub async fn subscriptions_issues(&self, subscription_id: i64) -> AppResult<Vec<SerialIssue>> {
         let rows = sqlx::query_as::<_, IssueRow>(
             "SELECT id, serial_subscription_id, planned_date, display_label, sequence, slot, \
@@ -419,7 +432,7 @@ impl Repository {
         let mut tx = self.pool.begin().await?;
         sqlx::query(
             "INSERT INTO serial_subscriptions ( \
-                id, biblio_id, site_id, vendor_id, fund_id, cost, issue_price_cents, \
+                id, biblio_id, site_id, vendor_id, fund_id, cost_cents, issue_price_cents, \
                 frequency_id, numbering_pattern_id, first_issue_date, start_date, end_date, \
                 value_x, value_y, value_z, inner_x, inner_y, inner_z, next_slot, \
                 length_kind, length_count, irregularities, recurring_skips, combined_issues, \
@@ -440,7 +453,7 @@ impl Repository {
         .bind(data.site_id)
         .bind(data.vendor_id)
         .bind(data.fund_id)
-        .bind(data.cost)
+        .bind(data.cost_cents)
         .bind(data.issue_price_cents)
         .bind(data.frequency_id)
         .bind(data.numbering_pattern_id)
@@ -489,7 +502,7 @@ impl Repository {
         let mut tx = self.pool.begin().await?;
         let updated = sqlx::query(
             "UPDATE serial_subscriptions SET \
-                site_id = $2, vendor_id = $3, fund_id = $4, cost = $5, issue_price_cents = $6, \
+                site_id = $2, vendor_id = $3, fund_id = $4, cost_cents = $5, issue_price_cents = $6, \
                 frequency_id = $7, numbering_pattern_id = $8, first_issue_date = $9, \
                 start_date = $10, end_date = $11, \
                 value_x = $12, value_y = $13, value_z = $14, \
@@ -505,7 +518,7 @@ impl Repository {
         .bind(data.site_id)
         .bind(data.vendor_id)
         .bind(data.fund_id)
-        .bind(data.cost)
+        .bind(data.cost_cents)
         .bind(data.issue_price_cents)
         .bind(data.frequency_id)
         .bind(data.numbering_pattern_id)

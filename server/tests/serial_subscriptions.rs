@@ -126,7 +126,7 @@ fn subscription_body(
         "y": 0,
         "z": 0,
         "length": { "kind": "months", "count": 12 },
-        "cost": "48.00",
+        "costCents": 4800,
         "issuePriceCents": 350,
         "callNumber": "PER 412",
         "location": "Reading room",
@@ -296,7 +296,7 @@ async fn serial_subscription_crud_search_and_rights() {
     assert!(created["graceDays"].is_null(), "{created}");
     assert_eq!(created["effectiveGraceDays"], 15, "{created}");
     assert_eq!(created["createItems"], true);
-    assert_eq!(created["cost"], "48.00");
+    assert_eq!(created["costCents"], 4800);
     assert_eq!(created["issuePriceCents"], 350);
     assert_eq!(created["callNumber"], "PER 412");
     assert_eq!(created["location"], "Reading room");
@@ -556,6 +556,168 @@ async fn two_generated_horizons_match_one_prediction_without_duplicates() {
     );
     assert_eq!(generated["subscription"]["x"], preview["nextState"]["x"]);
 
+    let (status, _) = app
+        .delete_with_auth(&format!("/api/v1/serials/subscriptions/{id}"), &admin)
+        .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+}
+
+#[tokio::test]
+async fn supplement_with_null_slot_does_not_shift_predicted_issues() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin = fixtures::ensure_first_setup(&app).await;
+    let monthly = frequency_id(&app, &admin, "1/month").await;
+    let pattern = pattern_id(&app, &admin, "n° {X}").await;
+    let site_id = create_site_id(&app, &admin).await;
+    let suffix = fixtures::unique_suffix();
+    let biblio_id = create_periodical(
+        &app,
+        &admin,
+        &format!("Revue hors-série {suffix}"),
+        &format!("{:08}", suffix % 100_000_000),
+    )
+    .await;
+
+    let (status, preview) = app
+        .post_json(
+            "/api/v1/serials/predictions",
+            &json!({
+                "frequencyId": monthly,
+                "patternId": pattern,
+                "firstIssueDate": "2026-01-31",
+                "starting": { "x": 10, "y": 0, "z": 0 },
+                "length": { "kind": "months", "count": 24 },
+                "recurringSkips": [{ "month": 8 }]
+            }),
+            Some(&admin),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{preview}");
+
+    let (status, created) = app
+        .post_json(
+            "/api/v1/serials/subscriptions",
+            &json!({
+                "biblioId": biblio_id,
+                "siteId": site_id,
+                "frequencyId": monthly,
+                "numberingPatternId": pattern,
+                "firstIssueDate": "2026-01-31",
+                "x": 10,
+                "y": 0,
+                "z": 0,
+                "length": { "kind": "months", "count": 24 },
+                "recurringSkips": [{ "month": 8 }]
+            }),
+            Some(&admin),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let id = created["id"].as_str().expect("id");
+    let subscription_id: i64 = id.parse().expect("subscription id");
+    let next_slot_before = created["nextSlot"].clone();
+    let first_fp: Vec<_> = created["issues"]
+        .as_array()
+        .expect("first horizon")
+        .iter()
+        .map(issue_fingerprint)
+        .collect();
+
+    let pool = app.state.services.repository.pool();
+    let supplement_id = (suffix % 1_000_000_000_000) as i64;
+    sqlx::query(
+        "INSERT INTO serial_issues ( \
+            id, serial_subscription_id, planned_date, display_label, sequence, slot, \
+            value_x, value_y, value_z, status, supplement \
+         ) VALUES ($1, $2, DATE '2026-07-01', 'hors-série', 1000000, NULL, 0, 0, 0, 'expected', true)",
+    )
+    .bind(supplement_id)
+    .bind(subscription_id)
+    .execute(pool)
+    .await
+    .expect("insert supplement");
+
+    let regular_without_slot = sqlx::query(
+        "INSERT INTO serial_issues ( \
+            id, serial_subscription_id, planned_date, display_label, sequence, slot, \
+            value_x, value_y, value_z, status, supplement \
+         ) VALUES ($1, $2, DATE '2026-07-02', 'not a supplement', 1000001, NULL, 0, 0, 0, 'expected', false)",
+    )
+    .bind(supplement_id + 1)
+    .bind(subscription_id)
+    .execute(pool)
+    .await;
+    assert!(
+        regular_without_slot.is_err(),
+        "a regular issue needs a publication slot"
+    );
+
+    let (status, after_insert) = app
+        .get_json_with_auth(&format!("/api/v1/serials/subscriptions/{id}"), &admin)
+        .await;
+    assert_eq!(status, StatusCode::OK, "{after_insert}");
+    assert_eq!(after_insert["nextSlot"], next_slot_before);
+
+    let (status, generated) = app
+        .post_json(
+            &format!("/api/v1/serials/subscriptions/{id}/generate"),
+            &json!({}),
+            Some(&admin),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{generated}");
+    assert!(generated["issues"]
+        .as_array()
+        .expect("new issues")
+        .iter()
+        .all(|issue| issue["supplement"] == false && issue["slot"].is_u64()));
+
+    let (status, stored) = app
+        .get_json_with_auth(
+            &format!("/api/v1/serials/subscriptions/{id}/issues"),
+            &admin,
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{stored}");
+    let stored = stored.as_array().expect("issues");
+    let supplements: Vec<_> = stored
+        .iter()
+        .filter(|issue| issue["supplement"] == true)
+        .collect();
+    assert_eq!(supplements.len(), 1);
+    assert!(supplements[0]["slot"].is_null(), "{supplements:?}");
+    assert_eq!(supplements[0]["displayLabel"], "hors-série");
+
+    let regular: Vec<_> = stored
+        .iter()
+        .filter(|issue| issue["supplement"] == false)
+        .collect();
+    let regular_fp: Vec<_> = regular.iter().copied().map(issue_fingerprint).collect();
+    let preview_fp: Vec<_> = preview["issues"]
+        .as_array()
+        .expect("preview")
+        .iter()
+        .map(issue_fingerprint)
+        .collect();
+    assert_eq!(regular_fp, preview_fp);
+    assert_eq!(regular_fp[..first_fp.len()], first_fp[..]);
+    let slots: Vec<u64> = regular_fp.iter().map(|issue| issue.0).collect();
+    assert_eq!(
+        slots.iter().collect::<std::collections::HashSet<_>>().len(),
+        slots.len()
+    );
+    assert_eq!(
+        generated["subscription"]["nextSlot"],
+        preview["nextState"]["nextSlot"]
+    );
+
+    sqlx::query("DELETE FROM serial_issues WHERE id = $1")
+        .bind(supplement_id)
+        .execute(pool)
+        .await
+        .expect("remove supplement");
     let (status, _) = app
         .delete_with_auth(&format!("/api/v1/serials/subscriptions/{id}"), &admin)
         .await;

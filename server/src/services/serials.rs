@@ -5,8 +5,6 @@
 
 use std::sync::Arc;
 
-use rust_decimal::Decimal;
-
 use crate::{
     error::{AppError, AppResult},
     models::serial::{
@@ -218,6 +216,10 @@ impl SerialsService {
     }
 
     /// Append the next 12-month horizon from the stored cursor. Existing rows stay.
+    ///
+    /// `next_slot` is that cursor. Supplement rows are not publication slots, so
+    /// they are excluded from the count of issues already emitted and do not
+    /// move the cursor.
     pub async fn generate_subscription(&self, id: i64) -> AppResult<SerialIssueGenerateResponse> {
         let existing = self.repository.subscriptions_get(id).await?;
         if existing.status != SerialSubscriptionStatus::Active {
@@ -236,7 +238,11 @@ impl SerialsService {
             .await?
             .spec();
         let input = input_from_subscription(&existing, frequency, pattern);
-        let emitted = emitted_count(existing.issue_count)?;
+        let emitted = emitted_count(
+            self.repository
+                .subscriptions_regular_issue_count(id)
+                .await?,
+        )?;
         let (new_issues, cursor) = predict_stored_horizon(&input, emitted, existing.end_date)?;
         let expected_slot = i32::try_from(existing.next_slot)
             .map_err(|_| AppError::Internal("Stored next slot is out of range".to_string()))?;
@@ -247,7 +253,7 @@ impl SerialsService {
         let issues = subscription
             .issues
             .iter()
-            .filter(|issue| u64::from(issue.sequence) > u64::from(emitted))
+            .filter(|issue| !issue.supplement && u64::from(issue.sequence) > u64::from(emitted))
             .cloned()
             .collect();
         Ok(SerialIssueGenerateResponse {
@@ -329,6 +335,11 @@ fn validate_subscription_write(data: &SerialSubscriptionWrite) -> AppResult<()> 
             prediction::MAX_SUBSCRIPTION_LENGTH
         )));
     }
+    if data.cost_cents.is_some_and(|cents| cents < 0) {
+        return Err(AppError::Validation(
+            "Annual cost must not be negative".into(),
+        ));
+    }
     if data.issue_price_cents.is_some_and(|cents| cents < 0) {
         return Err(AppError::Validation(
             "Issue price must not be negative".into(),
@@ -344,21 +355,6 @@ fn validate_subscription_write(data: &SerialSubscriptionWrite) -> AppResult<()> 
             return Err(AppError::Validation(
                 "End date must not be before the start date".into(),
             ));
-        }
-    }
-    if let Some(cost) = data.cost {
-        if cost.is_sign_negative() {
-            return Err(AppError::Validation(
-                "Annual cost must not be negative".into(),
-            ));
-        }
-        if cost.scale() > 2 {
-            return Err(AppError::Validation(
-                "Annual cost has at most two decimal places".into(),
-            ));
-        }
-        if cost >= Decimal::from(1_000_000_000_000_i64) {
-            return Err(AppError::Validation("Annual cost is too large".into()));
         }
     }
     if data.irregularities.contains(&0) {

@@ -7,7 +7,7 @@ CREATE TABLE serial_subscriptions (
     site_id bigint NOT NULL,
     vendor_id bigint,
     fund_id bigint,
-    cost numeric(14,2),
+    cost_cents bigint,
     issue_price_cents integer,
     frequency_id bigint NOT NULL,
     numbering_pattern_id bigint NOT NULL,
@@ -45,7 +45,7 @@ CREATE TABLE serial_subscriptions (
     CONSTRAINT serial_subscriptions_fund_fk FOREIGN KEY (fund_id) REFERENCES acquisition_funds (id) ON DELETE SET NULL,
     CONSTRAINT serial_subscriptions_frequency_fk FOREIGN KEY (frequency_id) REFERENCES serial_frequencies (id),
     CONSTRAINT serial_subscriptions_pattern_fk FOREIGN KEY (numbering_pattern_id) REFERENCES serial_numbering_patterns (id),
-    CONSTRAINT serial_subscriptions_cost_chk CHECK (cost IS NULL OR cost >= 0),
+    CONSTRAINT serial_subscriptions_cost_chk CHECK (cost_cents IS NULL OR cost_cents >= 0),
     CONSTRAINT serial_subscriptions_issue_price_chk CHECK (
         issue_price_cents IS NULL OR issue_price_cents >= 0
     ),
@@ -69,7 +69,7 @@ CREATE TABLE serial_subscriptions (
 );
 
 COMMENT ON TABLE serial_subscriptions IS
-    'One periodical subscription at a site. cost is the annual price and is never copied onto an item. issue_price_cents is the optional per-issue price.';
+    'One periodical subscription at a site. cost_cents is the annual price in integer euro cents and is never copied onto an item. issue_price_cents is the optional per-issue price.';
 
 COMMENT ON COLUMN serial_subscriptions.first_issue_date IS
     'Immutable prediction anchor. Horizons keep this date and continue from next_slot.';
@@ -83,8 +83,8 @@ COMMENT ON COLUMN serial_subscriptions.grace_days IS
 COMMENT ON COLUMN serial_subscriptions.create_items IS
     'When true, receipt (MVP 3) creates an item. Default true; daily press is usually unchecked.';
 
-COMMENT ON COLUMN serial_subscriptions.cost IS
-    'Annual serial subscription cost. Receipt must not copy this to items.price.';
+COMMENT ON COLUMN serial_subscriptions.cost_cents IS
+    'Annual serial subscription cost in integer euro cents. Receipt must not copy this to items.price.';
 
 CREATE UNIQUE INDEX serial_subscriptions_one_active_uidx
     ON serial_subscriptions (biblio_id, site_id)
@@ -106,7 +106,7 @@ CREATE TABLE serial_issues (
     planned_date date NOT NULL,
     display_label text NOT NULL,
     sequence integer NOT NULL,
-    slot integer NOT NULL,
+    slot integer,
     value_x integer NOT NULL,
     value_y integer NOT NULL,
     value_z integer NOT NULL,
@@ -122,16 +122,20 @@ CREATE TABLE serial_issues (
         REFERENCES serial_subscriptions (id),
     CONSTRAINT serial_issues_item_fk FOREIGN KEY (item_id) REFERENCES items (id) ON DELETE SET NULL,
     CONSTRAINT serial_issues_sequence_chk CHECK (sequence >= 1),
-    CONSTRAINT serial_issues_slot_chk CHECK (slot >= 1),
+    CONSTRAINT serial_issues_slot_chk CHECK (slot IS NULL OR slot >= 1),
+    CONSTRAINT serial_issues_slot_required_chk CHECK (supplement OR slot IS NOT NULL),
     CONSTRAINT serial_issues_status_chk CHECK (
         status IN (
             'expected', 'arrived', 'late', 'missing', 'claimed',
             'not_available', 'deleted', 'bound'
         )
     ),
-    CONSTRAINT serial_issues_subscription_slot_key UNIQUE (serial_subscription_id, slot),
     CONSTRAINT serial_issues_subscription_sequence_key UNIQUE (serial_subscription_id, sequence)
 );
+
+CREATE UNIQUE INDEX serial_issues_subscription_slot_uidx
+    ON serial_issues (serial_subscription_id, slot)
+    WHERE slot IS NOT NULL;
 
 COMMENT ON TABLE serial_issues IS
     'Persisted prediction rows. display_label is what the desk, OPAC, holds, and claims show. Generating the next horizon appends rows; it does not rewrite existing ones.';
@@ -140,7 +144,7 @@ COMMENT ON COLUMN serial_issues.display_label IS
     'Human-readable numbering and date, stored at prediction time.';
 
 COMMENT ON COLUMN serial_issues.slot IS
-    'Absolute publication slot from the subscription anchor, including skipped irregularities.';
+    'Absolute publication slot from the subscription anchor, including skipped irregularities. NULL only when supplement is true (a hors-série has no publication slot). Prediction ignores supplement rows and continues from serial_subscriptions.next_slot.';
 
 CREATE INDEX idx_serial_issues_subscription_date
     ON serial_issues (serial_subscription_id, planned_date);

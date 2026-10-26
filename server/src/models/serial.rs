@@ -4,7 +4,6 @@
 //! the existing `subscription` vocabulary and is not modeled here.
 
 use chrono::{DateTime, NaiveDate, Utc};
-use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
 use utoipa::{IntoParams, ToSchema};
@@ -572,9 +571,9 @@ pub struct SerialSubscriptionWrite {
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[schema(value_type = Option<String>)]
     pub fund_id: Option<i64>,
-    /// Annual serial subscription cost. Never copied to the item price.
+    /// Annual serial subscription cost in integer euro cents. Never copied to the item price.
     #[serde(default)]
-    pub cost: Option<Decimal>,
+    pub cost_cents: Option<i64>,
     /// Price of one issue, in cents. Null leaves the received item price empty.
     #[serde(default)]
     pub issue_price_cents: Option<i32>,
@@ -669,7 +668,8 @@ pub struct SerialIssue {
     pub planned_date: NaiveDate,
     pub display_label: String,
     pub sequence: u32,
-    pub slot: u32,
+    /// Absent for a supplement (hors-série). Regular predicted issues always have a slot.
+    pub slot: Option<u32>,
     pub x: i32,
     pub y: i32,
     pub z: i32,
@@ -707,7 +707,7 @@ pub struct SerialSubscription {
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[schema(value_type = Option<String>)]
     pub fund_id: Option<i64>,
-    pub cost: Option<Decimal>,
+    pub cost_cents: Option<i64>,
     pub issue_price_cents: Option<i32>,
     #[serde_as(as = "DisplayFromStr")]
     #[schema(value_type = String)]

@@ -242,6 +242,8 @@ pub trait SerialsRepository: Send + Sync {
     ) -> AppResult<(Vec<SerialSubscription>, i64)>;
     async fn subscriptions_get(&self, id: i64) -> AppResult<SerialSubscription>;
     async fn subscriptions_issues(&self, subscription_id: i64) -> AppResult<Vec<SerialIssue>>;
+    /// Non-supplement issues. Horizon generation uses this so a hors-série does not advance `next_slot`.
+    async fn subscriptions_regular_issue_count(&self, subscription_id: i64) -> AppResult<i64>;
     async fn subscriptions_insert(
         &self,
         data: &SerialSubscriptionWrite,
@@ -328,6 +330,9 @@ impl SerialsRepository for Repository {
     }
     async fn subscriptions_issues(&self, subscription_id: i64) -> AppResult<Vec<SerialIssue>> {
         Repository::subscriptions_issues(self, subscription_id).await
+    }
+    async fn subscriptions_regular_issue_count(&self, subscription_id: i64) -> AppResult<i64> {
+        Repository::subscriptions_regular_issue_count(self, subscription_id).await
     }
     async fn subscriptions_insert(
         &self,
