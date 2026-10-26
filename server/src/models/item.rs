@@ -481,6 +481,61 @@ impl Item {
         included_in_public_catalog(self.weeding_status, self.circulation_status)
     }
 
+    /// A copy created when stock is received.
+    ///
+    /// Acquisitions receipt and serials receipt both use this so weeding, the
+    /// availability pair, and the borrowable default stay one path. The insert
+    /// is still [`crate::services::catalog::CatalogService::create_item`].
+    #[must_use]
+    pub fn received_copy(copy: ReceivedCopy) -> Self {
+        let borrowable = copy.borrowable.unwrap_or_else(|| {
+            Self::ready_to_circulate(
+                copy.barcode.as_deref(),
+                copy.site_id,
+                copy.site_name.as_deref(),
+            )
+        });
+        let weeding_status = WeedingStatus::OnShelf;
+        let (availability, can_hold_item) =
+            ItemAvailability::local_pair(false, borrowable, None, weeding_status);
+        Self {
+            lender_barcode: None,
+            id: None,
+            biblio_id: Some(copy.biblio_id),
+            site_id: copy.site_id,
+            barcode: copy.barcode,
+            call_number: copy.call_number,
+            volume_designation: copy.volume_designation,
+            place: None,
+            borrowable,
+            circulation_status: None,
+            weeding_status,
+            weeding_reason: None,
+            public_note: copy.public_note,
+            internal_note: copy.internal_note,
+            price: copy.price,
+            price_deferred: copy.price_deferred,
+            created_at: None,
+            updated_at: None,
+            archived_at: None,
+            site_name: copy.site_name,
+            borrowed: false,
+            loan_id: None,
+            availability,
+            can_hold_item,
+            hold_user_id: None,
+            hold_user_barcode: None,
+            hold_user_firstname: None,
+            hold_user_lastname: None,
+            due_date: None,
+            expected_return_date: None,
+            on_hold: false,
+            deposit_batch_id: None,
+            deposit: None,
+            legacy_notes_present: false,
+        }
+    }
+
     /// Whether barcode and site are present so a copy may circulate.
     ///
     /// Price is recommended for staff but not required here; acquisition closure and
@@ -509,6 +564,23 @@ impl Item {
         validate_copy_note("Internal note", self.internal_note.as_deref())?;
         Ok(())
     }
+}
+
+/// Fields shared by acquisitions receipt and serials receipt.
+pub struct ReceivedCopy {
+    pub biblio_id: i64,
+    pub barcode: Option<String>,
+    pub site_id: Option<i64>,
+    pub site_name: Option<String>,
+    pub call_number: Option<String>,
+    pub volume_designation: Option<String>,
+    pub public_note: Option<String>,
+    pub internal_note: Option<String>,
+    pub price: Option<crate::models::fine::Cents>,
+    pub price_deferred: bool,
+    /// `None` uses [`Item::ready_to_circulate`]. Serials passes `Some(false)` for
+    /// the latest in-library issue.
+    pub borrowable: Option<bool>,
 }
 
 fn nonempty(value: Option<&str>) -> Option<&str> {

@@ -278,6 +278,10 @@ use crate::api::{
         serial_subscriptions::update_subscription,
         serial_subscriptions::delete_subscription,
         serial_subscriptions::generate_subscription,
+        serial_subscriptions::receive_issue,
+        serial_subscriptions::set_issue_status,
+        serial_subscriptions::create_supplement,
+        serial_subscriptions::mark_late_issues,
         suggestions::create_suggestion,
         suggestions::list_suggestions,
         suggestions::get_suggestion,
@@ -835,6 +839,14 @@ mod tests {
             .paths
             .paths
             .contains_key("/serials/subscriptions/{id}/generate"));
+        assert!(doc
+            .paths
+            .paths
+            .contains_key("/serials/subscriptions/{id}/issues/{issueId}/receive"));
+        assert!(doc
+            .paths
+            .paths
+            .contains_key("/serials/subscriptions/{id}/mark-late"));
     }
 
     #[test]

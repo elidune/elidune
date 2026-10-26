@@ -252,7 +252,10 @@ impl Services {
                 repo.clone() as Arc<dyn SchedulesRepository>
             ),
             search: search_service,
-            serials: serials::SerialsService::new(repo.clone() as Arc<dyn SerialsRepository>),
+            serials: serials::SerialsService::new(
+                repo.clone() as Arc<dyn SerialsRepository>,
+                catalog.clone(),
+            ),
             sites: sites::SitesService::new(repo.clone() as Arc<dyn SitesRepository>),
             stats: stats::StatsService::new(repository.clone(), redis_service.clone()),
             transits: transits::TransitsService::new(

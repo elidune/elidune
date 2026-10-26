@@ -265,6 +265,10 @@ pub mod event {
     pub const SERIAL_SUBSCRIPTION_UPDATED: &str = "serial_subscription.updated";
     pub const SERIAL_SUBSCRIPTION_DELETED: &str = "serial_subscription.deleted";
     pub const SERIAL_SUBSCRIPTION_ISSUES_GENERATED: &str = "serial_subscription.issues_generated";
+    pub const SERIAL_ISSUE_RECEIVED: &str = "serial_issue.received";
+    pub const SERIAL_ISSUE_STATUS_CHANGED: &str = "serial_issue.status_changed";
+    pub const SERIAL_ISSUE_SUPPLEMENT_CREATED: &str = "serial_issue.supplement_created";
+    pub const SERIAL_ISSUES_MARKED_LATE: &str = "serial_issue.marked_late";
 
     // Collections
     pub const COLLECTION_CREATED: &str = "collection.created";
@@ -591,6 +595,16 @@ mod tests {
             event::SERIAL_SUBSCRIPTION_ISSUES_GENERATED,
             "serial_subscription.issues_generated"
         );
+        assert_eq!(event::SERIAL_ISSUE_RECEIVED, "serial_issue.received");
+        assert_eq!(
+            event::SERIAL_ISSUE_STATUS_CHANGED,
+            "serial_issue.status_changed"
+        );
+        assert_eq!(
+            event::SERIAL_ISSUE_SUPPLEMENT_CREATED,
+            "serial_issue.supplement_created"
+        );
+        assert_eq!(event::SERIAL_ISSUES_MARKED_LATE, "serial_issue.marked_late");
         assert_eq!(event::FINE_RULE_UPDATED, "fine_rule.updated");
         assert_eq!(
             event::LOAN_FINE_THRESHOLD_OVERRIDDEN,

@@ -9,8 +9,9 @@ use axum::{
 use crate::{
     error::AppResult,
     models::serial::{
-        SerialIssue, SerialIssueGenerateResponse, SerialSubscription,
-        SerialSubscriptionListResponse, SerialSubscriptionQuery, SerialSubscriptionWrite,
+        CreateSerialSupplement, ReceiveSerialIssue, SerialIssue, SerialIssueGenerateResponse,
+        SerialIssuesMarkedLate, SerialSubscription, SerialSubscriptionListResponse,
+        SerialSubscriptionQuery, SerialSubscriptionWrite, SetSerialIssueStatus,
     },
     services::audit,
 };
@@ -280,6 +281,224 @@ pub async fn generate_subscription(
         Err(err) => {
             state.services.audit.log(
                 audit::event::SERIAL_SUBSCRIPTION_ISSUES_GENERATED,
+                Some(claims.user_id),
+                Some("serial_subscription"),
+                Some(id),
+                ip,
+                None::<&str>,
+                audit::AuditLogMeta::from_app_error(&err),
+            );
+            Err(err)
+        }
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/serials/subscriptions/{id}/issues/{issueId}/receive",
+    tag = "serials",
+    security(("bearer_auth" = [])),
+    params(
+        ("id" = i64, Path, description = "Serial subscription id"),
+        ("issueId" = i64, Path, description = "Serial issue id"),
+    ),
+    request_body = ReceiveSerialIssue,
+    responses(
+        (status = 200, description = "Issue received. Other issues are not marked arrived. When create_items is set, a copy is created through the shared receipt item constructor.", body = SerialIssue),
+        (status = 401, description = "Not authenticated", body = ErrorResponse),
+        (status = 403, description = "Insufficient serials rights", body = ErrorResponse),
+        (status = 404, description = "Serial subscription or issue not found", body = ErrorResponse),
+        (status = 409, description = "The issue changed and could not be received", body = ErrorResponse),
+        (status = 422, description = "The issue is not expected or late, or the subscription does not create copies", body = ErrorResponse),
+    )
+)]
+pub async fn receive_issue(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    ClientIp(ip): ClientIp,
+    Path((id, issue_id)): Path<(i64, i64)>,
+    ValidatedJson(data): ValidatedJson<ReceiveSerialIssue>,
+) -> AppResult<Json<SerialIssue>> {
+    claims.require_write_serials()?;
+    match state
+        .services
+        .serials
+        .receive_issue(id, issue_id, &data)
+        .await
+    {
+        Ok(issue) => {
+            state.services.audit.log(
+                audit::event::SERIAL_ISSUE_RECEIVED,
+                Some(claims.user_id),
+                Some("serial_issue"),
+                Some(issue_id),
+                ip,
+                Some(&id),
+                audit::AuditLogMeta::success(),
+            );
+            Ok(Json(issue))
+        }
+        Err(err) => {
+            state.services.audit.log(
+                audit::event::SERIAL_ISSUE_RECEIVED,
+                Some(claims.user_id),
+                Some("serial_issue"),
+                Some(issue_id),
+                ip,
+                Some(&id),
+                audit::AuditLogMeta::from_app_error(&err),
+            );
+            Err(err)
+        }
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/serials/subscriptions/{id}/issues/{issueId}/status",
+    tag = "serials",
+    security(("bearer_auth" = [])),
+    params(
+        ("id" = i64, Path, description = "Serial subscription id"),
+        ("issueId" = i64, Path, description = "Serial issue id"),
+    ),
+    request_body = SetSerialIssueStatus,
+    responses(
+        (status = 200, description = "Status updated. missing is claim-ready. notAvailable means the issue will not be published. claimed does not send a vendor claim.", body = SerialIssue),
+        (status = 401, description = "Not authenticated", body = ErrorResponse),
+        (status = 403, description = "Insufficient serials rights", body = ErrorResponse),
+        (status = 404, description = "Serial subscription or issue not found", body = ErrorResponse),
+        (status = 422, description = "That status change is not allowed", body = ErrorResponse),
+    )
+)]
+pub async fn set_issue_status(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    ClientIp(ip): ClientIp,
+    Path((id, issue_id)): Path<(i64, i64)>,
+    Json(data): Json<SetSerialIssueStatus>,
+) -> AppResult<Json<SerialIssue>> {
+    claims.require_write_serials()?;
+    match state
+        .services
+        .serials
+        .set_issue_status(id, issue_id, &data)
+        .await
+    {
+        Ok(issue) => {
+            state.services.audit.log(
+                audit::event::SERIAL_ISSUE_STATUS_CHANGED,
+                Some(claims.user_id),
+                Some("serial_issue"),
+                Some(issue_id),
+                ip,
+                Some(issue.status.as_db_str()),
+                audit::AuditLogMeta::success(),
+            );
+            Ok(Json(issue))
+        }
+        Err(err) => {
+            state.services.audit.log(
+                audit::event::SERIAL_ISSUE_STATUS_CHANGED,
+                Some(claims.user_id),
+                Some("serial_issue"),
+                Some(issue_id),
+                ip,
+                None::<&str>,
+                audit::AuditLogMeta::from_app_error(&err),
+            );
+            Err(err)
+        }
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/serials/subscriptions/{id}/supplements",
+    tag = "serials",
+    security(("bearer_auth" = [])),
+    params(("id" = i64, Path, description = "Serial subscription id")),
+    request_body = CreateSerialSupplement,
+    responses(
+        (status = 201, description = "Supplement stored with a null slot and a null sequence", body = SerialIssue),
+        (status = 400, description = "Validation error", body = ErrorResponse),
+        (status = 401, description = "Not authenticated", body = ErrorResponse),
+        (status = 403, description = "Insufficient serials rights", body = ErrorResponse),
+        (status = 404, description = "Serial subscription not found", body = ErrorResponse),
+    )
+)]
+pub async fn create_supplement(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    ClientIp(ip): ClientIp,
+    Path(id): Path<i64>,
+    ValidatedJson(data): ValidatedJson<CreateSerialSupplement>,
+) -> AppResult<(StatusCode, Json<SerialIssue>)> {
+    claims.require_write_serials()?;
+    match state.services.serials.create_supplement(id, &data).await {
+        Ok(issue) => {
+            state.services.audit.log(
+                audit::event::SERIAL_ISSUE_SUPPLEMENT_CREATED,
+                Some(claims.user_id),
+                Some("serial_issue"),
+                Some(issue.id),
+                ip,
+                Some(&id),
+                audit::AuditLogMeta::success(),
+            );
+            Ok((StatusCode::CREATED, Json(issue)))
+        }
+        Err(err) => {
+            state.services.audit.log(
+                audit::event::SERIAL_ISSUE_SUPPLEMENT_CREATED,
+                Some(claims.user_id),
+                Some("serial_subscription"),
+                Some(id),
+                ip,
+                None::<&str>,
+                audit::AuditLogMeta::from_app_error(&err),
+            );
+            Err(err)
+        }
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/serials/subscriptions/{id}/mark-late",
+    tag = "serials",
+    security(("bearer_auth" = [])),
+    params(("id" = i64, Path, description = "Serial subscription id")),
+    responses(
+        (status = 200, description = "Expected issues past planned date plus effective grace are now late. Receiving an issue does not mark another issue late.", body = SerialIssuesMarkedLate),
+        (status = 401, description = "Not authenticated", body = ErrorResponse),
+        (status = 403, description = "Insufficient serials rights", body = ErrorResponse),
+        (status = 404, description = "Serial subscription not found", body = ErrorResponse),
+    )
+)]
+pub async fn mark_late_issues(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    ClientIp(ip): ClientIp,
+    Path(id): Path<i64>,
+) -> AppResult<Json<SerialIssuesMarkedLate>> {
+    claims.require_write_serials()?;
+    match state.services.serials.mark_late_issues(id).await {
+        Ok(marked) => {
+            state.services.audit.log(
+                audit::event::SERIAL_ISSUES_MARKED_LATE,
+                Some(claims.user_id),
+                Some("serial_subscription"),
+                Some(id),
+                ip,
+                Some(&marked.issues.len()),
+                audit::AuditLogMeta::success(),
+            );
+            Ok(Json(marked))
+        }
+        Err(err) => {
+            state.services.audit.log(
+                audit::event::SERIAL_ISSUES_MARKED_LATE,
                 Some(claims.user_id),
                 Some("serial_subscription"),
                 Some(id),

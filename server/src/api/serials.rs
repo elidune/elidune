@@ -65,6 +65,22 @@ pub fn router() -> axum::Router<crate::AppState> {
             "/serials/subscriptions/:id/generate",
             post(super::serial_subscriptions::generate_subscription),
         )
+        .route(
+            "/serials/subscriptions/:id/issues/:issue_id/receive",
+            post(super::serial_subscriptions::receive_issue),
+        )
+        .route(
+            "/serials/subscriptions/:id/issues/:issue_id/status",
+            post(super::serial_subscriptions::set_issue_status),
+        )
+        .route(
+            "/serials/subscriptions/:id/supplements",
+            post(super::serial_subscriptions::create_supplement),
+        )
+        .route(
+            "/serials/subscriptions/:id/mark-late",
+            post(super::serial_subscriptions::mark_late_issues),
+        )
 }
 
 #[utoipa::path(

@@ -13,7 +13,13 @@ use crate::{
         SerialSubscriptionStatus, SerialSubscriptionWrite, SubscriptionLength,
     },
     serials::grace,
+    services::item_barcode::allocate_local_item_barcode,
 };
+
+const ISSUE_COLUMNS: &str = "\
+id, serial_subscription_id, planned_date, display_label, sequence, slot, \
+value_x, value_y, value_z, status, supplement, item_id, received_at, notes, \
+created_at, updated_at";
 
 const SUBSCRIPTION_FROM: &str = "\
 FROM serial_subscriptions s \
@@ -649,6 +655,161 @@ impl Repository {
             .await
             .map_err(map_subscription_sql)?;
         tx.commit().await?;
+        Ok(())
+    }
+
+    pub async fn allocate_item_barcode(&self) -> AppResult<String> {
+        allocate_local_item_barcode(self).await
+    }
+
+    pub async fn subscription_issue(
+        &self,
+        subscription_id: i64,
+        issue_id: i64,
+    ) -> AppResult<SerialIssue> {
+        let sql = format!(
+            "SELECT {ISSUE_COLUMNS} FROM serial_issues \
+             WHERE id = $1 AND serial_subscription_id = $2"
+        );
+        let row = sqlx::query_as::<_, IssueRow>(&sql)
+            .bind(issue_id)
+            .bind(subscription_id)
+            .fetch_optional(&self.pool)
+            .await?
+            .ok_or_else(|| AppError::NotFound(format!("Serial issue {issue_id} not found")))?;
+        issue_from_row(row)
+    }
+
+    pub async fn issues_mark_arrived(
+        &self,
+        subscription_id: i64,
+        issue_id: i64,
+        received_at: DateTime<Utc>,
+        item_id: Option<i64>,
+    ) -> AppResult<Option<SerialIssue>> {
+        let sql = format!(
+            "UPDATE serial_issues \
+             SET status = 'arrived', received_at = $3, item_id = $4, updated_at = now() \
+             WHERE id = $1 AND serial_subscription_id = $2 \
+               AND status IN ('expected', 'late') \
+             RETURNING {ISSUE_COLUMNS}"
+        );
+        let row = sqlx::query_as::<_, IssueRow>(&sql)
+            .bind(issue_id)
+            .bind(subscription_id)
+            .bind(received_at)
+            .bind(item_id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(map_subscription_sql)?;
+        row.map(issue_from_row).transpose()
+    }
+
+    pub async fn issues_set_status(
+        &self,
+        subscription_id: i64,
+        issue_id: i64,
+        status: SerialIssueStatus,
+        from: &[SerialIssueStatus],
+    ) -> AppResult<Option<SerialIssue>> {
+        let from_db: Vec<String> = from
+            .iter()
+            .map(|status| status.as_db_str().to_string())
+            .collect();
+        let sql = format!(
+            "UPDATE serial_issues SET status = $3, updated_at = now() \
+             WHERE id = $1 AND serial_subscription_id = $2 AND status = ANY($4) \
+             RETURNING {ISSUE_COLUMNS}"
+        );
+        let row = sqlx::query_as::<_, IssueRow>(&sql)
+            .bind(issue_id)
+            .bind(subscription_id)
+            .bind(status.as_db_str())
+            .bind(&from_db)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(map_subscription_sql)?;
+        row.map(issue_from_row).transpose()
+    }
+
+    pub async fn issues_insert_supplement(
+        &self,
+        subscription_id: i64,
+        planned_date: NaiveDate,
+        display_label: &str,
+        notes: Option<&str>,
+    ) -> AppResult<SerialIssue> {
+        let sql = format!(
+            "INSERT INTO serial_issues ( \
+                id, serial_subscription_id, planned_date, display_label, sequence, slot, \
+                value_x, value_y, value_z, status, supplement, notes, created_at, updated_at \
+             ) VALUES ($1, $2, $3, $4, NULL, NULL, 0, 0, 0, 'expected', true, $5, now(), now()) \
+             RETURNING {ISSUE_COLUMNS}"
+        );
+        let row = sqlx::query_as::<_, IssueRow>(&sql)
+            .bind(next_id())
+            .bind(subscription_id)
+            .bind(planned_date)
+            .bind(display_label)
+            .bind(notes)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(map_subscription_sql)?;
+        issue_from_row(row)
+    }
+
+    pub async fn issues_mark_late(
+        &self,
+        subscription_id: i64,
+        grace_days: i32,
+        today: NaiveDate,
+    ) -> AppResult<Vec<SerialIssue>> {
+        let sql = format!(
+            "UPDATE serial_issues \
+             SET status = 'late', updated_at = now() \
+             WHERE serial_subscription_id = $1 \
+               AND status = 'expected' \
+               AND planned_date + $2::integer < $3::date \
+             RETURNING {ISSUE_COLUMNS}"
+        );
+        let rows = sqlx::query_as::<_, IssueRow>(&sql)
+            .bind(subscription_id)
+            .bind(grace_days)
+            .bind(today)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(map_subscription_sql)?;
+        rows.into_iter().map(issue_from_row).collect()
+    }
+
+    /// The arrived regular issue with the latest planned date stays non-borrowable.
+    /// Every other received copy of the subscription, including supplements, is borrowable.
+    pub async fn apply_latest_issue_borrowable(&self, subscription_id: i64) -> AppResult<()> {
+        sqlx::query(
+            "UPDATE items AS i \
+             SET borrowable = ( \
+                 ( \
+                     SELECT item_id FROM serial_issues \
+                     WHERE serial_subscription_id = $1 \
+                       AND supplement = false \
+                       AND status = 'arrived' \
+                       AND item_id IS NOT NULL \
+                     ORDER BY planned_date DESC, slot DESC NULLS LAST, id DESC \
+                     LIMIT 1 \
+                 ) IS DISTINCT FROM i.id \
+             ), \
+             updated_at = now() \
+             WHERE i.id IN ( \
+                 SELECT item_id FROM serial_issues \
+                 WHERE serial_subscription_id = $1 \
+                   AND status = 'arrived' \
+                   AND item_id IS NOT NULL \
+             )",
+        )
+        .bind(subscription_id)
+        .execute(&self.pool)
+        .await
+        .map_err(map_subscription_sql)?;
         Ok(())
     }
 }

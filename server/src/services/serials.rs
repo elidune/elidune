@@ -5,28 +5,41 @@
 
 use std::sync::Arc;
 
+use chrono::{DateTime, NaiveDate, Utc};
+
 use crate::{
     error::{AppError, AppResult},
-    models::serial::{
-        CounterInners, CounterRule, CounterValues, FrequencySpec, FrequencyWrite, NewSerialIssue,
-        NumberingPatternSpec, NumberingPatternWrite, PredictionResponse, PredictionState,
-        SerialFrequency, SerialFrequencyListResponse, SerialIssue, SerialIssueGenerateResponse,
-        SerialListQuery, SerialNumberingPattern, SerialNumberingPatternListResponse,
-        SerialSubscription, SerialSubscriptionListResponse, SerialSubscriptionQuery,
-        SerialSubscriptionStatus, SerialSubscriptionWrite, TestPredictionRequest,
+    models::{
+        fine::Cents,
+        item::{Item, ReceivedCopy},
+        serial::{
+            CounterInners, CounterRule, CounterValues, CreateSerialSupplement, FrequencySpec,
+            FrequencyWrite, NewSerialIssue, NumberingPatternSpec, NumberingPatternWrite,
+            PredictionResponse, PredictionState, ReceiveSerialIssue, SerialFrequency,
+            SerialFrequencyListResponse, SerialIssue, SerialIssueGenerateResponse,
+            SerialIssueStatus, SerialIssuesMarkedLate, SerialListQuery, SerialNumberingPattern,
+            SerialNumberingPatternListResponse, SerialSubscription, SerialSubscriptionListResponse,
+            SerialSubscriptionQuery, SerialSubscriptionStatus, SerialSubscriptionWrite,
+            SetSerialIssueStatus, TestPredictionRequest,
+        },
     },
     repository::SerialsRepository,
     serials::prediction::{self, PredictionInput},
+    services::catalog::CatalogService,
 };
 
 #[derive(Clone)]
 pub struct SerialsService {
     repository: Arc<dyn SerialsRepository>,
+    catalog: CatalogService,
 }
 
 impl SerialsService {
-    pub fn new(repository: Arc<dyn SerialsRepository>) -> Self {
-        Self { repository }
+    pub fn new(repository: Arc<dyn SerialsRepository>, catalog: CatalogService) -> Self {
+        Self {
+            repository,
+            catalog,
+        }
     }
 
     pub async fn list_frequencies(
@@ -267,6 +280,173 @@ impl SerialsService {
         })
     }
 
+    /// Receive an expected or late issue. Other issues keep their status.
+    ///
+    /// When `create_items` is set, the copy is built with [`Item::received_copy`] and
+    /// inserted by [`CatalogService::create_item`]. `issue_price_cents` is the item
+    /// price. `cost_cents` is not copied. A missing barcode uses
+    /// [`crate::services::item_barcode::allocate_local_item_barcode`].
+    pub async fn receive_issue(
+        &self,
+        subscription_id: i64,
+        issue_id: i64,
+        data: &ReceiveSerialIssue,
+    ) -> AppResult<SerialIssue> {
+        let subscription = self.repository.subscriptions_get(subscription_id).await?;
+        let issue = self
+            .repository
+            .subscription_issue(subscription_id, issue_id)
+            .await?;
+        if !matches!(
+            issue.status,
+            SerialIssueStatus::Expected | SerialIssueStatus::Late
+        ) {
+            return Err(AppError::BusinessRule(
+                "Only an expected or late issue can be received".into(),
+            ));
+        }
+        let barcode = trimmed(&data.barcode);
+        if !subscription.create_items && barcode.is_some() {
+            return Err(AppError::BusinessRule(
+                "This serial subscription does not create copies".into(),
+            ));
+        }
+        let item_id = if subscription.create_items {
+            let barcode = match barcode {
+                Some(barcode) => barcode,
+                None => self.repository.allocate_item_barcode().await?,
+            };
+            let existing = self
+                .repository
+                .subscriptions_issues(subscription_id)
+                .await?;
+            let in_library_only = subscription.latest_issue_library_use_only
+                && becomes_latest_regular(&issue, &existing);
+            let created = self
+                .catalog
+                .create_item(
+                    subscription.biblio_id,
+                    Item::received_copy(ReceivedCopy {
+                        biblio_id: subscription.biblio_id,
+                        barcode: Some(barcode),
+                        site_id: Some(subscription.site_id),
+                        site_name: None,
+                        call_number: trimmed(&subscription.call_number),
+                        volume_designation: Some(issue.display_label.clone()),
+                        public_note: trimmed(&subscription.public_note),
+                        internal_note: item_internal_note(&subscription),
+                        price: subscription
+                            .issue_price_cents
+                            .map(|cents| Cents(i64::from(cents))),
+                        price_deferred: false,
+                        borrowable: in_library_only.then_some(false),
+                    }),
+                )
+                .await?;
+            Some(
+                created
+                    .id
+                    .ok_or_else(|| AppError::Internal("Created item is missing id".into()))?,
+            )
+        } else {
+            None
+        };
+        let received_at = received_at(data.received_on);
+        let arrived = self
+            .repository
+            .issues_mark_arrived(subscription_id, issue_id, received_at, item_id)
+            .await?
+            .ok_or_else(|| {
+                AppError::Conflict(
+                    "This issue was updated and can no longer be received".to_string(),
+                )
+            })?;
+        if subscription.create_items && subscription.latest_issue_library_use_only {
+            self.repository
+                .apply_latest_issue_borrowable(subscription_id)
+                .await?;
+        }
+        Ok(arrived)
+    }
+
+    /// Move an unreceived issue to late, missing (claim-ready), claimed, not published, or deleted.
+    pub async fn set_issue_status(
+        &self,
+        subscription_id: i64,
+        issue_id: i64,
+        data: &SetSerialIssueStatus,
+    ) -> AppResult<SerialIssue> {
+        let issue = self
+            .repository
+            .subscription_issue(subscription_id, issue_id)
+            .await?;
+        let target = data.status.as_issue_status();
+        if issue.status == target {
+            return Ok(issue);
+        }
+        if !data.status.allowed_from().contains(&issue.status) {
+            return Err(AppError::BusinessRule(format!(
+                "An issue with status {} cannot become {}",
+                issue.status.as_db_str(),
+                target.as_db_str()
+            )));
+        }
+        self.repository
+            .issues_set_status(
+                subscription_id,
+                issue_id,
+                target,
+                data.status.allowed_from(),
+            )
+            .await?
+            .ok_or_else(|| {
+                AppError::Conflict("This issue was updated and the status was not changed".into())
+            })
+    }
+
+    /// Insert a supplement with a null slot and a null sequence.
+    pub async fn create_supplement(
+        &self,
+        subscription_id: i64,
+        data: &CreateSerialSupplement,
+    ) -> AppResult<SerialIssue> {
+        self.repository.subscriptions_get(subscription_id).await?;
+        let label = data.display_label.trim();
+        if label.is_empty() {
+            return Err(AppError::Validation(
+                "Supplement display label must not be empty".into(),
+            ));
+        }
+        self.repository
+            .issues_insert_supplement(
+                subscription_id,
+                data.planned_date,
+                label,
+                trimmed(&data.notes),
+            )
+            .await
+    }
+
+    /// Mark expected issues late when today is after `planned_date` plus the effective grace.
+    ///
+    /// A stored `grace_days`, including 0, wins. Otherwise the frequency default applies.
+    /// An irregular subscription with no grace is left unchanged. Receiving another issue
+    /// does not call this.
+    pub async fn mark_late_issues(
+        &self,
+        subscription_id: i64,
+    ) -> AppResult<SerialIssuesMarkedLate> {
+        let subscription = self.repository.subscriptions_get(subscription_id).await?;
+        let Some(grace_days) = subscription.effective_grace_days else {
+            return Ok(SerialIssuesMarkedLate { issues: Vec::new() });
+        };
+        let issues = self
+            .repository
+            .issues_mark_late(subscription_id, grace_days, Utc::now().date_naive())
+            .await?;
+        Ok(SerialIssuesMarkedLate { issues })
+    }
+
     async fn subscription_detail(&self, id: i64) -> AppResult<SerialSubscription> {
         let mut subscription = self.repository.subscriptions_get(id).await?;
         subscription.issues = self.repository.subscriptions_issues(id).await?;
@@ -502,4 +682,44 @@ fn slot_set(slots: &[u32]) -> Vec<u32> {
     copy.sort_unstable();
     copy.dedup();
     copy
+}
+
+fn trimmed(value: &Option<String>) -> Option<String> {
+    value
+        .as_ref()
+        .map(|text| text.trim().to_string())
+        .filter(|text| !text.is_empty())
+}
+
+fn item_internal_note(subscription: &SerialSubscription) -> Option<String> {
+    trimmed(&subscription.internal_note).or_else(|| trimmed(&subscription.notes))
+}
+
+fn received_at(received_on: Option<NaiveDate>) -> DateTime<Utc> {
+    match received_on {
+        Some(date) => date
+            .and_hms_opt(12, 0, 0)
+            .expect("noon is a valid time")
+            .and_utc(),
+        None => Utc::now(),
+    }
+}
+
+/// True when this regular issue's planned date is at least as recent as every arrived regular issue.
+fn becomes_latest_regular(issue: &SerialIssue, existing: &[SerialIssue]) -> bool {
+    if issue.supplement {
+        return false;
+    }
+    !existing.iter().any(|other| {
+        other.id != issue.id
+            && other.status == SerialIssueStatus::Arrived
+            && !other.supplement
+            && planned_is_later(other, issue)
+    })
+}
+
+fn planned_is_later(other: &SerialIssue, issue: &SerialIssue) -> bool {
+    other.planned_date > issue.planned_date
+        || (other.planned_date == issue.planned_date
+            && other.slot.unwrap_or(0) > issue.slot.unwrap_or(0))
 }
