@@ -42,21 +42,39 @@ async fn overdue_reminder_enqueue_reserves_loans_until_sent() {
     let (loan_ids, patron_email) = seed_overdue_loan(&repo).await;
 
     let outbox_id = email
-        .enqueue_overdue_reminder(&patron_email, "Overdue reminder", "plain body", "<p>html body</p>", &loan_ids)
+        .enqueue_overdue_reminder(
+            &patron_email,
+            "Overdue reminder",
+            "plain body",
+            "<p>html body</p>",
+            &loan_ids,
+        )
         .await
         .expect("enqueue overdue reminder");
 
-    let reserved = repo.email_outbox_reminder_loan_ids(outbox_id).await.expect("reserved loan ids");
+    let reserved = repo
+        .email_outbox_reminder_loan_ids(outbox_id)
+        .await
+        .expect("reserved loan ids");
     assert_eq!(reserved, loan_ids);
 
     let eligible = repo
-        .loans_get_overdue_for_reminders(elidune_server::repository::loans::ReminderTierDelays::default())
+        .loans_get_overdue_for_reminders(
+            elidune_server::repository::loans::ReminderTierDelays::default(),
+        )
         .await
         .expect("overdue query");
-    assert!(eligible.iter().all(|row| !loan_ids.contains(&row.loan_id)), "reserved loans must be excluded while outbox is pending");
+    assert!(
+        eligible.iter().all(|row| !loan_ids.contains(&row.loan_id)),
+        "reserved loans must be excluded while outbox is pending"
+    );
 
-    repo.loans_update_reminder_sent(&loan_ids).await.expect("mark reminded after SMTP");
-    repo.email_outbox_release_reminder_loans(outbox_id).await.expect("release reservation");
+    repo.loans_update_reminder_sent(&loan_ids)
+        .await
+        .expect("mark reminded after SMTP");
+    repo.email_outbox_release_reminder_loans(outbox_id)
+        .await
+        .expect("release reservation");
 
     sqlx::query("UPDATE email_outbox SET status = 'sent', sent_at = $2 WHERE id = $1")
         .bind(outbox_id)
@@ -73,11 +91,15 @@ async fn overdue_reminder_enqueue_reserves_loans_until_sent() {
     assert_eq!(reminder_count, 1);
 
     let eligible_after = repo
-        .loans_get_overdue_for_reminders(elidune_server::repository::loans::ReminderTierDelays::default())
+        .loans_get_overdue_for_reminders(
+            elidune_server::repository::loans::ReminderTierDelays::default(),
+        )
         .await
         .expect("overdue query after sent");
     assert!(
-        eligible_after.iter().all(|row| !loan_ids.contains(&row.loan_id)),
+        eligible_after
+            .iter()
+            .all(|row| !loan_ids.contains(&row.loan_id)),
         "loans stay excluded until the next tier's delay is reached after reminder tracking update"
     );
 }
@@ -92,14 +114,23 @@ async fn generic_enqueue_creates_pending_outbox_row() {
     let repo = app.state.services.repository.as_ref().clone();
     let email = email_service(&app);
 
-    let outbox_id = email.enqueue("generic@test.local", "Subject", "plain", "<p>html</p>").await.expect("enqueue generic email");
+    let outbox_id = email
+        .enqueue("generic@test.local", "Subject", "plain", "<p>html</p>")
+        .await
+        .expect("enqueue generic email");
 
     assert_eq!(outbox_status(&repo, outbox_id).await, "pending");
 
-    let linked_event = repo.email_outbox_event_id_for_outbox(outbox_id).await.expect("event lookup");
+    let linked_event = repo
+        .email_outbox_event_id_for_outbox(outbox_id)
+        .await
+        .expect("event lookup");
     assert!(linked_event.is_none());
 
-    let reserved = repo.email_outbox_reminder_loan_ids(outbox_id).await.expect("reminder loans");
+    let reserved = repo
+        .email_outbox_reminder_loan_ids(outbox_id)
+        .await
+        .expect("reminder loans");
     assert!(reserved.is_empty());
 }
 
@@ -144,35 +175,67 @@ async fn event_announcement_pending_count_tracks_outbox_rows() {
         .await
         .expect("enqueue b");
 
-    assert_eq!(repo.email_outbox_event_id_for_outbox(outbox_a).await.expect("event id a"), Some(event_id));
-    assert_eq!(repo.email_outbox_event_id_for_outbox(outbox_b).await.expect("event id b"), Some(event_id));
+    assert_eq!(
+        repo.email_outbox_event_id_for_outbox(outbox_a)
+            .await
+            .expect("event id a"),
+        Some(event_id)
+    );
+    assert_eq!(
+        repo.email_outbox_event_id_for_outbox(outbox_b)
+            .await
+            .expect("event id b"),
+        Some(event_id)
+    );
 
-    assert_eq!(repo.email_outbox_pending_event_announcement_count(event_id).await.expect("pending count"), 2);
+    assert_eq!(
+        repo.email_outbox_pending_event_announcement_count(event_id)
+            .await
+            .expect("pending count"),
+        2
+    );
 
     sqlx::query("UPDATE email_outbox SET status = 'sent', sent_at = NOW() WHERE id = $1")
         .bind(outbox_a)
         .execute(repo.pool())
         .await
         .expect("sent a");
-    repo.email_outbox_release_event_announcement(outbox_a).await.expect("release a");
+    repo.email_outbox_release_event_announcement(outbox_a)
+        .await
+        .expect("release a");
 
-    assert_eq!(repo.email_outbox_pending_event_announcement_count(event_id).await.expect("pending after one sent"), 1);
+    assert_eq!(
+        repo.email_outbox_pending_event_announcement_count(event_id)
+            .await
+            .expect("pending after one sent"),
+        1
+    );
 
     sqlx::query("UPDATE email_outbox SET status = 'sent', sent_at = NOW() WHERE id = $1")
         .bind(outbox_b)
         .execute(repo.pool())
         .await
         .expect("sent b");
-    repo.email_outbox_release_event_announcement(outbox_b).await.expect("release b");
-
-    assert_eq!(repo.email_outbox_pending_event_announcement_count(event_id).await.expect("pending after all sent"), 0);
-
-    repo.events_set_announcement_sent_at(event_id).await.expect("mark announcement sent");
-    let sent_at: Option<chrono::DateTime<Utc>> = sqlx::query_scalar("SELECT announcement_sent_at FROM events WHERE id = $1")
-        .bind(event_id)
-        .fetch_one(repo.pool())
+    repo.email_outbox_release_event_announcement(outbox_b)
         .await
-        .expect("announcement_sent_at");
+        .expect("release b");
+
+    assert_eq!(
+        repo.email_outbox_pending_event_announcement_count(event_id)
+            .await
+            .expect("pending after all sent"),
+        0
+    );
+
+    repo.events_set_announcement_sent_at(event_id)
+        .await
+        .expect("mark announcement sent");
+    let sent_at: Option<chrono::DateTime<Utc>> =
+        sqlx::query_scalar("SELECT announcement_sent_at FROM events WHERE id = $1")
+            .bind(event_id)
+            .fetch_one(repo.pool())
+            .await
+            .expect("announcement_sent_at");
     assert!(sent_at.is_some());
 }
 
@@ -187,7 +250,10 @@ async fn metrics_snapshot_reflects_pending_outbox_rows() {
     let email = email_service(&app);
 
     let before = repo.metrics_snapshot().await.expect("snapshot before");
-    let _ = email.enqueue("metrics@test.local", "Metrics", "plain", "<p>x</p>").await.expect("enqueue");
+    let _ = email
+        .enqueue("metrics@test.local", "Metrics", "plain", "<p>x</p>")
+        .await
+        .expect("enqueue");
 
     let after = repo.metrics_snapshot().await.expect("snapshot after");
     assert_eq!(after.outbox_pending_count, before.outbox_pending_count + 1);
@@ -213,18 +279,29 @@ async fn process_outbox_batch_marks_invalid_body_failed_and_releases_loans() {
     let outbox_id = insert_raw_outbox(&repo, "bad-body@test.local", "not-json", 0).await;
     link_reminder_loans(&repo, outbox_id, &loan_ids).await;
 
-    let report = email_outbox::process_outbox_batch(&email, &repo, &audit, Some(10)).await.expect("process batch");
+    let report = email_outbox::process_outbox_batch(&email, &repo, &audit, Some(10))
+        .await
+        .expect("process batch");
 
     assert!(report.processed >= 1);
     assert!(report.failed >= 1);
     assert_eq!(outbox_status(&repo, outbox_id).await, "failed");
-    assert!(repo.email_outbox_reminder_loan_ids(outbox_id).await.expect("released loans").is_empty());
+    assert!(repo
+        .email_outbox_reminder_loan_ids(outbox_id)
+        .await
+        .expect("released loans")
+        .is_empty());
 
     let eligible = repo
-        .loans_get_overdue_for_reminders(elidune_server::repository::loans::ReminderTierDelays::default())
+        .loans_get_overdue_for_reminders(
+            elidune_server::repository::loans::ReminderTierDelays::default(),
+        )
         .await
         .expect("eligible after failure");
-    assert!(eligible.iter().any(|row| loan_ids.contains(&row.loan_id)), "failed delivery must release loan reservations");
+    assert!(
+        eligible.iter().any(|row| loan_ids.contains(&row.loan_id)),
+        "failed delivery must release loan reservations"
+    );
 }
 
 #[tokio::test]
@@ -243,7 +320,9 @@ async fn process_outbox_batch_defers_on_smtp_failure_and_keeps_reservations() {
     let outbox_id = insert_raw_outbox(&repo, "defer@test.local", &body, 0).await;
     link_reminder_loans(&repo, outbox_id, &loan_ids).await;
 
-    let report = email_outbox::process_outbox_batch(&email, &repo, &audit, Some(10)).await.expect("process batch");
+    let report = email_outbox::process_outbox_batch(&email, &repo, &audit, Some(10))
+        .await
+        .expect("process batch");
 
     assert!(report.processed >= 1);
     assert!(report.deferred >= 1);
@@ -256,7 +335,12 @@ async fn process_outbox_batch_defers_on_smtp_failure_and_keeps_reservations() {
         .expect("attempts");
     assert_eq!(attempts, 1);
 
-    assert_eq!(repo.email_outbox_reminder_loan_ids(outbox_id).await.expect("still reserved"), loan_ids);
+    assert_eq!(
+        repo.email_outbox_reminder_loan_ids(outbox_id)
+            .await
+            .expect("still reserved"),
+        loan_ids
+    );
 }
 
 #[tokio::test]
@@ -275,12 +359,18 @@ async fn process_outbox_batch_permanent_failure_releases_reservations() {
     let outbox_id = insert_raw_outbox(&repo, "fail@test.local", &body, 4).await;
     link_reminder_loans(&repo, outbox_id, &loan_ids).await;
 
-    let report = email_outbox::process_outbox_batch(&email, &repo, &audit, Some(10)).await.expect("process batch");
+    let report = email_outbox::process_outbox_batch(&email, &repo, &audit, Some(10))
+        .await
+        .expect("process batch");
 
     assert!(report.processed >= 1);
     assert!(report.failed >= 1);
     assert_eq!(outbox_status(&repo, outbox_id).await, "failed");
-    assert!(repo.email_outbox_reminder_loan_ids(outbox_id).await.expect("released").is_empty());
+    assert!(repo
+        .email_outbox_reminder_loan_ids(outbox_id)
+        .await
+        .expect("released")
+        .is_empty());
 }
 
 // ---------------------------------------------------------------------------
@@ -314,7 +404,12 @@ async fn api_send_overdue_reminders_dry_run_does_not_enqueue() {
     let _ = seed_overdue_loan(&repo).await;
 
     let before = pending_outbox_count(&repo).await;
-    let (status, body) = app.post_empty("/api/v1/loans/send-overdue-reminders?dryRun=true", Some(&admin_token)).await;
+    let (status, body) = app
+        .post_empty(
+            "/api/v1/loans/send-overdue-reminders?dryRun=true",
+            Some(&admin_token),
+        )
+        .await;
     assert_eq!(status, StatusCode::OK, "dry run: {body}");
     assert!(body["emailsSent"].as_u64().unwrap_or(0) >= 1);
     assert_eq!(body["dryRun"], true);
@@ -332,16 +427,23 @@ async fn api_send_overdue_reminders_enqueues_and_reserves_loans() {
     let repo = app.state.services.repository.as_ref().clone();
     let (loan_ids, _) = seed_overdue_loan(&repo).await;
 
-    let (status, body) = app.post_empty("/api/v1/loans/send-overdue-reminders", Some(&admin_token)).await;
+    let (status, body) = app
+        .post_empty("/api/v1/loans/send-overdue-reminders", Some(&admin_token))
+        .await;
     assert_eq!(status, StatusCode::OK, "send reminders: {body}");
     assert!(body["emailsSent"].as_u64().unwrap_or(0) >= 1);
     assert_eq!(body["dryRun"], false);
 
     let eligible = repo
-        .loans_get_overdue_for_reminders(elidune_server::repository::loans::ReminderTierDelays::default())
+        .loans_get_overdue_for_reminders(
+            elidune_server::repository::loans::ReminderTierDelays::default(),
+        )
         .await
         .expect("eligible after enqueue");
-    assert!(eligible.iter().all(|row| !loan_ids.contains(&row.loan_id)), "API enqueue must reserve loans in outbox");
+    assert!(
+        eligible.iter().all(|row| !loan_ids.contains(&row.loan_id)),
+        "API enqueue must reserve loans in outbox"
+    );
 }
 
 #[tokio::test]
@@ -362,11 +464,22 @@ async fn api_send_event_announcement_enqueues_outbox_rows() {
         "bodyHtml": "<p>Join us tomorrow.</p>"
     });
 
-    let (status, body) = app.post_json(&format!("/api/v1/events/{event_id}/send-announcement"), &payload, Some(&admin_token)).await;
+    let (status, body) = app
+        .post_json(
+            &format!("/api/v1/events/{event_id}/send-announcement"),
+            &payload,
+            Some(&admin_token),
+        )
+        .await;
     assert_eq!(status, StatusCode::OK, "send announcement: {body}");
     assert!(body["emailsSent"].as_u64().unwrap_or(0) >= 1);
 
-    assert!(repo.email_outbox_pending_event_announcement_count(event_id).await.expect("pending count") >= 1);
+    assert!(
+        repo.email_outbox_pending_event_announcement_count(event_id)
+            .await
+            .expect("pending count")
+            >= 1
+    );
 }
 
 #[tokio::test]
@@ -380,12 +493,23 @@ async fn api_metrics_exposes_outbox_gauges() {
 
     let repo = app.state.services.repository.as_ref().clone();
     let email = email_service(&app);
-    let _ = email.enqueue("prom@test.local", "Prom", "plain", "<p>x</p>").await.expect("enqueue");
+    let _ = email
+        .enqueue("prom@test.local", "Prom", "plain", "<p>x</p>")
+        .await
+        .expect("enqueue");
 
     let snapshot = repo.metrics_snapshot().await.expect("snapshot");
     assert!(snapshot.outbox_pending_count >= 1);
 
-    let response = app.request(axum::http::Request::builder().method("GET").uri("/metrics").body(axum::body::Body::empty()).unwrap()).await;
+    let response = app
+        .request(
+            axum::http::Request::builder()
+                .method("GET")
+                .uri("/metrics")
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
+        .await;
     assert_eq!(response.status(), StatusCode::OK);
 
     let bytes = response.into_body().collect().await.unwrap().to_bytes();
@@ -416,8 +540,19 @@ async fn admin_token(app: &TestApp) -> String {
 
     let repo = app.state.services.repository.as_ref();
     let admin_id = ensure_admin_user(repo).await;
-    let user = app.state.services.users.get_by_id(admin_id).await.expect("load admin");
-    app.state.services.users.issue_access_token(&user).await.expect("issue admin token")
+    let user = app
+        .state
+        .services
+        .users
+        .get_by_id(admin_id)
+        .await
+        .expect("load admin");
+    app.state
+        .services
+        .users
+        .issue_access_token(&user)
+        .await
+        .expect("issue admin token")
 }
 
 async fn ensure_admin_user(repo: &Repository) -> i64 {

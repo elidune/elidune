@@ -69,6 +69,22 @@ export function isCatalogDeletionRefusal(code: string | null | undefined): boole
   return !!code && (CATALOG_DELETION_REFUSAL_CODES as readonly string[]).includes(code);
 }
 
+/** API refusals where `force=true` does not apply — hide the force-delete button. */
+const DELETE_FORCE_UNAVAILABLE_CODES = [
+  ...CATALOG_DELETION_REFUSAL_CODES,
+  'deposit_item_delete_use_batch_return',
+  'deposit_item_on_loan',
+  'deposit_item_delete_unpaid_fine',
+  'item_delete_unpaid_fine',
+  'item_on_loan',
+  'item_in_transit',
+  'item_on_hold',
+] as const;
+
+export function isDeleteForceUnavailable(code: string | null | undefined): boolean {
+  return !!code && (DELETE_FORCE_UNAVAILABLE_CODES as readonly string[]).includes(code);
+}
+
 export type WithdrawalFieldError = 'reason' | 'detail' | 'destination';
 
 export interface WithdrawalFormInput {

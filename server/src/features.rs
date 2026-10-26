@@ -206,7 +206,11 @@ pub fn require_feature(state: &AppState, feature: Feature) -> AppResult<()> {
 
 macro_rules! define_feature_gate {
     ($fn_name:ident, $feature:expr) => {
-        pub async fn $fn_name(State(state): State<AppState>, request: Request<axum::body::Body>, next: Next) -> Response {
+        pub async fn $fn_name(
+            State(state): State<AppState>,
+            request: Request<axum::body::Body>,
+            next: Next,
+        ) -> Response {
             match require_feature(&state, $feature) {
                 Ok(()) => next.run(request).await,
                 Err(err) => err.into_response(),
@@ -227,19 +231,46 @@ define_feature_gate!(gate_stats, Feature::Stats);
 define_feature_gate!(gate_visitor_counts, Feature::VisitorCounts);
 
 /// Attach a feature gate middleware (use from `app.rs` with cloned `AppState`).
-pub fn gated(router: axum::Router<AppState>, state: AppState, feature: Feature) -> axum::Router<AppState> {
+pub fn gated(
+    router: axum::Router<AppState>,
+    state: AppState,
+    feature: Feature,
+) -> axum::Router<AppState> {
     match feature {
-        Feature::Acquisitions => router.route_layer(axum::middleware::from_fn_with_state(state, gate_acquisitions)),
-        Feature::PurchaseSuggestions => router.route_layer(axum::middleware::from_fn_with_state(state, gate_purchase_suggestions)),
-        Feature::Weeding => router.route_layer(axum::middleware::from_fn_with_state(state, gate_weeding)),
-        Feature::Transits => router.route_layer(axum::middleware::from_fn_with_state(state, gate_transits)),
-        Feature::Deposits => router.route_layer(axum::middleware::from_fn_with_state(state, gate_deposits)),
-        Feature::Events => router.route_layer(axum::middleware::from_fn_with_state(state, gate_events)),
-        Feature::Inventory => router.route_layer(axum::middleware::from_fn_with_state(state, gate_inventory)),
-        Feature::Z3950 => router.route_layer(axum::middleware::from_fn_with_state(state, gate_z3950)),
+        Feature::Acquisitions => router.route_layer(axum::middleware::from_fn_with_state(
+            state,
+            gate_acquisitions,
+        )),
+        Feature::PurchaseSuggestions => router.route_layer(axum::middleware::from_fn_with_state(
+            state,
+            gate_purchase_suggestions,
+        )),
+        Feature::Weeding => {
+            router.route_layer(axum::middleware::from_fn_with_state(state, gate_weeding))
+        }
+        Feature::Transits => {
+            router.route_layer(axum::middleware::from_fn_with_state(state, gate_transits))
+        }
+        Feature::Deposits => {
+            router.route_layer(axum::middleware::from_fn_with_state(state, gate_deposits))
+        }
+        Feature::Events => {
+            router.route_layer(axum::middleware::from_fn_with_state(state, gate_events))
+        }
+        Feature::Inventory => {
+            router.route_layer(axum::middleware::from_fn_with_state(state, gate_inventory))
+        }
+        Feature::Z3950 => {
+            router.route_layer(axum::middleware::from_fn_with_state(state, gate_z3950))
+        }
         Feature::ImportIso => router, // gated per-handler on biblios routes
-        Feature::Stats => router.route_layer(axum::middleware::from_fn_with_state(state, gate_stats)),
-        Feature::VisitorCounts => router.route_layer(axum::middleware::from_fn_with_state(state, gate_visitor_counts)),
+        Feature::Stats => {
+            router.route_layer(axum::middleware::from_fn_with_state(state, gate_stats))
+        }
+        Feature::VisitorCounts => router.route_layer(axum::middleware::from_fn_with_state(
+            state,
+            gate_visitor_counts,
+        )),
     }
 }
 

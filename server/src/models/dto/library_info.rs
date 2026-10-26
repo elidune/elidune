@@ -134,10 +134,12 @@ mod tests {
         let omitted: UpdateLibraryInfoRequest = serde_json::from_str("{}").expect("empty");
         assert!(omitted.language.is_none());
 
-        let cleared: UpdateLibraryInfoRequest = serde_json::from_str(r#"{"language":null}"#).expect("null");
+        let cleared: UpdateLibraryInfoRequest =
+            serde_json::from_str(r#"{"language":null}"#).expect("null");
         assert!(matches!(cleared.language, Some(None)));
 
-        let german: UpdateLibraryInfoRequest = serde_json::from_str(r#"{"language":"de"}"#).expect("de");
+        let german: UpdateLibraryInfoRequest =
+            serde_json::from_str(r#"{"language":"de"}"#).expect("de");
         assert_eq!(german.language, Some(Some("de".to_string())));
     }
 

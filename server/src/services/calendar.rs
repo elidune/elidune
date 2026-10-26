@@ -32,9 +32,13 @@ pub fn default_zone() -> Tz {
 pub fn parse_timezone(name: &str) -> Result<Tz, AppError> {
     let trimmed = name.trim();
     if trimmed.is_empty() {
-        return Err(AppError::InvalidTimezone("Timezone is required".to_string()));
+        return Err(AppError::InvalidTimezone(
+            "Timezone is required".to_string(),
+        ));
     }
-    trimmed.parse::<Tz>().map_err(|_| AppError::InvalidTimezone(format!("Unknown IANA timezone '{trimmed}'")))
+    trimmed
+        .parse::<Tz>()
+        .map_err(|_| AppError::InvalidTimezone(format!("Unknown IANA timezone '{trimmed}'")))
 }
 
 /// Civil date of `instant` in `zone`.
@@ -52,7 +56,11 @@ pub fn local_date(zone: Tz, instant: DateTime<Utc>) -> NaiveDate {
 /// on the previous civil day: a due date of that previous local day is omitted
 /// even when its UTC date equals the UTC date of `now`.
 #[must_use]
-pub fn public_expected_return_date(zone: Tz, due: DateTime<Utc>, now: DateTime<Utc>) -> Option<NaiveDate> {
+pub fn public_expected_return_date(
+    zone: Tz,
+    due: DateTime<Utc>,
+    now: DateTime<Utc>,
+) -> Option<NaiveDate> {
     let due_day = local_date(zone, due);
     let today = local_date(zone, now);
     (due_day >= today).then_some(due_day)
@@ -61,13 +69,19 @@ pub fn public_expected_return_date(zone: Tz, due: DateTime<Utc>, now: DateTime<U
 /// `dd/mm/yyyy` in `zone`.
 #[must_use]
 pub fn format_patron_date(zone: Tz, instant: DateTime<Utc>) -> String {
-    instant.with_timezone(&zone).format(PATRON_DATE_FMT).to_string()
+    instant
+        .with_timezone(&zone)
+        .format(PATRON_DATE_FMT)
+        .to_string()
 }
 
 /// `dd/mm/yyyy HH:MM` in `zone` (no `UTC` suffix).
 #[must_use]
 pub fn format_patron_datetime(zone: Tz, instant: DateTime<Utc>) -> String {
-    instant.with_timezone(&zone).format(PATRON_DATETIME_FMT).to_string()
+    instant
+        .with_timezone(&zone)
+        .format(PATRON_DATETIME_FMT)
+        .to_string()
 }
 
 /// `YYYY-MM-DD` civil date in `zone`. Kept for messages the UI parses as ISO dates.
@@ -103,7 +117,8 @@ pub const LIBRARY_DEFAULT_SITE_ID_SQL: &str = default_site_id_sql!();
 
 /// Recorded loan site, or [`LIBRARY_DEFAULT_SITE_ID_SQL`] when that column is null.
 /// `{alias}` is the stats-builder table alias.
-pub const EFFECTIVE_LOAN_SITE_SQL: &str = concat!("COALESCE({alias}.site_id, ", default_site_id_sql!(), ")");
+pub const EFFECTIVE_LOAN_SITE_SQL: &str =
+    concat!("COALESCE({alias}.site_id, ", default_site_id_sql!(), ")");
 
 /// Site whose closures govern a loan.
 ///
@@ -129,19 +144,33 @@ pub fn is_open(calendar: &OpeningCalendar, site_id: Option<i64>, date: NaiveDate
 
 /// First open day of `site_id` on or after `date`.
 #[must_use]
-pub fn next_open_day(calendar: &OpeningCalendar, site_id: Option<i64>, date: NaiveDate) -> NaiveDate {
+pub fn next_open_day(
+    calendar: &OpeningCalendar,
+    site_id: Option<i64>,
+    date: NaiveDate,
+) -> NaiveDate {
     calendar.next_open_day(site_id, date)
 }
 
 /// Open days of `site_id` strictly after `from` and on or before `to`.
 #[must_use]
-pub fn open_days_between(calendar: &OpeningCalendar, site_id: Option<i64>, from: NaiveDate, to: NaiveDate) -> i64 {
+pub fn open_days_between(
+    calendar: &OpeningCalendar,
+    site_id: Option<i64>,
+    from: NaiveDate,
+    to: NaiveDate,
+) -> i64 {
     calendar.open_days_between(site_id, from, to)
 }
 
 /// Move `candidate` to the next open local day of `site_id`, keeping the local clock time.
 #[must_use]
-pub fn slide_due_date(candidate: DateTime<Utc>, zone: Tz, site_id: Option<i64>, calendar: &OpeningCalendar) -> DateTime<Utc> {
+pub fn slide_due_date(
+    candidate: DateTime<Utc>,
+    zone: Tz,
+    site_id: Option<i64>,
+    calendar: &OpeningCalendar,
+) -> DateTime<Utc> {
     let local = candidate.with_timezone(&zone);
     let open = next_open_day(calendar, site_id, local.date_naive());
     local_to_utc(zone, open, local.time()).unwrap_or(candidate)
@@ -158,13 +187,21 @@ pub struct CappedDueDate {
 /// `min(normal due date, return_due_on)` in the library zone.
 ///
 /// `None` when `return_due_on` is `today` or earlier: the copy goes back to the lender.
-pub fn cap_loan_due_date(expiry: DateTime<Utc>, return_due_on: chrono::NaiveDate, today: chrono::NaiveDate, zone: Tz) -> Option<CappedDueDate> {
+pub fn cap_loan_due_date(
+    expiry: DateTime<Utc>,
+    return_due_on: chrono::NaiveDate,
+    today: chrono::NaiveDate,
+    zone: Tz,
+) -> Option<CappedDueDate> {
     if return_due_on <= today {
         return None;
     }
     let local = expiry.with_timezone(&zone);
     if local.date_naive() <= return_due_on {
-        return Some(CappedDueDate { expiry_at: expiry, capped: false });
+        return Some(CappedDueDate {
+            expiry_at: expiry,
+            capped: false,
+        });
     }
     let capped = local_to_utc(zone, return_due_on, local.time()).unwrap_or(expiry);
     Some(CappedDueDate {
@@ -209,7 +246,11 @@ impl OpeningDays for AlwaysOpenCalendar {
         Ok(default_zone())
     }
 
-    async fn opening_between(&self, _from: NaiveDate, _to: NaiveDate) -> AppResult<OpeningCalendar> {
+    async fn opening_between(
+        &self,
+        _from: NaiveDate,
+        _to: NaiveDate,
+    ) -> AppResult<OpeningCalendar> {
         Ok(OpeningCalendar::empty())
     }
 }
@@ -233,25 +274,49 @@ mod tests {
         // 2026-07-15 22:30 UTC is 2026-07-16 00:30 in Paris (CEST, UTC+2).
         // UTC is still on the 15th.
         let now = utc(2026, 7, 15, 22, 30);
-        assert_eq!(now.date_naive(), NaiveDate::from_ymd_opt(2026, 7, 15).unwrap());
-        assert_eq!(local_date(paris(), now), NaiveDate::from_ymd_opt(2026, 7, 16).unwrap());
+        assert_eq!(
+            now.date_naive(),
+            NaiveDate::from_ymd_opt(2026, 7, 15).unwrap()
+        );
+        assert_eq!(
+            local_date(paris(), now),
+            NaiveDate::from_ymd_opt(2026, 7, 16).unwrap()
+        );
 
         // Due today in Paris, at 00:30, which is still 2026-07-15 in UTC.
-        let due_today = paris().with_ymd_and_hms(2026, 7, 16, 0, 30, 0).unwrap().with_timezone(&Utc);
-        assert_eq!(due_today.date_naive(), NaiveDate::from_ymd_opt(2026, 7, 15).unwrap());
-        assert_eq!(public_expected_return_date(paris(), due_today, now), Some(NaiveDate::from_ymd_opt(2026, 7, 16).unwrap()));
+        let due_today = paris()
+            .with_ymd_and_hms(2026, 7, 16, 0, 30, 0)
+            .unwrap()
+            .with_timezone(&Utc);
+        assert_eq!(
+            due_today.date_naive(),
+            NaiveDate::from_ymd_opt(2026, 7, 15).unwrap()
+        );
+        assert_eq!(
+            public_expected_return_date(paris(), due_today, now),
+            Some(NaiveDate::from_ymd_opt(2026, 7, 16).unwrap())
+        );
 
         // Due yesterday in Paris. That UTC date equals UTC "today", so a UTC
         // comparison would still show the date.
-        let due_yesterday = paris().with_ymd_and_hms(2026, 7, 15, 23, 0, 0).unwrap().with_timezone(&Utc);
-        assert_eq!(due_yesterday.date_naive(), NaiveDate::from_ymd_opt(2026, 7, 15).unwrap());
+        let due_yesterday = paris()
+            .with_ymd_and_hms(2026, 7, 15, 23, 0, 0)
+            .unwrap()
+            .with_timezone(&Utc);
+        assert_eq!(
+            due_yesterday.date_naive(),
+            NaiveDate::from_ymd_opt(2026, 7, 15).unwrap()
+        );
         assert!(public_expected_return_date(paris(), due_yesterday, now).is_none());
     }
 
     #[test]
     fn summer_2230_utc_is_next_day_0030_in_paris() {
         let instant = utc(2026, 7, 15, 22, 30);
-        assert_eq!(local_date(paris(), instant), NaiveDate::from_ymd_opt(2026, 7, 16).unwrap());
+        assert_eq!(
+            local_date(paris(), instant),
+            NaiveDate::from_ymd_opt(2026, 7, 16).unwrap()
+        );
         assert_eq!(format_patron_datetime(paris(), instant), "16/07/2026 00:30");
         assert_eq!(format_patron_date(paris(), instant), "16/07/2026");
     }
@@ -288,27 +353,49 @@ mod tests {
     #[test]
     fn slide_keeps_local_clock_time() {
         let sunday = utc(2026, 9, 6, 15, 30); // 17:30 in Paris, still Sunday
-        let calendar = OpeningCalendar::with_weekly(NaiveDate::from_ymd_opt(2026, 1, 1).unwrap(), NaiveDate::from_ymd_opt(2026, 12, 31).unwrap(), 0..=5);
+        let calendar = OpeningCalendar::with_weekly(
+            NaiveDate::from_ymd_opt(2026, 1, 1).unwrap(),
+            NaiveDate::from_ymd_opt(2026, 12, 31).unwrap(),
+            0..=5,
+        );
         let slid = slide_due_date(sunday, paris(), Some(1), &calendar);
         assert_eq!(format_patron_datetime(paris(), slid), "07/09/2026 17:30");
     }
 
     #[test]
     fn deposit_cap_lowers_the_local_date_and_refuses_today() {
-        let expiry = paris().with_ymd_and_hms(2026, 10, 30, 18, 0, 0).unwrap().with_timezone(&Utc);
+        let expiry = paris()
+            .with_ymd_and_hms(2026, 10, 30, 18, 0, 0)
+            .unwrap()
+            .with_timezone(&Utc);
         let today = NaiveDate::from_ymd_opt(2026, 10, 19).unwrap();
         let return_due = NaiveDate::from_ymd_opt(2026, 10, 24).unwrap();
         let capped = cap_loan_due_date(expiry, return_due, today, paris()).unwrap();
         assert!(capped.capped);
-        assert_eq!(capped.expiry_at.with_timezone(&paris()).date_naive(), return_due);
-        assert_eq!(capped.expiry_at.with_timezone(&paris()).time(), chrono::NaiveTime::from_hms_opt(18, 0, 0).unwrap());
+        assert_eq!(
+            capped.expiry_at.with_timezone(&paris()).date_naive(),
+            return_due
+        );
+        assert_eq!(
+            capped.expiry_at.with_timezone(&paris()).time(),
+            chrono::NaiveTime::from_hms_opt(18, 0, 0).unwrap()
+        );
 
-        let already_inside = paris().with_ymd_and_hms(2026, 10, 22, 18, 0, 0).unwrap().with_timezone(&Utc);
+        let already_inside = paris()
+            .with_ymd_and_hms(2026, 10, 22, 18, 0, 0)
+            .unwrap()
+            .with_timezone(&Utc);
         let unchanged = cap_loan_due_date(already_inside, return_due, today, paris()).unwrap();
         assert!(!unchanged.capped);
         assert_eq!(unchanged.expiry_at, already_inside);
 
         assert!(cap_loan_due_date(expiry, today, today, paris()).is_none());
-        assert!(cap_loan_due_date(expiry, NaiveDate::from_ymd_opt(2026, 10, 18).unwrap(), today, paris()).is_none());
+        assert!(cap_loan_due_date(
+            expiry,
+            NaiveDate::from_ymd_opt(2026, 10, 18).unwrap(),
+            today,
+            paris()
+        )
+        .is_none());
     }
 }

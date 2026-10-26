@@ -23,7 +23,10 @@ use super::{AdminUser, AuthenticatedUser, StaffUser};
         (status = 403, description = "Staff only"),
     )
 )]
-pub async fn list_genres(State(state): State<crate::AppState>, _staff: StaffUser) -> AppResult<Json<Vec<GenreApiRow>>> {
+pub async fn list_genres(
+    State(state): State<crate::AppState>,
+    _staff: StaffUser,
+) -> AppResult<Json<Vec<GenreApiRow>>> {
     let snap = state.services.genre_catalog.current().await?;
     Ok(Json(snap.api_rows()))
 }
@@ -40,11 +43,17 @@ pub async fn list_genres(State(state): State<crate::AppState>, _staff: StaffUser
         (status = 403, description = "Admin only"),
     )
 )]
-pub async fn reload_genres(State(state): State<crate::AppState>, _admin: AdminUser, _user: AuthenticatedUser) -> AppResult<StatusCode> {
+pub async fn reload_genres(
+    State(state): State<crate::AppState>,
+    _admin: AdminUser,
+    _user: AuthenticatedUser,
+) -> AppResult<StatusCode> {
     state.services.genre_catalog.reload().await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
 pub fn router() -> Router<crate::AppState> {
-    Router::new().route("/genres", get(list_genres)).route("/genres/reload", post(reload_genres))
+    Router::new()
+        .route("/genres", get(list_genres))
+        .route("/genres/reload", post(reload_genres))
 }

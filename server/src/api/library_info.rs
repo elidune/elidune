@@ -19,7 +19,9 @@ pub fn router_staff() -> axum::Router<crate::AppState> {
     axum::Router::new().route("/library-info", put(update_library_info))
 }
 
-pub use crate::models::dto::library_info::{LibraryInfo, LibraryUiLanguage, UpdateLibraryInfoRequest};
+pub use crate::models::dto::library_info::{
+    LibraryInfo, LibraryUiLanguage, UpdateLibraryInfoRequest,
+};
 
 /// Get library information (public)
 #[utoipa::path(
@@ -34,7 +36,9 @@ pub use crate::models::dto::library_info::{LibraryInfo, LibraryUiLanguage, Updat
         (status = 404, description = "Not found", body = ErrorResponse),
     )
 )]
-pub async fn get_library_info(State(state): State<crate::AppState>) -> AppResult<Json<LibraryInfo>> {
+pub async fn get_library_info(
+    State(state): State<crate::AppState>,
+) -> AppResult<Json<LibraryInfo>> {
     let mut info = state.services.library_info.get().await?;
     info.enabled_features = state.dynamic_config.read_features().enabled_flags();
     Ok(Json(info))
@@ -64,10 +68,15 @@ pub async fn update_library_info(
     let mut info = state.services.library_info.update(request).await?;
     info.enabled_features = state.dynamic_config.read_features().enabled_flags();
 
-    state
-        .services
-        .audit
-        .log(audit::event::LIBRARY_INFO_UPDATED, Some(claims.user_id), None, None, ip, Some(&info), audit::AuditLogMeta::success());
+    state.services.audit.log(
+        audit::event::LIBRARY_INFO_UPDATED,
+        Some(claims.user_id),
+        None,
+        None,
+        ip,
+        Some(&info),
+        audit::AuditLogMeta::success(),
+    );
 
     Ok(Json(info))
 }

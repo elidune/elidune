@@ -129,7 +129,9 @@ impl sqlx::Type<sqlx::Postgres> for WithdrawalReason {
 }
 
 impl<'r> sqlx::Decode<'r, sqlx::Postgres> for WithdrawalReason {
-    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    fn decode(
+        value: sqlx::postgres::PgValueRef<'r>,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let s: String = sqlx::Decode::<sqlx::Postgres>::decode(value)?;
         Self::from_db_str(&s).ok_or_else(|| format!("unknown withdrawal reason: {s}").into())
     }
@@ -220,7 +222,9 @@ impl sqlx::Type<sqlx::Postgres> for WithdrawalDestination {
 }
 
 impl<'r> sqlx::Decode<'r, sqlx::Postgres> for WithdrawalDestination {
-    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    fn decode(
+        value: sqlx::postgres::PgValueRef<'r>,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let s: String = sqlx::Decode::<sqlx::Postgres>::decode(value)?;
         Self::from_db_str(&s).ok_or_else(|| format!("unknown withdrawal destination: {s}").into())
     }
@@ -253,9 +257,18 @@ pub enum WithdrawalInputError {
 const DETAIL_MAX_CHARS: usize = 2000;
 
 /// Trim `reason_detail`. Required and at least 3 characters when `reason` is `other`.
-pub fn normalize_reason_detail(reason: WithdrawalReason, detail: Option<&str>) -> Result<Option<String>, WithdrawalInputError> {
-    let trimmed = detail.map(str::trim).filter(|s| !s.is_empty()).map(str::to_string);
-    if trimmed.as_ref().is_some_and(|s| s.chars().count() > DETAIL_MAX_CHARS) {
+pub fn normalize_reason_detail(
+    reason: WithdrawalReason,
+    detail: Option<&str>,
+) -> Result<Option<String>, WithdrawalInputError> {
+    let trimmed = detail
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+    if trimmed
+        .as_ref()
+        .is_some_and(|s| s.chars().count() > DETAIL_MAX_CHARS)
+    {
         return Err(WithdrawalInputError::DetailTooLong);
     }
     if reason == WithdrawalReason::Other {
@@ -466,7 +479,11 @@ const CSV_HEADERS: &str = "Code-barres;Titre;Auteur;Cote;Site;Date d'acquisition
 /// (1250 → `12,50`, 0 → `0,00`, null → empty). Cells that Excel would treat as
 /// formulas are prefixed with `'` before quoting.
 #[must_use]
-pub fn withdrawals_csv(rows: &[WithdrawalCsvSource], language: Language, zone: chrono_tz::Tz) -> String {
+pub fn withdrawals_csv(
+    rows: &[WithdrawalCsvSource],
+    language: Language,
+    zone: chrono_tz::Tz,
+) -> String {
     let mut csv = String::from('\u{feff}');
     csv.push_str(CSV_HEADERS);
     csv.push('\n');
@@ -482,14 +499,18 @@ pub fn withdrawals_csv(rows: &[WithdrawalCsvSource], language: Language, zone: c
             row.authors.clone().unwrap_or_default(),
             row.call_number.clone().unwrap_or_default(),
             row.site_name.clone().unwrap_or_default(),
-            row.acquired_at.map(|at| format_csv_date(at, zone)).unwrap_or_default(),
+            row.acquired_at
+                .map(|at| format_csv_date(at, zone))
+                .unwrap_or_default(),
             format_purchase_price(row.purchase_price),
             row.reason.label(language).to_string(),
             row.reason_detail.clone().unwrap_or_default(),
             destination,
             format_csv_date(row.withdrawn_at, zone),
             row.agent_name.clone().unwrap_or_default(),
-            row.disposed_at.map(|at| format_csv_date(at, zone)).unwrap_or_default(),
+            row.disposed_at
+                .map(|at| format_csv_date(at, zone))
+                .unwrap_or_default(),
             row.disposed_by_name.clone().unwrap_or_default(),
         ];
         csv.push_str(&fields.map(|f| escape_csv(&f)).join(";"));
@@ -533,7 +554,10 @@ pub fn parse_export_language(raw: &str) -> Option<Language> {
 
 #[cfg(test)]
 mod tests {
-    use super::{legacy_destination_label, normalize_reason_detail, withdrawals_csv, WithdrawalCsvSource, WithdrawalDestination, WithdrawalInputError, WithdrawalReason};
+    use super::{
+        legacy_destination_label, normalize_reason_detail, withdrawals_csv, WithdrawalCsvSource,
+        WithdrawalDestination, WithdrawalInputError, WithdrawalReason,
+    };
     use crate::models::Language;
     use chrono::TimeZone;
 
@@ -559,9 +583,18 @@ mod tests {
 
     #[test]
     fn other_requires_three_characters() {
-        assert_eq!(normalize_reason_detail(WithdrawalReason::Other, Some("  ab ")), Err(WithdrawalInputError::DetailRequired));
-        assert_eq!(normalize_reason_detail(WithdrawalReason::Other, Some("  abc ")).unwrap(), Some("abc".into()));
-        assert_eq!(normalize_reason_detail(WithdrawalReason::Worn, Some("  ")).unwrap(), None);
+        assert_eq!(
+            normalize_reason_detail(WithdrawalReason::Other, Some("  ab ")),
+            Err(WithdrawalInputError::DetailRequired)
+        );
+        assert_eq!(
+            normalize_reason_detail(WithdrawalReason::Other, Some("  abc ")).unwrap(),
+            Some("abc".into())
+        );
+        assert_eq!(
+            normalize_reason_detail(WithdrawalReason::Worn, Some("  ")).unwrap(),
+            None
+        );
     }
 
     fn paris() -> chrono_tz::Tz {
@@ -574,7 +607,10 @@ mod tests {
         assert!(csv.starts_with('\u{feff}'));
         let mut lines = csv.trim_start_matches('\u{feff}').lines();
         assert_eq!(lines.next(), Some(super::CSV_HEADERS));
-        assert_eq!(lines.next(), Some("BC;Title;;;;;;Autre;old note;non renseignée (reprise);12/10/2026;;;"));
+        assert_eq!(
+            lines.next(),
+            Some("BC;Title;;;;;;Autre;old note;non renseignée (reprise);12/10/2026;;;")
+        );
         assert!(!csv.contains('_'));
         assert!(!csv.contains("Withdrawn on"));
         assert!(!csv.contains("2026-10-12T"));
@@ -582,12 +618,18 @@ mod tests {
 
     #[test]
     fn english_csv_renders_legacy_destination() {
-        assert_eq!(legacy_destination_label(Language::English), "not specified (legacy import)");
+        assert_eq!(
+            legacy_destination_label(Language::English),
+            "not specified (legacy import)"
+        );
         let csv = withdrawals_csv(&[sample(None, true)], Language::English, paris());
         assert!(csv.starts_with('\u{feff}'));
         let mut lines = csv.trim_start_matches('\u{feff}').lines();
         assert_eq!(lines.next(), Some(super::CSV_HEADERS));
-        assert_eq!(lines.next(), Some("BC;Title;;;;;;Other;old note;not specified (legacy import);12/10/2026;;;"));
+        assert_eq!(
+            lines.next(),
+            Some("BC;Title;;;;;;Other;old note;not specified (legacy import);12/10/2026;;;")
+        );
         assert!(!csv.contains('_'));
         assert!(!csv.contains("Withdrawn on"));
         assert!(!csv.contains("disposed_by"));
@@ -608,9 +650,15 @@ mod tests {
         row.disposed_by_name = Some("A;B".into());
         row.purchase_price = Some(crate::models::fine::Cents(1250));
         // 15 March 23:30 UTC is 16 March in Europe/Paris (CET, UTC+1).
-        row.acquired_at = Some(chrono::Utc.with_ymd_and_hms(2026, 3, 15, 23, 30, 0).unwrap());
+        row.acquired_at = Some(
+            chrono::Utc
+                .with_ymd_and_hms(2026, 3, 15, 23, 30, 0)
+                .unwrap(),
+        );
         // 23:30 UTC is the next civil day in Europe/Paris (UTC+2 in October).
-        row.withdrawn_at = chrono::Utc.with_ymd_and_hms(2026, 10, 12, 23, 30, 0).unwrap();
+        row.withdrawn_at = chrono::Utc
+            .with_ymd_and_hms(2026, 10, 12, 23, 30, 0)
+            .unwrap();
         row.disposed_at = Some(chrono::Utc.with_ymd_and_hms(2026, 1, 1, 23, 30, 0).unwrap());
 
         let csv = withdrawals_csv(&[row], Language::French, paris());
@@ -628,7 +676,12 @@ mod tests {
     fn purchase_price_prints_cents_with_a_comma_or_stays_empty() {
         use crate::models::fine::Cents;
 
-        let cases = [(Some(Cents(1250)), "12,50"), (Some(Cents(1500)), "15,00"), (Some(Cents(0)), "0,00"), (None, "")];
+        let cases = [
+            (Some(Cents(1250)), "12,50"),
+            (Some(Cents(1500)), "15,00"),
+            (Some(Cents(0)), "0,00"),
+            (None, ""),
+        ];
         for (raw, expected) in cases {
             let mut row = sample(Some(WithdrawalDestination::Donation), false);
             row.reason_detail = None;

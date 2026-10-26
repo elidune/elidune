@@ -51,7 +51,9 @@ impl FirstSetupEmailBody {
             smtp_from: self.smtp_from,
             smtp_from_name: self.smtp_from_name,
             smtp_use_tls: self.smtp_use_tls,
-            templates_dir: self.templates_dir.unwrap_or_else(|| file_defaults.templates_dir.clone()),
+            templates_dir: self
+                .templates_dir
+                .unwrap_or_else(|| file_defaults.templates_dir.clone()),
             overridable: file_defaults.overridable,
         }
     }
@@ -131,20 +133,25 @@ pub struct FirstSetupResponse {
         (status = 409, description = "Setup already done or preconditions failed", body = crate::error::ErrorResponse),
     )
 )]
-pub async fn post_first_setup(State(state): State<AppState>, ClientIp(ip): ClientIp, ValidatedJson(body): ValidatedJson<FirstSetupRequest>) -> AppResult<(StatusCode, Json<FirstSetupResponse>)> {
+pub async fn post_first_setup(
+    State(state): State<AppState>,
+    ClientIp(ip): ClientIp,
+    ValidatedJson(body): ValidatedJson<FirstSetupRequest>,
+) -> AppResult<(StatusCode, Json<FirstSetupResponse>)> {
     let repo = state.services.minimal_repository();
     if repo.users_count().await? != 0 || repo.settings_count().await? != 0 {
-        return Err(AppError::Conflict("Initial setup has already been completed".into()));
+        return Err(AppError::Conflict(
+            "Initial setup has already been completed".into(),
+        ));
     }
 
     // Prefer `adult`: seed order puts `child` first, and child enrolment
     // requires a legal guardian (POST /users).
     let default_public_type: i64 = match repo.public_types_find_id_by_name("adult").await? {
         Some(id) => id,
-        None => repo
-            .public_types_first_id()
-            .await?
-            .ok_or_else(|| AppError::Internal("No public_type row found; run database migrations first".into()))?,
+        None => repo.public_types_first_id().await?.ok_or_else(|| {
+            AppError::Internal("No public_type row found; run database migrations first".into())
+        })?,
     };
 
     let addr_city = body
@@ -153,7 +160,11 @@ pub async fn post_first_setup(State(state): State<AppState>, ClientIp(ip): Clien
         .clone()
         .or_else(|| body.library.name.clone())
         .filter(|s| !s.trim().is_empty())
-        .ok_or_else(|| AppError::Validation("library.addrCity or library.name is required for the patron record".into()))?;
+        .ok_or_else(|| {
+            AppError::Validation(
+                "library.addrCity or library.name is required for the patron record".into(),
+            )
+        })?;
 
     if body.email.is_some() && !state.dynamic_config.is_overridable("email") {
         return Err(AppError::BadRequest("email.overridable must be true in the server config file to store SMTP from first setup".into()));
@@ -165,7 +176,11 @@ pub async fn post_first_setup(State(state): State<AppState>, ClientIp(ip): Clien
         password: Some(admin.password.clone()),
         firstname: Some(admin.firstname.trim().to_string()),
         lastname: Some(admin.lastname.trim().to_string()),
-        email: admin.email.as_ref().map(|e| e.trim().to_string()).filter(|s| !s.is_empty()),
+        email: admin
+            .email
+            .as_ref()
+            .map(|e| e.trim().to_string())
+            .filter(|s| !s.is_empty()),
         // Bootstrap account is `admin`, not a reader, so public type stays the
         // value supplied here. Reader age bands are not applied.
         account_type: Some(AccountTypeSlug::Admin),
@@ -176,22 +191,38 @@ pub async fn post_first_setup(State(state): State<AppState>, ClientIp(ip): Clien
         ..Default::default()
     };
 
-    let created = state.services.users.create_user(user_payload, EventsConsentSource::Desk).await?;
-    state.services.users.set_must_change_password(created.id, false).await?;
+    let created = state
+        .services
+        .users
+        .create_user(user_payload, EventsConsentSource::Desk)
+        .await?;
+    state
+        .services
+        .users
+        .set_must_change_password(created.id, false)
+        .await?;
 
     let user = if let Some(lang) = admin.language {
-        repo.users_update_profile(created.id, &profile_language_only(lang), None).await?
+        repo.users_update_profile(created.id, &profile_language_only(lang), None)
+            .await?
     } else {
         state.services.users.get_by_id(created.id).await?
     };
 
     let has_email_override = body.email.is_some();
-    let library_info = state.services.library_info.update(body.library.clone()).await?;
+    let library_info = state
+        .services
+        .library_info
+        .update(body.library.clone())
+        .await?;
 
     if let Some(email_body) = body.email {
         let merged = email_body.into_email_config(&state.config.email);
-        let value = serde_json::to_value(&merged).map_err(|e| AppError::Internal(format!("serialize email config: {e}")))?;
-        state.dynamic_config.update_section("email", value.clone())?;
+        let value = serde_json::to_value(&merged)
+            .map_err(|e| AppError::Internal(format!("serialize email config: {e}")))?;
+        state
+            .dynamic_config
+            .update_section("email", value.clone())?;
         repo.settings_upsert_section("email", &value)
             .await
             .map_err(|e| AppError::Internal(format!("persist email config: {e}")))?;

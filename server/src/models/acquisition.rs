@@ -87,7 +87,9 @@ impl sqlx::Type<sqlx::Postgres> for PurchaseOrderStatus {
 }
 
 impl<'r> sqlx::Decode<'r, sqlx::Postgres> for PurchaseOrderStatus {
-    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    fn decode(
+        value: sqlx::postgres::PgValueRef<'r>,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let s: String = sqlx::Decode::<sqlx::Postgres>::decode(value)?;
         Ok(Self::from(s.as_str()))
     }
@@ -558,7 +560,9 @@ impl sqlx::Type<sqlx::Postgres> for PurchaseSuggestionStatus {
 }
 
 impl<'r> sqlx::Decode<'r, sqlx::Postgres> for PurchaseSuggestionStatus {
-    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    fn decode(
+        value: sqlx::postgres::PgValueRef<'r>,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let s: String = sqlx::Decode::<sqlx::Postgres>::decode(value)?;
         Ok(Self::from(s.as_str()))
     }

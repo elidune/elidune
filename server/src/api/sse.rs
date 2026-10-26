@@ -41,12 +41,17 @@ pub use crate::models::dto::sse::SsePayload;
         (status = 401, description = "Not authenticated")
     )
 )]
-pub async fn sse_stream(State(state): State<crate::AppState>, AuthenticatedUser(_claims): AuthenticatedUser) -> impl IntoResponse {
+pub async fn sse_stream(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(_claims): AuthenticatedUser,
+) -> impl IntoResponse {
     let rx = state.event_bus.subscribe();
     let stream = BroadcastStream::new(rx).filter_map(|msg| {
         msg.ok().map(|payload: SsePayload| {
             let data = serde_json::to_string(&payload).unwrap_or_default();
-            Ok::<_, std::convert::Infallible>(Event::default().event(payload.event.clone()).data(data))
+            Ok::<_, std::convert::Infallible>(
+                Event::default().event(payload.event.clone()).data(data),
+            )
         })
     });
 

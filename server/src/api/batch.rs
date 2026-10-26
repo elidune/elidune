@@ -98,7 +98,9 @@ pub async fn batch_return(
     claims.require_write_loans()?;
 
     if req.barcodes.is_empty() {
-        return Err(crate::error::AppError::Validation("barcodes list cannot be empty".to_string()));
+        return Err(crate::error::AppError::Validation(
+            "barcodes list cannot be empty".to_string(),
+        ));
     }
 
     let mut results = Vec::with_capacity(req.barcodes.len());
@@ -106,7 +108,12 @@ pub async fn batch_return(
     let mut errors = 0u32;
 
     for barcode in &req.barcodes {
-        match state.services.loans.return_loan_by_item(barcode, Some(claims.user_id), ip.clone(), None).await {
+        match state
+            .services
+            .loans
+            .return_loan_by_item(barcode, Some(claims.user_id), ip.clone(), None)
+            .await
+        {
             Ok(check_in) => {
                 if let Some(ref loan) = check_in.loan {
                     state.services.audit.log(
@@ -123,7 +130,9 @@ pub async fn batch_return(
                 let lost = check_in.lost.as_ref();
                 results.push(BatchReturnItemResult {
                     barcode: barcode.clone(),
-                    loan: check_in.loan.map(|loan| super::loans::LoanDetailsView::from_loan(loan, &claims)),
+                    loan: check_in
+                        .loan
+                        .map(|loan| super::loans::LoanDetailsView::from_loan(loan, &claims)),
                     success: true,
                     error: None,
                     was_lost: lost.map(|l| l.was_lost),
@@ -167,7 +176,11 @@ pub async fn batch_return(
         }
     }
 
-    Ok(Json(BatchReturnResponse { returned, errors, results }))
+    Ok(Json(BatchReturnResponse {
+        returned,
+        errors,
+        results,
+    }))
 }
 
 /// Batch loan creation request
@@ -245,14 +258,21 @@ pub async fn batch_create_loans(
 ) -> AppResult<Json<BatchCreateLoansResponse>> {
     claims.require_write_loans()?;
 
-    let user_id: i64 = req.user_id.parse().map_err(|_| crate::error::AppError::Validation("Invalid userId format".to_string()))?;
+    let user_id: i64 = req
+        .user_id
+        .parse()
+        .map_err(|_| crate::error::AppError::Validation("Invalid userId format".to_string()))?;
     let site_id = match req.site_id.as_deref() {
         None | Some("") => None,
-        Some(raw) => Some(raw.parse::<i64>().map_err(|_| crate::error::AppError::Validation("Invalid siteId format".to_string()))?),
+        Some(raw) => Some(raw.parse::<i64>().map_err(|_| {
+            crate::error::AppError::Validation("Invalid siteId format".to_string())
+        })?),
     };
 
     if req.barcodes.is_empty() {
-        return Err(crate::error::AppError::Validation("barcodes list cannot be empty".to_string()));
+        return Err(crate::error::AppError::Validation(
+            "barcodes list cannot be empty".to_string(),
+        ));
     }
 
     let mut results = Vec::with_capacity(req.barcodes.len());
@@ -268,7 +288,12 @@ pub async fn batch_create_loans(
             site_id,
             override_reason: None,
         };
-        match state.services.loans.create_loan(loan_data, Some(claims.user_id), ip.clone(), &claims.rights).await {
+        match state
+            .services
+            .loans
+            .create_loan(loan_data, Some(claims.user_id), ip.clone(), &claims.rights)
+            .await
+        {
             Ok(outcome) => {
                 let loan_id = outcome.loan_id;
                 let expiry_at = outcome.expiry_at;
@@ -313,5 +338,9 @@ pub async fn batch_create_loans(
         }
     }
 
-    Ok(Json(BatchCreateLoansResponse { created, errors, results }))
+    Ok(Json(BatchCreateLoansResponse {
+        created,
+        errors,
+        results,
+    }))
 }

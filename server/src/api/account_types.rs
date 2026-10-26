@@ -28,7 +28,10 @@ use super::{AuthenticatedUser, ClientIp};
         (status = 403, description = "Settings write required", body = ErrorResponse),
     )
 )]
-pub async fn list_account_types(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser) -> AppResult<Json<Vec<AccountTypeDefinition>>> {
+pub async fn list_account_types(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+) -> AppResult<Json<Vec<AccountTypeDefinition>>> {
     claims.require_write_settings()?;
     let rows = state.services.account_types_catalog.list().await?;
     Ok(Json(rows))
@@ -48,9 +51,17 @@ pub async fn list_account_types(State(state): State<crate::AppState>, Authentica
         (status = 404, description = "Unknown code", body = ErrorResponse),
     )
 )]
-pub async fn get_account_type(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Path(code): Path<String>) -> AppResult<Json<AccountTypeDefinition>> {
+pub async fn get_account_type(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    Path(code): Path<String>,
+) -> AppResult<Json<AccountTypeDefinition>> {
     claims.require_write_settings()?;
-    let row = state.services.account_types_catalog.get_by_code(&code).await?;
+    let row = state
+        .services
+        .account_types_catalog
+        .get_by_code(&code)
+        .await?;
     Ok(Json(row))
 }
 
@@ -76,7 +87,11 @@ pub async fn create_account_type(
     Json(mut body): Json<CreateAccountType>,
 ) -> AppResult<(StatusCode, Json<AccountTypeDefinition>)> {
     claims.require_write_settings()?;
-    let created = state.services.account_types_catalog.create(&mut body).await?;
+    let created = state
+        .services
+        .account_types_catalog
+        .create(&mut body)
+        .await?;
 
     state.services.audit.log(
         audit::event::ACCOUNT_TYPE_CREATED,
@@ -123,8 +138,16 @@ pub async fn update_account_type(
     Json(mut body): Json<UpdateAccountTypeDefinition>,
 ) -> AppResult<Json<AccountTypeDefinition>> {
     claims.require_write_settings()?;
-    let before = state.services.account_types_catalog.get_by_code(&code).await?;
-    let updated = state.services.account_types_catalog.update(&code, &mut body).await?;
+    let before = state
+        .services
+        .account_types_catalog
+        .get_by_code(&code)
+        .await?;
+    let updated = state
+        .services
+        .account_types_catalog
+        .update(&code, &mut body)
+        .await?;
 
     state.services.audit.log(
         audit::event::ACCOUNT_TYPE_UPDATED,
@@ -158,7 +181,12 @@ pub async fn update_account_type(
         (status = 409, description = "System type (`account_type_system`), still assigned (`account_type_in_use`), or last admin (`last_active_admin`)", body = ErrorResponse),
     )
 )]
-pub async fn delete_account_type(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, ClientIp(ip): ClientIp, Path(code): Path<String>) -> AppResult<StatusCode> {
+pub async fn delete_account_type(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    ClientIp(ip): ClientIp,
+    Path(code): Path<String>,
+) -> AppResult<StatusCode> {
     claims.require_write_settings()?;
     let deleted = state.services.account_types_catalog.delete(&code).await?;
 
@@ -183,6 +211,14 @@ pub async fn delete_account_type(State(state): State<crate::AppState>, Authentic
 pub fn router() -> axum::Router<crate::AppState> {
     use axum::routing::get;
     axum::Router::new()
-        .route("/account-types", get(list_account_types).post(create_account_type))
-        .route("/account-types/:code", get(get_account_type).put(update_account_type).delete(delete_account_type))
+        .route(
+            "/account-types",
+            get(list_account_types).post(create_account_type),
+        )
+        .route(
+            "/account-types/:code",
+            get(get_account_type)
+                .put(update_account_type)
+                .delete(delete_account_type),
+        )
 }

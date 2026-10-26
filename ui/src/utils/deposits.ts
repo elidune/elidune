@@ -1,5 +1,6 @@
 import type { TFunction } from 'i18next';
-import type { ItemDeposit } from '@/types';
+import type { ItemDeposit, ItemDepositPublic } from '@/types';
+import type { AvailabilityAudience } from '@/utils/itemAvailability';
 import { getApiErrorCode, getApiErrorData, getHttpStatus } from '@/utils/apiError';
 import { formatLocaleDate } from '@/utils/localeDate';
 
@@ -9,7 +10,7 @@ const NOT_FORCEABLE = new Set(['deposit_return_due', 'deposit_renewal_no_extensi
 export type DepositStockFilter = 'all' | 'own' | 'deposits';
 
 export interface DepositCopyRef {
-  deposit?: ItemDeposit | null;
+  deposit?: ItemDeposit | ItemDepositPublic | null;
 }
 
 export interface MarcBatchImportParamsInput {
@@ -62,7 +63,9 @@ export function formatCatalogDate(iso: string, language: string): string {
   return new Intl.DateTimeFormat(language, { dateStyle: 'long' }).format(date);
 }
 
-export function isDepositCopy(deposit: ItemDeposit | null | undefined): deposit is ItemDeposit {
+export function isDepositCopy(
+  deposit: ItemDeposit | ItemDepositPublic | null | undefined,
+): deposit is ItemDeposit | ItemDepositPublic {
   return deposit != null && deposit.batchId.trim() !== '' && deposit.lenderName.trim() !== '';
 }
 
@@ -80,9 +83,11 @@ export function depositLenderInitials(lenderName: string | null | undefined): st
 }
 
 /** One badge per batch, in first-seen order. */
-export function uniqueDeposits(copies: DepositCopyRef[] | null | undefined): ItemDeposit[] {
+export function uniqueDeposits(
+  copies: DepositCopyRef[] | null | undefined,
+): Array<ItemDeposit | ItemDepositPublic> {
   const seen = new Set<string>();
-  const out: ItemDeposit[] = [];
+  const out: Array<ItemDeposit | ItemDepositPublic> = [];
   for (const copy of copies ?? []) {
     if (!isDepositCopy(copy.deposit)) continue;
     if (seen.has(copy.deposit.batchId)) continue;
@@ -92,19 +97,24 @@ export function uniqueDeposits(copies: DepositCopyRef[] | null | undefined): Ite
   return out;
 }
 
-/** « Dépôt · lender · retour le … ». Null for own stock. */
+/** « Dépôt · lender · retour le … ». Null for own stock. Public audience never shows the return date. */
 export function depositBadgeText(
-  deposit: ItemDeposit | null | undefined,
+  deposit: ItemDeposit | ItemDepositPublic | null | undefined,
   t: TFunction,
   language: string,
+  audience: AvailabilityAudience = 'staff',
 ): string | null {
   if (!isDepositCopy(deposit)) return null;
-  if (!deposit.returnDueOn?.trim()) {
+  if (audience === 'public') {
+    return t('deposits.badgeReader', { lender: deposit.lenderName });
+  }
+  const returnDueOn = 'returnDueOn' in deposit ? deposit.returnDueOn : null;
+  if (!returnDueOn?.trim()) {
     return t('deposits.badgePermanent', { lender: deposit.lenderName });
   }
   return t('deposits.badge', {
     lender: deposit.lenderName,
-    date: formatCatalogDate(deposit.returnDueOn, language),
+    date: formatCatalogDate(returnDueOn, language),
   });
 }
 
@@ -236,6 +246,11 @@ const DEPOSIT_ERROR_CODES = [
   'deposit_renewal_no_extension',
   'deposit_batch_returning',
   'deposit_item_not_owned',
+  'deposit_item_returned_to_lender',
+  'deposit_item_on_loan',
+  'deposit_item_was_lost',
+  'deposit_loss_not_declared',
+  'deposit_loss_already_notified',
   'deposit_site_mismatch',
   'deposit_batch_not_active',
   'deposit_import_options_conflict',
@@ -245,9 +260,6 @@ const DEPOSIT_ERROR_CODES = [
   'deposit_batch_not_returning',
   'deposit_replacement_amount_required',
   'item_not_deposit_copy',
-  'deposit_item_on_loan',
-  'deposit_loss_not_declared',
-  'deposit_loss_already_notified',
 ] as const;
 
 

@@ -17,7 +17,10 @@ fn retarget(token: &str, secret: &str, users: Rights, loans: Rights) -> String {
 
 fn assert_error_body(body: &Value) {
     for key in ["code", "error", "message"] {
-        assert!(body.get(key).and_then(Value::as_str).is_some(), "error body missing {key}: {body}");
+        assert!(
+            body.get(key).and_then(Value::as_str).is_some(),
+            "error body missing {key}: {body}"
+        );
     }
 }
 
@@ -32,7 +35,12 @@ fn assert_minimized(body: &Value, user_id: i64, card: &str) {
     assert_eq!(body["id"], user_id.to_string(), "{body}");
     assert_eq!(body["cardNumber"], card, "{body}");
     assert_eq!(body["initials"], "HH", "{body}");
-    let mut keys: Vec<&str> = body.as_object().expect("object").keys().map(String::as_str).collect();
+    let mut keys: Vec<&str> = body
+        .as_object()
+        .expect("object")
+        .keys()
+        .map(String::as_str)
+        .collect();
     keys.sort_unstable();
     assert_eq!(keys, ["cardNumber", "id", "initials"], "{body}");
 }
@@ -139,7 +147,13 @@ async fn hold_a_copy(app: &TestApp, admin_token: &str) -> HeldCopy {
 }
 
 fn secret_needles(held: &HeldCopy) -> Vec<&str> {
-    vec!["Helene", "Holder", held.email.as_str(), held.phone.as_str(), held.login.as_str()]
+    vec![
+        "Helene",
+        "Holder",
+        held.email.as_str(),
+        held.phone.as_str(),
+        held.login.as_str(),
+    ]
 }
 
 fn hold_row(body: &Value, hold_id: i64) -> &Value {
@@ -159,7 +173,9 @@ async fn public_biblio_and_hold_routes_omit_hold_patron() {
     let held = hold_a_copy(&app, &admin_token).await;
     let needles = secret_needles(&held);
 
-    let (status, opac) = app.get_json(&format!("/api/v1/opac/biblios/{}", held.biblio_id)).await;
+    let (status, opac) = app
+        .get_json(&format!("/api/v1/opac/biblios/{}", held.biblio_id))
+        .await;
     assert_eq!(status, StatusCode::OK, "{opac}");
     let copy = copy_by_barcode(&opac, &held.barcode);
     assert_eq!(copy["onHold"], true, "{copy}");
@@ -185,7 +201,9 @@ async fn patron_biblio_and_hold_list_omit_other_hold_patron() {
     let (_other_id, other_token) = fixtures::create_reader(&app, &admin_token, "other_hold").await;
     let needles = secret_needles(&held);
 
-    let (status, biblio) = app.get_json_with_auth(&format!("/api/v1/biblios/{}", held.biblio_id), &other_token).await;
+    let (status, biblio) = app
+        .get_json_with_auth(&format!("/api/v1/biblios/{}", held.biblio_id), &other_token)
+        .await;
     assert_eq!(status, StatusCode::OK, "{biblio}");
     let copy = copy_by_barcode(&biblio, &held.barcode);
     assert_eq!(copy["onHold"], true, "{copy}");
@@ -193,11 +211,15 @@ async fn patron_biblio_and_hold_list_omit_other_hold_patron() {
     assert!(copy.get("holdFor").is_none(), "{copy}");
     assert_hidden(&biblio, &needles);
 
-    let (status, holds) = app.get_json_with_auth("/api/v1/holds?activeOnly=true", &other_token).await;
+    let (status, holds) = app
+        .get_json_with_auth("/api/v1/holds?activeOnly=true", &other_token)
+        .await;
     assert_eq!(status, StatusCode::OK, "{holds}");
     assert_hidden(&holds, &needles);
 
-    let (status, slip) = app.get_json_with_auth("/api/v1/holds/pick-list", &other_token).await;
+    let (status, slip) = app
+        .get_json_with_auth("/api/v1/holds/pick-list", &other_token)
+        .await;
     assert_eq!(status, StatusCode::FORBIDDEN, "{slip}");
     assert_error_body(&slip);
     assert_hidden(&slip, &needles);
@@ -214,14 +236,18 @@ async fn loans_only_staff_get_minimized_hold_for_on_biblio_list_and_slip() {
     let loans_only = retarget(&admin_token, &secret, Rights::None, Rights::Read);
     let needles = secret_needles(&held);
 
-    let (status, biblio) = app.get_json_with_auth(&format!("/api/v1/biblios/{}", held.biblio_id), &loans_only).await;
+    let (status, biblio) = app
+        .get_json_with_auth(&format!("/api/v1/biblios/{}", held.biblio_id), &loans_only)
+        .await;
     assert_eq!(status, StatusCode::OK, "{biblio}");
     let copy = copy_by_barcode(&biblio, &held.barcode);
     assert_eq!(copy["availability"], "onHold", "{copy}");
     assert_minimized(&copy["holdFor"], held.holder_id, &held.card);
     assert_hidden(&biblio, &needles);
 
-    let (status, labels) = app.get_json_with_auth("/api/v1/holds/pick-list", &loans_only).await;
+    let (status, labels) = app
+        .get_json_with_auth("/api/v1/holds/pick-list", &loans_only)
+        .await;
     assert_eq!(status, StatusCode::OK, "{labels}");
     let label = labels
         .as_array()
@@ -235,10 +261,20 @@ async fn loans_only_staff_get_minimized_hold_for_on_biblio_list_and_slip() {
     assert!(label.get("userName").is_none(), "{label}");
     assert_hidden(label, &needles);
 
-    let (status, returned) = app.post_empty(&format!("/api/v1/loans/items/{}/return", held.barcode), Some(&admin_token)).await;
+    let (status, returned) = app
+        .post_empty(
+            &format!("/api/v1/loans/items/{}/return", held.barcode),
+            Some(&admin_token),
+        )
+        .await;
     assert_eq!(status, StatusCode::OK, "{returned}");
 
-    let (status, holds) = app.get_json_with_auth(&format!("/api/v1/biblios/{}/holds", held.biblio_id), &loans_only).await;
+    let (status, holds) = app
+        .get_json_with_auth(
+            &format!("/api/v1/biblios/{}/holds", held.biblio_id),
+            &loans_only,
+        )
+        .await;
     assert_eq!(status, StatusCode::OK, "{holds}");
     let row = hold_row(&holds, held.hold_id);
     assert_eq!(row["status"], "ready", "{row}");
@@ -257,14 +293,21 @@ async fn users_read_staff_get_full_hold_patron_on_biblio_list_and_slip() {
     let held = hold_a_copy(&app, &admin_token).await;
     let users_read = retarget(&admin_token, &secret, Rights::Read, Rights::None);
 
-    let (status, biblio) = app.get_json_with_auth(&format!("/api/v1/biblios/{}", held.biblio_id), &users_read).await;
+    let (status, biblio) = app
+        .get_json_with_auth(&format!("/api/v1/biblios/{}", held.biblio_id), &users_read)
+        .await;
     assert_eq!(status, StatusCode::OK, "{biblio}");
     let copy = copy_by_barcode(&biblio, &held.barcode);
     assert_full(&copy["holdFor"], held.holder_id, &held.login, &held.card);
     assert!(copy.get("borrower").is_none(), "{copy}");
-    assert_hidden(&copy["holdFor"], &[held.email.as_str(), held.phone.as_str()]);
+    assert_hidden(
+        &copy["holdFor"],
+        &[held.email.as_str(), held.phone.as_str()],
+    );
 
-    let (status, labels) = app.get_json_with_auth("/api/v1/holds/pick-list", &users_read).await;
+    let (status, labels) = app
+        .get_json_with_auth("/api/v1/holds/pick-list", &users_read)
+        .await;
     assert_eq!(status, StatusCode::OK, "{labels}");
     let label = labels
         .as_array()
@@ -276,10 +319,20 @@ async fn users_read_staff_get_full_hold_patron_on_biblio_list_and_slip() {
     assert!(label["pickDueAt"].is_string(), "{label}");
     assert_hidden(label, &secret_needles(&held));
 
-    let (status, returned) = app.post_empty(&format!("/api/v1/loans/items/{}/return", held.barcode), Some(&admin_token)).await;
+    let (status, returned) = app
+        .post_empty(
+            &format!("/api/v1/loans/items/{}/return", held.barcode),
+            Some(&admin_token),
+        )
+        .await;
     assert_eq!(status, StatusCode::OK, "{returned}");
 
-    let (status, holds) = app.get_json_with_auth(&format!("/api/v1/biblios/{}/holds", held.biblio_id), &users_read).await;
+    let (status, holds) = app
+        .get_json_with_auth(
+            &format!("/api/v1/biblios/{}/holds", held.biblio_id),
+            &users_read,
+        )
+        .await;
     assert_eq!(status, StatusCode::OK, "{holds}");
     let row = hold_row(&holds, held.hold_id);
     assert_full(&row["user"], held.holder_id, &held.login, &held.card);

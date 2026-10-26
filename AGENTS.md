@@ -12,6 +12,7 @@ Elidune is a library management system split into two independently buildable co
 
 ## Cross-cutting rules
 
+- **Agents — verification:** do **not** run full CI (`just ci`, `just ci-server`, integration tests with DB) after every edit. Prefer the smallest check that matches the change (`rtk cargo check`, `rtk cargo clippy`, `rtk tsc`, `pnpm lint` on touched paths). Run DB integration tests or `just ci` only when the user asks, before a PR, or when the change clearly needs end-to-end proof.
 - **API contract:** all HTTP routes under `/api/v1`. The UI uses a relative base URL (`/api/v1`) — same-origin via nginx in production, Vite proxy in dev.
 - **Do not serve the SPA from Axum.** Static assets are built from `ui/` and served by nginx (`docker/nginx-ui.conf` or `docker/nginx-all-in-one.conf`).
 - **Monorepo commits:** a single change set may touch `server/` and `ui/` together; keep API and UI contract changes in sync.

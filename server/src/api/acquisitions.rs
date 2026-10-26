@@ -9,8 +9,11 @@ use axum::{
 use crate::{
     error::AppResult,
     models::acquisition::{
-        AcquisitionFund, CreateFund, CreateOrderLine, CreatePurchaseOrder, CreateVendor, FundListResponse, FundQuery, PurchaseOrderDetail, PurchaseOrderLine, PurchaseOrderListResponse,
-        PurchaseOrderQuery, ReceivePurchaseOrder, ReceivePurchaseOrderResult, UpdateFund, UpdateOrderLine, UpdatePurchaseOrder, UpdateVendor, Vendor, VendorListResponse, VendorQuery,
+        AcquisitionFund, CreateFund, CreateOrderLine, CreatePurchaseOrder, CreateVendor,
+        FundListResponse, FundQuery, PurchaseOrderDetail, PurchaseOrderLine,
+        PurchaseOrderListResponse, PurchaseOrderQuery, ReceivePurchaseOrder,
+        ReceivePurchaseOrderResult, UpdateFund, UpdateOrderLine, UpdatePurchaseOrder, UpdateVendor,
+        Vendor, VendorListResponse, VendorQuery,
     },
     models::audit::AuditQueryParams,
     services::audit,
@@ -25,14 +28,23 @@ use super::{AuthenticatedUser, ClientIp, ValidatedJson};
 pub fn router() -> axum::Router<crate::AppState> {
     use axum::routing::{get, post};
     axum::Router::new()
-        .route("/acquisitions/vendors", get(list_vendors).post(create_vendor))
-        .route("/acquisitions/vendors/:id", get(get_vendor).put(update_vendor).delete(archive_vendor))
+        .route(
+            "/acquisitions/vendors",
+            get(list_vendors).post(create_vendor),
+        )
+        .route(
+            "/acquisitions/vendors/:id",
+            get(get_vendor).put(update_vendor).delete(archive_vendor),
+        )
         .route("/acquisitions/funds", get(list_funds).post(create_fund))
         .route("/acquisitions/funds/:id", get(get_fund).put(update_fund))
         .route("/acquisitions/orders", get(list_orders).post(create_order))
         .route("/acquisitions/orders/:id", get(get_order).put(update_order))
         .route("/acquisitions/orders/:id/lines", post(add_order_line))
-        .route("/acquisitions/orders/:id/lines/:line_id", axum::routing::put(update_order_line).delete(delete_order_line))
+        .route(
+            "/acquisitions/orders/:id/lines/:line_id",
+            axum::routing::put(update_order_line).delete(delete_order_line),
+        )
         .route("/acquisitions/orders/:id/submit", post(submit_order))
         .route("/acquisitions/orders/:id/cancel", post(cancel_order))
         .route("/acquisitions/orders/:id/receive", post(receive_order))
@@ -51,7 +63,11 @@ pub fn router() -> axum::Router<crate::AppState> {
         (status = 403, description = "Insufficient acquisitions rights", body = ErrorResponse),
     )
 )]
-pub async fn list_vendors(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Query(query): Query<VendorQuery>) -> AppResult<Json<VendorListResponse>> {
+pub async fn list_vendors(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    Query(query): Query<VendorQuery>,
+) -> AppResult<Json<VendorListResponse>> {
     claims.require_read_acquisitions()?;
     let (vendors, total) = state.services.acquisitions.list_vendors(&query).await?;
     Ok(Json(VendorListResponse { vendors, total }))
@@ -70,7 +86,11 @@ pub async fn list_vendors(State(state): State<crate::AppState>, AuthenticatedUse
         (status = 404, description = "Vendor not found", body = ErrorResponse),
     )
 )]
-pub async fn get_vendor(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Path(id): Path<i64>) -> AppResult<Json<Vendor>> {
+pub async fn get_vendor(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    Path(id): Path<i64>,
+) -> AppResult<Json<Vendor>> {
     claims.require_read_acquisitions()?;
     Ok(Json(state.services.acquisitions.get_vendor(id).await?))
 }
@@ -188,7 +208,12 @@ pub async fn update_vendor(
         (status = 404, description = "Vendor not found", body = ErrorResponse),
     )
 )]
-pub async fn archive_vendor(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, ClientIp(ip): ClientIp, Path(id): Path<i64>) -> AppResult<StatusCode> {
+pub async fn archive_vendor(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    ClientIp(ip): ClientIp,
+    Path(id): Path<i64>,
+) -> AppResult<StatusCode> {
     claims.require_write_acquisitions()?;
     match state.services.acquisitions.archive_vendor(id).await {
         Ok(()) => {
@@ -230,7 +255,11 @@ pub async fn archive_vendor(State(state): State<crate::AppState>, AuthenticatedU
         (status = 403, description = "Insufficient acquisitions rights", body = ErrorResponse),
     )
 )]
-pub async fn list_funds(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Query(query): Query<FundQuery>) -> AppResult<Json<FundListResponse>> {
+pub async fn list_funds(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    Query(query): Query<FundQuery>,
+) -> AppResult<Json<FundListResponse>> {
     claims.require_read_acquisitions()?;
     let (funds, total) = state.services.acquisitions.list_funds(&query).await?;
     Ok(Json(FundListResponse { funds, total }))
@@ -249,7 +278,11 @@ pub async fn list_funds(State(state): State<crate::AppState>, AuthenticatedUser(
         (status = 404, description = "Fund not found", body = ErrorResponse),
     )
 )]
-pub async fn get_fund(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Path(id): Path<i64>) -> AppResult<Json<AcquisitionFund>> {
+pub async fn get_fund(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    Path(id): Path<i64>,
+) -> AppResult<Json<AcquisitionFund>> {
     claims.require_read_acquisitions()?;
     Ok(Json(state.services.acquisitions.get_fund(id).await?))
 }
@@ -366,7 +399,11 @@ pub async fn update_fund(
         (status = 403, description = "Insufficient acquisitions rights", body = ErrorResponse),
     )
 )]
-pub async fn list_orders(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Query(query): Query<PurchaseOrderQuery>) -> AppResult<Json<PurchaseOrderListResponse>> {
+pub async fn list_orders(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    Query(query): Query<PurchaseOrderQuery>,
+) -> AppResult<Json<PurchaseOrderListResponse>> {
     claims.require_read_acquisitions()?;
     let (orders, total) = state.services.acquisitions.list_orders(&query).await?;
     Ok(Json(PurchaseOrderListResponse { orders, total }))
@@ -385,7 +422,11 @@ pub async fn list_orders(State(state): State<crate::AppState>, AuthenticatedUser
         (status = 404, description = "Purchase order not found", body = ErrorResponse),
     )
 )]
-pub async fn get_order(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Path(id): Path<i64>) -> AppResult<Json<PurchaseOrderDetail>> {
+pub async fn get_order(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    Path(id): Path<i64>,
+) -> AppResult<Json<PurchaseOrderDetail>> {
     claims.require_read_acquisitions()?;
     Ok(Json(state.services.acquisitions.get_order(id).await?))
 }
@@ -410,7 +451,12 @@ pub async fn create_order(
     ValidatedJson(data): ValidatedJson<CreatePurchaseOrder>,
 ) -> AppResult<(StatusCode, Json<PurchaseOrderDetail>)> {
     claims.require_write_acquisitions()?;
-    match state.services.acquisitions.create_order(&data, claims.user_id).await {
+    match state
+        .services
+        .acquisitions
+        .create_order(&data, claims.user_id)
+        .await
+    {
         Ok(order) => {
             state.services.audit.log(
                 audit::event::PURCHASE_ORDER_CREATED,
@@ -568,7 +614,12 @@ pub async fn update_order_line(
     ValidatedJson(data): ValidatedJson<UpdateOrderLine>,
 ) -> AppResult<Json<PurchaseOrderLine>> {
     claims.require_write_acquisitions()?;
-    match state.services.acquisitions.update_line(id, line_id, &data).await {
+    match state
+        .services
+        .acquisitions
+        .update_line(id, line_id, &data)
+        .await
+    {
         Ok(line) => {
             state.services.audit.log(
                 audit::event::PURCHASE_ORDER_LINE_UPDATED,
@@ -661,7 +712,12 @@ pub async fn delete_order_line(
         (status = 422, description = "Order cannot be submitted", body = ErrorResponse),
     )
 )]
-pub async fn submit_order(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, ClientIp(ip): ClientIp, Path(id): Path<i64>) -> AppResult<Json<PurchaseOrderDetail>> {
+pub async fn submit_order(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    ClientIp(ip): ClientIp,
+    Path(id): Path<i64>,
+) -> AppResult<Json<PurchaseOrderDetail>> {
     claims.require_write_acquisitions()?;
     match state.services.acquisitions.submit_order(id).await {
         Ok(order) => {
@@ -705,7 +761,12 @@ pub async fn submit_order(State(state): State<crate::AppState>, AuthenticatedUse
         (status = 422, description = "Order cannot be cancelled", body = ErrorResponse),
     )
 )]
-pub async fn cancel_order(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, ClientIp(ip): ClientIp, Path(id): Path<i64>) -> AppResult<Json<PurchaseOrderDetail>> {
+pub async fn cancel_order(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    ClientIp(ip): ClientIp,
+    Path(id): Path<i64>,
+) -> AppResult<Json<PurchaseOrderDetail>> {
     claims.require_write_acquisitions()?;
     match state.services.acquisitions.cancel_order(id).await {
         Ok(order) => {
@@ -759,7 +820,12 @@ pub async fn receive_order(
     ValidatedJson(data): ValidatedJson<ReceivePurchaseOrder>,
 ) -> AppResult<Json<ReceivePurchaseOrderResult>> {
     claims.require_write_acquisitions()?;
-    match state.services.acquisitions.receive_order(id, claims.user_id, &data).await {
+    match state
+        .services
+        .acquisitions
+        .receive_order(id, claims.user_id, &data)
+        .await
+    {
         Ok(result) => {
             state.services.audit.log(
                 audit::event::PURCHASE_ORDER_RECEIVED,
@@ -800,7 +866,11 @@ pub async fn receive_order(
         (status = 404, description = "Purchase order not found", body = ErrorResponse),
     )
 )]
-pub async fn order_audit(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Path(id): Path<i64>) -> AppResult<Json<crate::models::audit::AuditLogPage>> {
+pub async fn order_audit(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    Path(id): Path<i64>,
+) -> AppResult<Json<crate::models::audit::AuditLogPage>> {
     claims.require_read_acquisitions()?;
     let _ = state.services.acquisitions.get_order(id).await?;
     let page = state

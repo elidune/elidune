@@ -64,7 +64,10 @@ async fn migration_replaces_items_notes_with_public_and_internal() {
     .fetch_all(app.state.services.repository.pool())
     .await
     .expect("item note columns");
-    assert_eq!(columns, vec!["internal_note".to_string(), "public_note".to_string()]);
+    assert_eq!(
+        columns,
+        vec!["internal_note".to_string(), "public_note".to_string()]
+    );
 }
 
 #[tokio::test]
@@ -102,54 +105,110 @@ async fn staff_sees_both_notes_patrons_and_opac_see_public_only() {
     let created_copy = copy_by_barcode(&created["biblio"], &barcode);
     assert_staff_copy(created_copy, &public_note, &internal_note);
 
-    let (status, staff) = app.get_json_with_auth(&format!("/api/v1/biblios/{biblio_id}"), &admin_token).await;
+    let (status, staff) = app
+        .get_json_with_auth(&format!("/api/v1/biblios/{biblio_id}"), &admin_token)
+        .await;
     assert_eq!(status, StatusCode::OK, "{staff}");
-    assert_staff_copy(copy_by_barcode(&staff, &barcode), &public_note, &internal_note);
+    assert_staff_copy(
+        copy_by_barcode(&staff, &barcode),
+        &public_note,
+        &internal_note,
+    );
 
-    let (status, staff_items) = app.get_json_with_auth(&format!("/api/v1/biblios/{biblio_id}/items"), &admin_token).await;
+    let (status, staff_items) = app
+        .get_json_with_auth(&format!("/api/v1/biblios/{biblio_id}/items"), &admin_token)
+        .await;
     assert_eq!(status, StatusCode::OK, "{staff_items}");
-    assert_staff_copy(copy_by_barcode(&json!({ "items": staff_items }), &barcode), &public_note, &internal_note);
+    assert_staff_copy(
+        copy_by_barcode(&json!({ "items": staff_items }), &barcode),
+        &public_note,
+        &internal_note,
+    );
 
     let item_id = fixtures::json_id(&created_copy["id"]);
-    let (status, by_id) = app.get_json_with_auth(&format!("/api/v1/items/{item_id}"), &admin_token).await;
+    let (status, by_id) = app
+        .get_json_with_auth(&format!("/api/v1/items/{item_id}"), &admin_token)
+        .await;
     assert_eq!(status, StatusCode::OK, "{by_id}");
-    assert_staff_copy(copy_by_barcode(&by_id, &barcode), &public_note, &internal_note);
+    assert_staff_copy(
+        copy_by_barcode(&by_id, &barcode),
+        &public_note,
+        &internal_note,
+    );
 
-    let (status, by_barcode) = app.get_json_with_auth(&format!("/api/v1/items/barcode/{barcode}"), &admin_token).await;
+    let (status, by_barcode) = app
+        .get_json_with_auth(&format!("/api/v1/items/barcode/{barcode}"), &admin_token)
+        .await;
     assert_eq!(status, StatusCode::OK, "{by_barcode}");
-    assert_staff_copy(copy_by_barcode(&by_barcode, &barcode), &public_note, &internal_note);
+    assert_staff_copy(
+        copy_by_barcode(&by_barcode, &barcode),
+        &public_note,
+        &internal_note,
+    );
 
     for (label, token) in [("reader", Some(reader_token.as_str())), ("opac", None)] {
         let path = format!("/api/v1/biblios/{biblio_id}");
         let (status, body) = match token {
             Some(token) => app.get_json_with_auth(&path, token).await,
-            None => app.get_json(&format!("/api/v1/opac/biblios/{biblio_id}")).await,
+            None => {
+                app.get_json(&format!("/api/v1/opac/biblios/{biblio_id}"))
+                    .await
+            }
         };
         assert_eq!(status, StatusCode::OK, "{label} biblio: {body}");
-        assert_public_copy(copy_by_barcode(&body, &barcode), &public_note, &internal_note);
+        assert_public_copy(
+            copy_by_barcode(&body, &barcode),
+            &public_note,
+            &internal_note,
+        );
         assert_no_staff_note(&body, &internal_note);
     }
 
-    let (status, reader_items) = app.get_json_with_auth(&format!("/api/v1/biblios/{biblio_id}/items"), &reader_token).await;
+    let (status, reader_items) = app
+        .get_json_with_auth(&format!("/api/v1/biblios/{biblio_id}/items"), &reader_token)
+        .await;
     assert_eq!(status, StatusCode::OK, "{reader_items}");
     let reader_list = json!({ "items": reader_items });
-    assert_public_copy(copy_by_barcode(&reader_list, &barcode), &public_note, &internal_note);
+    assert_public_copy(
+        copy_by_barcode(&reader_list, &barcode),
+        &public_note,
+        &internal_note,
+    );
     assert_no_staff_note(&reader_list, &internal_note);
 
-    let (status, reader_item) = app.get_json_with_auth(&format!("/api/v1/items/{item_id}"), &reader_token).await;
+    let (status, reader_item) = app
+        .get_json_with_auth(&format!("/api/v1/items/{item_id}"), &reader_token)
+        .await;
     assert_eq!(status, StatusCode::OK, "{reader_item}");
-    assert_public_copy(copy_by_barcode(&reader_item, &barcode), &public_note, &internal_note);
+    assert_public_copy(
+        copy_by_barcode(&reader_item, &barcode),
+        &public_note,
+        &internal_note,
+    );
 
-    let (status, reader_barcode) = app.get_json_with_auth(&format!("/api/v1/items/barcode/{barcode}"), &reader_token).await;
+    let (status, reader_barcode) = app
+        .get_json_with_auth(&format!("/api/v1/items/barcode/{barcode}"), &reader_token)
+        .await;
     assert_eq!(status, StatusCode::OK, "{reader_barcode}");
-    assert_public_copy(copy_by_barcode(&reader_barcode, &barcode), &public_note, &internal_note);
+    assert_public_copy(
+        copy_by_barcode(&reader_barcode, &barcode),
+        &public_note,
+        &internal_note,
+    );
 
     let title_q = title.replace(' ', "%20");
-    let (status, search) = app.get_json_with_auth(&format!("/api/v1/biblios?title={title_q}&perPage=5"), &reader_token).await;
+    let (status, search) = app
+        .get_json_with_auth(
+            &format!("/api/v1/biblios?title={title_q}&perPage=5"),
+            &reader_token,
+        )
+        .await;
     assert_eq!(status, StatusCode::OK, "{search}");
     assert_no_staff_note(&search, &internal_note);
 
-    let (status, opac_search) = app.get_json(&format!("/api/v1/opac/biblios?title={title_q}&perPage=5")).await;
+    let (status, opac_search) = app
+        .get_json(&format!("/api/v1/opac/biblios?title={title_q}&perPage=5"))
+        .await;
     assert_eq!(status, StatusCode::OK, "{opac_search}");
     assert_no_staff_note(&opac_search, &internal_note);
 }
@@ -185,7 +244,10 @@ async fn put_keeps_omitted_internal_note_and_blank_clears_public_note() {
     assert_eq!(status, StatusCode::CREATED, "{created}");
     let biblio_id = fixtures::json_id(&created["biblio"]["id"]);
     let item_id = fixtures::json_id(&created["biblio"]["items"][0]["id"]);
-    assert_eq!(created["biblio"]["items"][0]["publicNote"], "CD missing", "create trims the public note");
+    assert_eq!(
+        created["biblio"]["items"][0]["publicNote"], "CD missing",
+        "create trims the public note"
+    );
 
     let (status, updated) = app
         .put_json(
@@ -218,7 +280,9 @@ async fn put_keeps_omitted_internal_note_and_blank_clears_public_note() {
     assert!(cleared["publicNote"].is_null(), "{cleared}");
     assert_eq!(cleared["internalNote"], internal_note);
 
-    let (status, reader) = app.get_json_with_auth(&format!("/api/v1/biblios/{biblio_id}"), &reader_token).await;
+    let (status, reader) = app
+        .get_json_with_auth(&format!("/api/v1/biblios/{biblio_id}"), &reader_token)
+        .await;
     assert_eq!(status, StatusCode::OK, "{reader}");
     let copy = copy_by_barcode(&reader, &barcode);
     assert!(copy["publicNote"].is_null(), "{copy}");
@@ -260,12 +324,20 @@ async fn overlong_public_note_returns_validation_error_body() {
     assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
     assert_eq!(body["code"], "validation_error");
     assert!(body["error"].is_string(), "{body}");
-    assert!(body["message"].as_str().unwrap_or("").contains("4000"), "{body}");
+    assert!(
+        body["message"].as_str().unwrap_or("").contains("4000"),
+        "{body}"
+    );
     assert_eq!(body.as_object().expect("object").len(), 3, "{body}");
 }
 
 fn assert_legacy_notes_rejected(body: &Value) {
-    let mut keys: Vec<&str> = body.as_object().unwrap_or_else(|| panic!("error object: {body}")).keys().map(String::as_str).collect();
+    let mut keys: Vec<&str> = body
+        .as_object()
+        .unwrap_or_else(|| panic!("error object: {body}"))
+        .keys()
+        .map(String::as_str)
+        .collect();
     keys.sort_unstable();
     assert_eq!(keys, ["code", "error", "message"], "{body}");
     assert_eq!(body["code"], "validation_error", "{body}");
@@ -277,7 +349,11 @@ fn assert_legacy_notes_rejected(body: &Value) {
 }
 
 async fn count_rows(app: &TestApp, sql: &str, value: &str) -> i64 {
-    sqlx::query_scalar(sql).bind(value).fetch_one(app.state.services.repository.pool()).await.expect("count")
+    sqlx::query_scalar(sql)
+        .bind(value)
+        .fetch_one(app.state.services.repository.pool())
+        .await
+        .expect("count")
 }
 
 #[tokio::test]
@@ -309,7 +385,10 @@ async fn put_with_legacy_notes_is_400_and_writes_nothing() {
     assert_eq!(status, StatusCode::CREATED, "{created}");
     let item_id = fixtures::json_id(&created["biblio"]["items"][0]["id"]);
 
-    async fn snapshot(app: &TestApp, item_id: i64) -> (Option<String>, Option<String>, Option<String>) {
+    async fn snapshot(
+        app: &TestApp,
+        item_id: i64,
+    ) -> (Option<String>, Option<String>, Option<String>) {
         sqlx::query_as("SELECT call_number, public_note, internal_note FROM items WHERE id = $1")
             .bind(item_id)
             .fetch_one(app.state.services.repository.pool())
@@ -375,7 +454,15 @@ async fn create_with_legacy_notes_is_400_and_writes_nothing() {
         .await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
     assert_legacy_notes_rejected(&body);
-    assert_eq!(count_rows(&app, "SELECT COUNT(*) FROM items WHERE barcode = $1", &item_barcode).await, 0);
+    assert_eq!(
+        count_rows(
+            &app,
+            "SELECT COUNT(*) FROM items WHERE barcode = $1",
+            &item_barcode
+        )
+        .await,
+        0
+    );
 
     let nested_title = format!("Legacy notes nested {suffix}");
     let nested_barcode = format!("LEGNST-{suffix}");
@@ -398,8 +485,24 @@ async fn create_with_legacy_notes_is_400_and_writes_nothing() {
         .await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
     assert_legacy_notes_rejected(&body);
-    assert_eq!(count_rows(&app, "SELECT COUNT(*) FROM biblios WHERE title = $1", &nested_title).await, 0);
-    assert_eq!(count_rows(&app, "SELECT COUNT(*) FROM items WHERE barcode = $1", &nested_barcode).await, 0);
+    assert_eq!(
+        count_rows(
+            &app,
+            "SELECT COUNT(*) FROM biblios WHERE title = $1",
+            &nested_title
+        )
+        .await,
+        0
+    );
+    assert_eq!(
+        count_rows(
+            &app,
+            "SELECT COUNT(*) FROM items WHERE barcode = $1",
+            &nested_barcode
+        )
+        .await,
+        0
+    );
 }
 
 #[tokio::test]
@@ -460,9 +563,21 @@ async fn note_limit_counts_unicode_characters() {
         assert_eq!(status, StatusCode::BAD_REQUEST, "{field} {body}");
         assert_eq!(body["code"], "validation_error", "{body}");
         assert_eq!(body["error"], "Validation Error", "{body}");
-        assert!(body["message"].as_str().unwrap_or("").contains("4000"), "{body}");
+        assert!(
+            body["message"].as_str().unwrap_or("").contains("4000"),
+            "{body}"
+        );
         assert_eq!(body.as_object().expect("object").len(), 3, "{body}");
-        assert_eq!(count_rows(&app, "SELECT COUNT(*) FROM items WHERE barcode = $1", &barcode).await, 0, "{field}");
+        assert_eq!(
+            count_rows(
+                &app,
+                "SELECT COUNT(*) FROM items WHERE barcode = $1",
+                &barcode
+            )
+            .await,
+            0,
+            "{field}"
+        );
     }
 
     let nested_title = format!("Unicode nested {suffix}");
@@ -505,6 +620,17 @@ async fn note_limit_counts_unicode_characters() {
         .await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
     assert_eq!(body["code"], "validation_error", "{body}");
-    assert!(body["message"].as_str().unwrap_or("").contains("4000"), "{body}");
-    assert_eq!(count_rows(&app, "SELECT COUNT(*) FROM biblios WHERE title = $1", &rejected_title).await, 0);
+    assert!(
+        body["message"].as_str().unwrap_or("").contains("4000"),
+        "{body}"
+    );
+    assert_eq!(
+        count_rows(
+            &app,
+            "SELECT COUNT(*) FROM biblios WHERE title = $1",
+            &rejected_title
+        )
+        .await,
+        0
+    );
 }

@@ -56,7 +56,11 @@ pub struct AuditExportRequest {
         (status = 403, description = "Insufficient permissions")
     )
 )]
-pub async fn get_audit_log(State(state): State<AppState>, AuthenticatedUser(claims): AuthenticatedUser, Query(query): Query<AuditQueryRequest>) -> AppResult<Json<AuditLogPage>> {
+pub async fn get_audit_log(
+    State(state): State<AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    Query(query): Query<AuditQueryRequest>,
+) -> AppResult<Json<AuditLogPage>> {
     claims.require_admin()?;
 
     let params = AuditQueryParams {
@@ -88,18 +92,34 @@ pub async fn get_audit_log(State(state): State<AppState>, AuthenticatedUser(clai
         (status = 403, description = "Insufficient permissions")
     )
 )]
-pub async fn export_audit_log(State(state): State<AppState>, AuthenticatedUser(claims): AuthenticatedUser, Query(query): Query<AuditExportRequest>) -> AppResult<Response> {
+pub async fn export_audit_log(
+    State(state): State<AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    Query(query): Query<AuditExportRequest>,
+) -> AppResult<Response> {
     claims.require_admin()?;
 
-    let entries = state.services.audit.export(query.from_date, query.to_date, query.event_type.as_deref()).await?;
+    let entries = state
+        .services
+        .audit
+        .export(query.from_date, query.to_date, query.event_type.as_deref())
+        .await?;
 
     let format = query.format.as_deref().unwrap_or("json");
 
     if format == "csv" {
         let mut csv = String::from("id,event_type,outcome,user_id,entity_type,entity_id,ip_address,http_status,error_code,error_message,payload,created_at\n");
         for e in &entries {
-            let payload_str = e.payload.as_ref().map(|v| v.to_string().replace('"', "\"\"")).unwrap_or_default();
-            let esc_msg = e.error_message.as_deref().unwrap_or("").replace('"', "\"\"");
+            let payload_str = e
+                .payload
+                .as_ref()
+                .map(|v| v.to_string().replace('"', "\"\""))
+                .unwrap_or_default();
+            let esc_msg = e
+                .error_message
+                .as_deref()
+                .unwrap_or("")
+                .replace('"', "\"\"");
             csv.push_str(&format!(
                 "{},{},{},{},{},{},{},{},{},\"{}\",\"{}\",{}\n",
                 e.id,
@@ -116,7 +136,17 @@ pub async fn export_audit_log(State(state): State<AppState>, AuthenticatedUser(c
                 e.created_at.to_rfc3339(),
             ));
         }
-        Ok(([("content-type", "text/csv"), ("content-disposition", "attachment; filename=\"audit_log.csv\"")], csv).into_response())
+        Ok((
+            [
+                ("content-type", "text/csv"),
+                (
+                    "content-disposition",
+                    "attachment; filename=\"audit_log.csv\"",
+                ),
+            ],
+            csv,
+        )
+            .into_response())
     } else {
         Ok(Json(entries).into_response())
     }
@@ -125,5 +155,7 @@ pub async fn export_audit_log(State(state): State<AppState>, AuthenticatedUser(c
 /// Build the audit routes for this domain.
 pub fn router() -> axum::Router<crate::AppState> {
     use axum::routing::get;
-    axum::Router::new().route("/audit", get(get_audit_log)).route("/audit/export", get(export_audit_log))
+    axum::Router::new()
+        .route("/audit", get(get_audit_log))
+        .route("/audit/export", get(export_audit_log))
 }

@@ -45,7 +45,10 @@ impl AccountTypesCatalogService {
             acquisitions_rights: Some(right_or_none(&mut data.acquisitions_rights, false)?),
             weeding_rights: Some(right_or_none(&mut data.weeding_rights, false)?),
             weeding_cancel_rights: Some(right_or_none(&mut data.weeding_cancel_rights, false)?),
-            circulation_override_rights: Some(right_or_none(&mut data.circulation_override_rights, false)?),
+            circulation_override_rights: Some(right_or_none(
+                &mut data.circulation_override_rights,
+                false,
+            )?),
             is_system: false,
         };
         self.repository.account_types_create(&row).await
@@ -55,7 +58,11 @@ impl AccountTypesCatalogService {
     ///
     /// Removing a right invalidates open sessions of accounts of this type.
     /// Adding a right leaves those sessions in place.
-    pub async fn update(&self, code: &str, data: &mut UpdateAccountTypeDefinition) -> AppResult<AccountTypeDefinition> {
+    pub async fn update(
+        &self,
+        code: &str,
+        data: &mut UpdateAccountTypeDefinition,
+    ) -> AppResult<AccountTypeDefinition> {
         let code = code.trim();
         if code.is_empty() {
             return Err(AppError::Validation("code must not be empty".to_string()));
@@ -89,7 +96,9 @@ impl AccountTypesCatalogService {
         }
 
         let revoke_sessions = removes_any_right(&before, data);
-        self.repository.account_types_update(code, data, revoke_sessions).await
+        self.repository
+            .account_types_update(code, data, revoke_sessions)
+            .await
     }
 
     /// Delete a custom type. System types and types still assigned to a user are refused.
@@ -106,7 +115,10 @@ impl AccountTypesCatalogService {
                 ..ActiveAdminForecast::default()
             })
             .await?;
-        let assigned = self.repository.account_types_count_users(&existing.code).await?;
+        let assigned = self
+            .repository
+            .account_types_count_users(&existing.code)
+            .await?;
         if assigned > 0 {
             return Err(AppError::account_type_in_use());
         }
@@ -118,14 +130,23 @@ impl AccountTypesCatalogService {
 fn normalize_code(raw: &str) -> AppResult<String> {
     let code = raw.trim().to_ascii_lowercase();
     if !(1..=50).contains(&code.len()) {
-        return Err(AppError::Validation("code must be 1 to 50 characters".to_string()));
+        return Err(AppError::Validation(
+            "code must be 1 to 50 characters".to_string(),
+        ));
     }
     let mut chars = code.chars();
     let Some(first) = chars.next() else {
-        return Err(AppError::Validation("code must be 1 to 50 characters".to_string()));
+        return Err(AppError::Validation(
+            "code must be 1 to 50 characters".to_string(),
+        ));
     };
-    if !first.is_ascii_lowercase() || chars.any(|c| !c.is_ascii_lowercase() && !c.is_ascii_digit() && c != '_') {
-        return Err(AppError::Validation("code must start with a letter and contain only letters, digits, and underscores".to_string()));
+    if !first.is_ascii_lowercase()
+        || chars.any(|c| !c.is_ascii_lowercase() && !c.is_ascii_digit() && c != '_')
+    {
+        return Err(AppError::Validation(
+            "code must start with a letter and contain only letters, digits, and underscores"
+                .to_string(),
+        ));
     }
     Ok(code)
 }
@@ -133,10 +154,14 @@ fn normalize_code(raw: &str) -> AppResult<String> {
 fn normalize_name(raw: &str) -> AppResult<String> {
     let name = raw.trim();
     if name.is_empty() {
-        return Err(AppError::Validation("name must not be empty when provided".to_string()));
+        return Err(AppError::Validation(
+            "name must not be empty when provided".to_string(),
+        ));
     }
     if name.len() > 100 {
-        return Err(AppError::Validation("name must be at most 100 characters".to_string()));
+        return Err(AppError::Validation(
+            "name must be at most 100 characters".to_string(),
+        ));
     }
     Ok(name.to_string())
 }
@@ -150,14 +175,18 @@ fn right_or_none(field: &mut Option<String>, holds: bool) -> AppResult<String> {
     } else {
         normalize_right_field(field)?;
     }
-    field.clone().ok_or_else(|| AppError::Validation("each rights field must be exactly one character".to_string()))
+    field.clone().ok_or_else(|| {
+        AppError::Validation("each rights field must be exactly one character".to_string())
+    })
 }
 
 fn normalize_right_field(field: &mut Option<String>) -> AppResult<()> {
     if let Some(raw) = field.as_ref() {
         let t = raw.trim();
         if t.len() != 1 {
-            return Err(AppError::Validation("each rights field must be exactly one character: n, o, r, or w".to_string()));
+            return Err(AppError::Validation(
+                "each rights field must be exactly one character: n, o, r, or w".to_string(),
+            ));
         }
         let c = t
             .chars()
@@ -165,7 +194,9 @@ fn normalize_right_field(field: &mut Option<String>) -> AppResult<()> {
             .ok_or_else(|| AppError::Validation("each rights field must be one character".into()))?
             .to_ascii_lowercase();
         if !matches!(c, 'n' | 'o' | 'r' | 'w') {
-            return Err(AppError::Validation("rights must be n (none), o (own), r (read), or w (write)".to_string()));
+            return Err(AppError::Validation(
+                "rights must be n (none), o (own), r (read), or w (write)".to_string(),
+            ));
         }
         *field = Some(c.to_string());
     }
@@ -176,11 +207,19 @@ fn normalize_holds_right_field(field: &mut Option<String>) -> AppResult<()> {
     if let Some(raw) = field.as_ref() {
         let t = raw.trim();
         if t.len() != 1 {
-            return Err(AppError::Validation("holds_rights must be exactly one character: n, o, r, or w".to_string()));
+            return Err(AppError::Validation(
+                "holds_rights must be exactly one character: n, o, r, or w".to_string(),
+            ));
         }
-        let c = t.chars().next().ok_or_else(|| AppError::Validation("holds_rights must be one character".into()))?.to_ascii_lowercase();
+        let c = t
+            .chars()
+            .next()
+            .ok_or_else(|| AppError::Validation("holds_rights must be one character".into()))?
+            .to_ascii_lowercase();
         if !matches!(c, 'n' | 'o' | 'r' | 'w') {
-            return Err(AppError::Validation("holds_rights must be n (none), o (own holds), r (read), or w (write)".to_string()));
+            return Err(AppError::Validation(
+                "holds_rights must be n (none), o (own holds), r (read), or w (write)".to_string(),
+            ));
         }
         *field = Some(c.to_string());
     }
@@ -205,7 +244,10 @@ fn removes_any_right(before: &AccountTypeDefinition, patch: &UpdateAccountTypeDe
         || patch_removes_right(&before.acquisitions_rights, &patch.acquisitions_rights)
         || patch_removes_right(&before.weeding_rights, &patch.weeding_rights)
         || patch_removes_right(&before.weeding_cancel_rights, &patch.weeding_cancel_rights)
-        || patch_removes_right(&before.circulation_override_rights, &patch.circulation_override_rights)
+        || patch_removes_right(
+            &before.circulation_override_rights,
+            &patch.circulation_override_rights,
+        )
 }
 
 #[cfg(test)]

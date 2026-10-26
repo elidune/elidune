@@ -29,9 +29,18 @@ pub fn router() -> axum::Router<crate::AppState> {
     use axum::routing::{get, post};
     axum::Router::new()
         .route("/events", get(list_events).post(create_event))
-        .route("/events/:id", get(get_event).put(update_event).delete(delete_event))
-        .route("/events/:id/send-announcement", post(send_event_announcement))
-        .route("/events/:id/announcement-recipients/count", get(count_announcement_recipients))
+        .route(
+            "/events/:id",
+            get(get_event).put(update_event).delete(delete_event),
+        )
+        .route(
+            "/events/:id/send-announcement",
+            post(send_event_announcement),
+        )
+        .route(
+            "/events/:id/announcement-recipients/count",
+            get(count_announcement_recipients),
+        )
 }
 
 /// Public unsubscribe route (no login). Mounted on the public rate limiter.
@@ -82,7 +91,10 @@ pub struct EventsListResponse {
         (status = 404, description = "Not found", body = ErrorResponse),
     )
 )]
-pub async fn list_events(State(state): State<crate::AppState>, Query(query): Query<EventQuery>) -> AppResult<Json<EventsListResponse>> {
+pub async fn list_events(
+    State(state): State<crate::AppState>,
+    Query(query): Query<EventQuery>,
+) -> AppResult<Json<EventsListResponse>> {
     let (events, total) = state.services.events.list(&query).await?;
     Ok(Json(EventsListResponse { events, total }))
 }
@@ -102,7 +114,10 @@ pub async fn list_events(State(state): State<crate::AppState>, Query(query): Que
         (status = 404, description = "Not found", body = ErrorResponse),
     )
 )]
-pub async fn get_event(State(state): State<crate::AppState>, Path(id): Path<i64>) -> AppResult<Json<Event>> {
+pub async fn get_event(
+    State(state): State<crate::AppState>,
+    Path(id): Path<i64>,
+) -> AppResult<Json<Event>> {
     let event = state.services.events.get_by_id_with_attachment(id).await?;
     Ok(Json(event))
 }
@@ -224,7 +239,12 @@ pub async fn update_event(
         (status = 404, description = "Not found", body = ErrorResponse),
     )
 )]
-pub async fn delete_event(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, ClientIp(ip): ClientIp, Path(id): Path<i64>) -> AppResult<StatusCode> {
+pub async fn delete_event(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    ClientIp(ip): ClientIp,
+    Path(id): Path<i64>,
+) -> AppResult<StatusCode> {
     claims.require_write_events()?;
     match state.services.events.delete(id).await {
         Ok(()) => {
@@ -292,7 +312,11 @@ pub async fn send_event_announcement(
     Json(payload): Json<SendAnnouncementRequest>,
 ) -> AppResult<Json<AnnouncementReport>> {
     claims.require_write_events()?;
-    let report = state.services.events.send_announcement(id, &payload, Some(claims.user_id), ip).await?;
+    let report = state
+        .services
+        .events
+        .send_announcement(id, &payload, Some(claims.user_id), ip)
+        .await?;
     Ok(Json(report))
 }
 
@@ -314,9 +338,17 @@ pub async fn send_event_announcement(
         (status = 404, description = "Not found", body = ErrorResponse),
     )
 )]
-pub async fn count_announcement_recipients(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Path(id): Path<i64>) -> AppResult<Json<AnnouncementRecipientCount>> {
+pub async fn count_announcement_recipients(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    Path(id): Path<i64>,
+) -> AppResult<Json<AnnouncementRecipientCount>> {
     claims.require_write_events()?;
-    let count = state.services.events.count_announcement_recipients(id).await?;
+    let count = state
+        .services
+        .events
+        .count_announcement_recipients(id)
+        .await?;
     Ok(Json(AnnouncementRecipientCount { count }))
 }
 
@@ -342,12 +374,21 @@ pub struct UnsubscribeQuery {
         (status = 400, description = "Invalid request"),
     )
 )]
-pub async fn unsubscribe_events(State(state): State<crate::AppState>, headers: axum::http::HeaderMap, Query(query): Query<UnsubscribeQuery>, body: axum::body::Bytes) -> Response {
-    let content_type = headers.get(header::CONTENT_TYPE).and_then(|value| value.to_str().ok()).unwrap_or("");
+pub async fn unsubscribe_events(
+    State(state): State<crate::AppState>,
+    headers: axum::http::HeaderMap,
+    Query(query): Query<UnsubscribeQuery>,
+    body: axum::body::Bytes,
+) -> Response {
+    let content_type = headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("");
     let Some(token) = unsubscribe_token(content_type, query.token.as_deref(), &body) else {
         return invalid_unsubscribe();
     };
-    let Some(user_id) = events_consent::verify(state.config.users.jwt_secret.as_bytes(), &token) else {
+    let Some(user_id) = events_consent::verify(state.config.users.jwt_secret.as_bytes(), &token)
+    else {
         return invalid_unsubscribe();
     };
     match state.services.users.get_by_id(user_id).await {
@@ -355,7 +396,12 @@ pub async fn unsubscribe_events(State(state): State<crate::AppState>, headers: a
         Err(AppError::NotFound(_)) => return invalid_unsubscribe(),
         Err(err) => return err.into_response(),
     }
-    if let Err(err) = state.services.repository.users_unsubscribe_events(user_id).await {
+    if let Err(err) = state
+        .services
+        .repository
+        .users_unsubscribe_events(user_id)
+        .await
+    {
         return err.into_response();
     }
     StatusCode::NO_CONTENT.into_response()
@@ -364,7 +410,13 @@ pub async fn unsubscribe_events(State(state): State<crate::AppState>, headers: a
 /// JSON `{ "token" }`, or `?token=` together with the RFC 8058 form body.
 fn unsubscribe_token(content_type: &str, query_token: Option<&str>, body: &[u8]) -> Option<String> {
     let text = std::str::from_utf8(body).ok()?;
-    let json = content_type.split(';').next().unwrap_or("").trim().eq_ignore_ascii_case("application/json") || text.trim_start().starts_with('{');
+    let json = content_type
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .eq_ignore_ascii_case("application/json")
+        || text.trim_start().starts_with('{');
     if json {
         let parsed: UnsubscribeEventsRequest = serde_json::from_slice(body).ok()?;
         let token = parsed.token.trim();
@@ -373,7 +425,9 @@ fn unsubscribe_token(content_type: &str, query_token: Option<&str>, body: &[u8])
         }
         return Some(token.to_string());
     }
-    let query_token = query_token.map(str::trim).filter(|token| !token.is_empty())?;
+    let query_token = query_token
+        .map(str::trim)
+        .filter(|token| !token.is_empty())?;
     if is_one_click_body(text) {
         Some(query_token.to_string())
     } else {
@@ -383,9 +437,17 @@ fn unsubscribe_token(content_type: &str, query_token: Option<&str>, body: &[u8])
 
 fn is_one_click_body(body: &str) -> bool {
     let trimmed = body.trim();
-    trimmed == "List-Unsubscribe=One-Click" || trimmed.split('&').any(|pair| pair.trim() == "List-Unsubscribe=One-Click")
+    trimmed == "List-Unsubscribe=One-Click"
+        || trimmed
+            .split('&')
+            .any(|pair| pair.trim() == "List-Unsubscribe=One-Click")
 }
 
 fn invalid_unsubscribe() -> Response {
-    (StatusCode::BAD_REQUEST, [(header::CONTENT_TYPE, "text/plain; charset=utf-8")], events_consent::INVALID_REQUEST).into_response()
+    (
+        StatusCode::BAD_REQUEST,
+        [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+        events_consent::INVALID_REQUEST,
+    )
+        .into_response()
 }

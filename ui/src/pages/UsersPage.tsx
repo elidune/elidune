@@ -356,7 +356,7 @@ export default function UsersPage() {
                 name: `${deleteModalUser?.firstname ?? ''} ${deleteModalUser?.lastname ?? ''}`.trim() || '—',
               })
         }
-        confirmLabel={deleteUserForce ? t('users.forceDelete') : t('common.delete')}
+        confirmLabel={deleteUserForce ? t('common.forceDelete') : t('common.delete')}
         confirmVariant="danger"
         isLoading={deleteUserLoading}
         error={deleteUserError}

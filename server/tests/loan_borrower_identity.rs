@@ -22,9 +22,18 @@ fn assert_minimized(body: &Value, user_id: i64, card: Option<&str>, initials: &s
         Some(number) => assert_eq!(body["cardNumber"], number, "{body}"),
         None => assert!(body["cardNumber"].is_null(), "{body}"),
     }
-    let mut keys: Vec<&str> = body.as_object().expect("object").keys().map(String::as_str).collect();
+    let mut keys: Vec<&str> = body
+        .as_object()
+        .expect("object")
+        .keys()
+        .map(String::as_str)
+        .collect();
     keys.sort_unstable();
-    assert_eq!(keys, ["cardNumber", "id", "initials"], "restricted shape must be exactly id, cardNumber, initials: {body}");
+    assert_eq!(
+        keys,
+        ["cardNumber", "id", "initials"],
+        "restricted shape must be exactly id, cardNumber, initials: {body}"
+    );
 }
 
 fn assert_no_personal_text(body: &Value, forbidden: &[&str]) {
@@ -98,7 +107,14 @@ async fn loan_borrower_identity_follows_users_rights() {
     let loan_id = fixtures::json_id(&created["id"]);
     let path = format!("/api/v1/loans/{loan_id}/user");
 
-    let personal = ["Isolde", "Moreau", "isolde.moreau@secret.test", "0612345678", "12 Rue de la Paix", login.as_str()];
+    let personal = [
+        "Isolde",
+        "Moreau",
+        "isolde.moreau@secret.test",
+        "0612345678",
+        "12 Rue de la Paix",
+        login.as_str(),
+    ];
 
     let loans_only = retarget(&admin_token, &secret, Rights::None, Rights::Write);
     let (status, body) = app.get_json_with_auth(&path, &loans_only).await;
@@ -149,12 +165,22 @@ async fn loan_borrower_identity_follows_users_rights() {
 }
 
 fn assert_no_identity_keys(body: &Value) {
-    const FORBIDDEN: &[&str] = &["firstname", "lastname", "email", "userEmail", "phone", "login"];
+    const FORBIDDEN: &[&str] = &[
+        "firstname",
+        "lastname",
+        "email",
+        "userEmail",
+        "phone",
+        "login",
+    ];
     fn walk(value: &Value, path: &str) {
         match value {
             Value::Object(map) => {
                 for key in FORBIDDEN {
-                    assert!(!map.contains_key(*key), "identity key {key} at {path}: {value}");
+                    assert!(
+                        !map.contains_key(*key),
+                        "identity key {key} at {path}: {value}"
+                    );
                 }
                 for (key, child) in map {
                     walk(child, &format!("{path}.{key}"));
@@ -252,41 +278,89 @@ async fn return_routes_follow_users_rights() {
         .expect("reader login");
     let loans_only = retarget(&admin_token, &secret, Rights::None, Rights::Write);
     let users_read = retarget(&admin_token, &secret, Rights::Read, Rights::Write);
-    let personal = ["Isolde", "Moreau", "isolde.return@secret.test", "0612345678", login.as_str()];
+    let personal = [
+        "Isolde",
+        "Moreau",
+        "isolde.return@secret.test",
+        "0612345678",
+        login.as_str(),
+    ];
 
     let (loan_id, _) = checkout(&app, &admin_token, reader_id, "RETID").await;
-    let (status, body) = app.post_empty(&format!("/api/v1/loans/{loan_id}/return"), Some(&loans_only)).await;
+    let (status, body) = app
+        .post_empty(
+            &format!("/api/v1/loans/{loan_id}/return"),
+            Some(&loans_only),
+        )
+        .await;
     assert_eq!(status, StatusCode::OK, "return by id: {body}");
     assert_minimized(&body["loan"]["user"], reader_id, Some(&card), "IM");
     assert_no_personal_text(&body, &personal);
 
     let (loan_id, _) = checkout(&app, &admin_token, reader_id, "RETIDFULL").await;
-    let (status, body) = app.post_empty(&format!("/api/v1/loans/{loan_id}/return"), Some(&users_read)).await;
+    let (status, body) = app
+        .post_empty(
+            &format!("/api/v1/loans/{loan_id}/return"),
+            Some(&users_read),
+        )
+        .await;
     assert_eq!(status, StatusCode::OK, "return by id full: {body}");
     assert_staff_profile(&body["loan"]["user"], reader_id, &login, &card);
 
     let (_, barcode) = checkout(&app, &admin_token, reader_id, "RETITEM").await;
-    let (status, body) = app.post_empty(&format!("/api/v1/loans/items/{barcode}/return"), Some(&loans_only)).await;
+    let (status, body) = app
+        .post_empty(
+            &format!("/api/v1/loans/items/{barcode}/return"),
+            Some(&loans_only),
+        )
+        .await;
     assert_eq!(status, StatusCode::OK, "return by item: {body}");
     assert_minimized(&body["loan"]["user"], reader_id, Some(&card), "IM");
     assert_no_personal_text(&body, &personal);
 
     let (_, barcode) = checkout(&app, &admin_token, reader_id, "RETITEMFULL").await;
-    let (status, body) = app.post_empty(&format!("/api/v1/loans/items/{barcode}/return"), Some(&users_read)).await;
+    let (status, body) = app
+        .post_empty(
+            &format!("/api/v1/loans/items/{barcode}/return"),
+            Some(&users_read),
+        )
+        .await;
     assert_eq!(status, StatusCode::OK, "return by item full: {body}");
     assert_staff_profile(&body["loan"]["user"], reader_id, &login, &card);
 
     let (_, barcode) = checkout(&app, &admin_token, reader_id, "RETBATCH").await;
-    let (status, body) = app.post_json("/api/v1/loans/batch-return", &json!({ "barcodes": [barcode] }), Some(&loans_only)).await;
+    let (status, body) = app
+        .post_json(
+            "/api/v1/loans/batch-return",
+            &json!({ "barcodes": [barcode] }),
+            Some(&loans_only),
+        )
+        .await;
     assert_eq!(status, StatusCode::OK, "batch return: {body}");
     assert_eq!(body["results"][0]["success"], true, "{body}");
-    assert_minimized(&body["results"][0]["loan"]["user"], reader_id, Some(&card), "IM");
+    assert_minimized(
+        &body["results"][0]["loan"]["user"],
+        reader_id,
+        Some(&card),
+        "IM",
+    );
     assert_no_personal_text(&body, &personal);
 
     let (_, barcode) = checkout(&app, &admin_token, reader_id, "RETBATCHFULL").await;
-    let (status, body) = app.post_json("/api/v1/loans/batch-return", &json!({ "barcodes": [barcode] }), Some(&users_read)).await;
+    let (status, body) = app
+        .post_json(
+            "/api/v1/loans/batch-return",
+            &json!({ "barcodes": [barcode] }),
+            Some(&users_read),
+        )
+        .await;
     assert_eq!(status, StatusCode::OK, "batch return full: {body}");
-    assert_staff_profile(&body["results"][0]["loan"]["user"], reader_id, &login, &card);
+    assert_staff_profile(
+        &body["results"][0]["loan"]["user"],
+        reader_id,
+        &login,
+        &card,
+    );
 }
 
 async fn overdue_row(app: &TestApp, token: &str, loan_id: i64) -> Value {
@@ -314,7 +388,15 @@ async fn overdue_without_users_read_is_minimal() {
     let row = overdue_row(&app, &loans_only, loan_id).await;
     assert_minimized(&row["user"], reader_id, Some(&card), "IM");
     assert_no_identity_keys(&row);
-    assert_no_personal_text(&row, &["Isolde", "Moreau", "isolde.overdue@secret.test", "0612345678"]);
+    assert_no_personal_text(
+        &row,
+        &[
+            "Isolde",
+            "Moreau",
+            "isolde.overdue@secret.test",
+            "0612345678",
+        ],
+    );
     assert!(row.get("userId").is_none(), "{row}");
     assert!(row.get("firstname").is_none(), "{row}");
     assert!(row.get("userEmail").is_none(), "{row}");
@@ -370,24 +452,56 @@ async fn user_loans_follow_users_rights_not_account_type() {
     checkout(&app, &admin_token, other_id, "ULOANOTHER").await;
 
     let loans_only = retarget(&admin_token, &secret, Rights::None, Rights::Read);
-    let (status, body) = app.get_json_with_auth(&format!("/api/v1/users/{reader_id}/loans"), &loans_only).await;
-    assert_eq!(status, StatusCode::OK, "loans read without users read sees current loans: {body}");
+    let (status, body) = app
+        .get_json_with_auth(&format!("/api/v1/users/{reader_id}/loans"), &loans_only)
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "loans read without users read sees current loans: {body}"
+    );
     assert_minimized(&body["items"][0]["user"], reader_id, Some(&card), "IM");
-    assert_no_personal_text(&body, &["Isolde", "Moreau", "isolde.loans@secret.test", login.as_str()]);
+    assert_no_personal_text(
+        &body,
+        &[
+            "Isolde",
+            "Moreau",
+            "isolde.loans@secret.test",
+            login.as_str(),
+        ],
+    );
 
     let users_read = retarget(&admin_token, &secret, Rights::Read, Rights::Read);
-    let (status, body) = app.get_json_with_auth(&format!("/api/v1/users/{reader_id}/loans"), &users_read).await;
+    let (status, body) = app
+        .get_json_with_auth(&format!("/api/v1/users/{reader_id}/loans"), &users_read)
+        .await;
     assert_eq!(status, StatusCode::OK, "users read: {body}");
     let row = &body["items"][0];
     assert_staff_profile(&row["user"], reader_id, &login, &card);
 
-    let (status, body) = app.get_json_with_auth(&format!("/api/v1/users/{reader_id}/loans"), &reader_token).await;
+    let (status, body) = app
+        .get_json_with_auth(&format!("/api/v1/users/{reader_id}/loans"), &reader_token)
+        .await;
     assert_eq!(status, StatusCode::OK, "patron own loans: {body}");
     assert_minimized(&body["items"][0]["user"], reader_id, Some(&card), "IM");
-    assert_no_personal_text(&body, &["Isolde", "Moreau", "isolde.loans@secret.test", login.as_str()]);
+    assert_no_personal_text(
+        &body,
+        &[
+            "Isolde",
+            "Moreau",
+            "isolde.loans@secret.test",
+            login.as_str(),
+        ],
+    );
 
-    let (status, denied) = app.get_json_with_auth(&format!("/api/v1/users/{other_id}/loans"), &reader_token).await;
-    assert_eq!(status, StatusCode::FORBIDDEN, "patron other loans: {denied}");
+    let (status, denied) = app
+        .get_json_with_auth(&format!("/api/v1/users/{other_id}/loans"), &reader_token)
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "patron other loans: {denied}"
+    );
 }
 
 #[tokio::test]
@@ -408,11 +522,15 @@ async fn patron_reads_own_loan_borrower_and_not_another() {
     let (own_loan, _) = checkout(&app, &admin_token, reader_id, "OWNLOAN").await;
     let (other_loan, _) = checkout(&app, &admin_token, other_id, "OTHERLOAN").await;
 
-    let (status, body) = app.get_json_with_auth(&format!("/api/v1/loans/{own_loan}/user"), &reader_token).await;
+    let (status, body) = app
+        .get_json_with_auth(&format!("/api/v1/loans/{own_loan}/user"), &reader_token)
+        .await;
     assert_eq!(status, StatusCode::OK, "own borrower: {body}");
     assert_staff_profile(&body, reader_id, &login, &card);
 
-    let (status, denied) = app.get_json_with_auth(&format!("/api/v1/loans/{other_loan}/user"), &reader_token).await;
+    let (status, denied) = app
+        .get_json_with_auth(&format!("/api/v1/loans/{other_loan}/user"), &reader_token)
+        .await;
     assert_eq!(status, StatusCode::FORBIDDEN, "other borrower: {denied}");
 }
 
@@ -428,7 +546,10 @@ async fn stats_users_omits_named_borrowers() {
     name_reader(&app, reader_id, &card, "isolde.stats@secret.test").await;
     checkout(&app, &admin_token, reader_id, "STATS").await;
 
-    for path in ["/api/v1/stats/users", "/api/v1/stats/users?mode=leaderboard&sortBy=totalLoans&limit=50"] {
+    for path in [
+        "/api/v1/stats/users",
+        "/api/v1/stats/users?mode=leaderboard&sortBy=totalLoans&limit=50",
+    ] {
         for token in [
             admin_token.clone(),
             retarget(&admin_token, &secret, Rights::None, Rights::Read),
@@ -444,7 +565,10 @@ async fn stats_users_omits_named_borrowers() {
             assert!(body["usersByAccountType"].is_array(), "{body}");
             assert!(body.get("usersBySite").is_none(), "{body}");
             assert_no_identity_keys(&body);
-            assert_no_personal_text(&body, &["Isolde", "Moreau", "isolde.stats@secret.test", "0612345678"]);
+            assert_no_personal_text(
+                &body,
+                &["Isolde", "Moreau", "isolde.stats@secret.test", "0612345678"],
+            );
         }
     }
 }

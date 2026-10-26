@@ -17,7 +17,9 @@ use serde_with::{serde_as, DisplayFromStr};
 use utoipa::ToSchema;
 
 use super::author::{Author, Function};
-use super::biblio::{AudienceType, Biblio, BiblioShort, Collection, Edition, Isbn, MediaType, Serie};
+use super::biblio::{
+    AudienceType, Biblio, BiblioShort, Collection, Edition, Isbn, MediaType, Serie,
+};
 use super::hold::{HoldDetails, HoldStatus};
 use super::item::{Item, ItemAvailability, ItemShort, WeedingStatus};
 use super::loan::LoanDetails;
@@ -71,21 +73,27 @@ impl ItemPublicAvailability {
     /// in transit, reserved, in repair) are [`Self::Unavailable`]. A copy that is
     /// simply not borrowable is [`Self::OnSiteOnly`].
     #[must_use]
-    pub fn for_copy(availability: ItemAvailability, borrowable: bool, circulation_status: Option<i16>) -> Self {
+    pub fn for_copy(
+        availability: ItemAvailability,
+        borrowable: bool,
+        circulation_status: Option<i16>,
+    ) -> Self {
         if availability == ItemAvailability::OnLoan {
             return Self::OnLoan;
         }
-        let circulation = crate::models::circulation::CirculationStatus::from_db(circulation_status);
-        if matches!(availability, ItemAvailability::InTransit | ItemAvailability::OnHold | ItemAvailability::ToSearch)
-            || matches!(
-                circulation,
-                crate::models::circulation::CirculationStatus::Damaged
-                    | crate::models::circulation::CirculationStatus::ClaimedReturned
-                    | crate::models::circulation::CirculationStatus::ToSearch
-                    | crate::models::circulation::CirculationStatus::Lost
-                    | crate::models::circulation::CirculationStatus::Missing
-            )
-        {
+        let circulation =
+            crate::models::circulation::CirculationStatus::from_db(circulation_status);
+        if matches!(
+            availability,
+            ItemAvailability::InTransit | ItemAvailability::OnHold | ItemAvailability::ToSearch
+        ) || matches!(
+            circulation,
+            crate::models::circulation::CirculationStatus::Damaged
+                | crate::models::circulation::CirculationStatus::ClaimedReturned
+                | crate::models::circulation::CirculationStatus::ToSearch
+                | crate::models::circulation::CirculationStatus::Lost
+                | crate::models::circulation::CirculationStatus::Missing
+        ) {
             return Self::Unavailable;
         }
         if !borrowable {
@@ -287,14 +295,22 @@ pub struct ItemPublicView {
     pub can_hold_item: bool,
     /// This copy is assigned to a hold, or in transit for one. See [`Item::on_hold`].
     pub on_hold: bool,
-    /// Incoming deposit. `null` when the copy is own stock.
-    pub deposit: Option<super::deposit::ItemDeposit>,
+    /// Incoming deposit. `null` when the copy is own stock. Batch return date is omitted.
+    pub deposit: Option<super::deposit::ItemDepositPublic>,
 }
 
 impl From<Item> for ItemPublicView {
     fn from(item: Item) -> Self {
-        let availability = ItemPublicAvailability::for_copy(item.availability, item.borrowable, item.circulation_status);
-        let expected_return_date = if availability == ItemPublicAvailability::OnLoan { item.expected_return_date } else { None };
+        let availability = ItemPublicAvailability::for_copy(
+            item.availability,
+            item.borrowable,
+            item.circulation_status,
+        );
+        let expected_return_date = if availability == ItemPublicAvailability::OnLoan {
+            item.expected_return_date
+        } else {
+            None
+        };
         Self {
             id: item.id,
             biblio_id: item.biblio_id,
@@ -315,7 +331,7 @@ impl From<Item> for ItemPublicView {
             availability,
             can_hold_item: item.can_hold_item,
             on_hold: item.on_hold,
-            deposit: item.deposit,
+            deposit: item.deposit.map(super::deposit::ItemDepositPublic::from),
         }
     }
 }
@@ -380,8 +396,8 @@ pub struct ItemShortPublic {
     pub borrowed: bool,
     pub availability: ItemPublicAvailability,
     pub can_hold_item: bool,
-    /// Incoming deposit. `null` when the copy is own stock.
-    pub deposit: Option<super::deposit::ItemDeposit>,
+    /// Incoming deposit. `null` when the copy is own stock. Batch return date is omitted.
+    pub deposit: Option<super::deposit::ItemDepositPublic>,
 }
 
 impl From<ItemShort> for ItemShortPublic {
@@ -393,9 +409,13 @@ impl From<ItemShort> for ItemShortPublic {
             borrowable: item.borrowable,
             site_name: item.site_name,
             borrowed: item.borrowed,
-            availability: ItemPublicAvailability::for_copy(item.availability, item.borrowable, item.circulation_status),
+            availability: ItemPublicAvailability::for_copy(
+                item.availability,
+                item.borrowable,
+                item.circulation_status,
+            ),
             can_hold_item: item.can_hold_item,
-            deposit: item.deposit,
+            deposit: item.deposit.map(super::deposit::ItemDepositPublic::from),
         }
     }
 }
@@ -583,7 +603,12 @@ impl From<Biblio> for BiblioPublicView {
             series: biblio.series,
             collections: biblio.collections,
             edition: biblio.edition,
-            items: biblio.items.into_iter().filter(Item::included_in_public_catalog).map(ItemPublicView::from).collect(),
+            items: biblio
+                .items
+                .into_iter()
+                .filter(Item::included_in_public_catalog)
+                .map(ItemPublicView::from)
+                .collect(),
         }
     }
 }
@@ -661,7 +686,12 @@ impl From<BiblioShort> for BiblioShortPublic {
             is_valid: biblio.is_valid,
             archived_at: biblio.archived_at,
             author: biblio.author.map(AuthorPublic::from),
-            items: biblio.items.into_iter().filter(ItemShort::included_in_public_catalog).map(ItemShortPublic::from).collect(),
+            items: biblio
+                .items
+                .into_iter()
+                .filter(ItemShort::included_in_public_catalog)
+                .map(ItemShortPublic::from)
+                .collect(),
         }
     }
 }
@@ -768,7 +798,12 @@ impl Item {
     /// Assigned hold patron when this copy is `onHold`.
     #[must_use]
     pub fn hold_patron_source(&self) -> Option<HoldPatronSource> {
-        hold_patron_source(self.hold_user_id, self.hold_user_barcode.clone(), self.hold_user_firstname.clone(), self.hold_user_lastname.clone())
+        hold_patron_source(
+            self.hold_user_id,
+            self.hold_user_barcode.clone(),
+            self.hold_user_firstname.clone(),
+            self.hold_user_lastname.clone(),
+        )
     }
 }
 
@@ -776,11 +811,21 @@ impl ItemShort {
     /// Assigned hold patron when this copy is `onHold`.
     #[must_use]
     pub fn hold_patron_source(&self) -> Option<HoldPatronSource> {
-        hold_patron_source(self.hold_user_id, self.hold_user_barcode.clone(), self.hold_user_firstname.clone(), self.hold_user_lastname.clone())
+        hold_patron_source(
+            self.hold_user_id,
+            self.hold_user_barcode.clone(),
+            self.hold_user_firstname.clone(),
+            self.hold_user_lastname.clone(),
+        )
     }
 }
 
-fn hold_patron_source(id: Option<i64>, barcode: Option<String>, firstname: Option<String>, lastname: Option<String>) -> Option<HoldPatronSource> {
+fn hold_patron_source(
+    id: Option<i64>,
+    barcode: Option<String>,
+    firstname: Option<String>,
+    lastname: Option<String>,
+) -> Option<HoldPatronSource> {
     Some(HoldPatronSource {
         id: id?,
         barcode: barcode.filter(|value| !value.trim().is_empty()),
@@ -813,7 +858,9 @@ pub fn hold_for_identity(rights: &UserRights, patron: UserShort) -> Option<LoanB
     if rights.users_rights.rank() >= Rights::Read.rank() {
         Some(LoanBorrowerResponse::Full(UserShortStaff::from(patron)))
     } else {
-        Some(LoanBorrowerResponse::Minimized(LoanBorrowerMinimized::from(patron)))
+        Some(LoanBorrowerResponse::Minimized(
+            LoanBorrowerMinimized::from(patron),
+        ))
     }
 }
 
@@ -822,17 +869,25 @@ pub fn hold_for_identity(rights: &UserRights, patron: UserShort) -> Option<LoanB
 /// Resolves the patron from `full` (or the copy columns) and applies
 /// [`hold_for_identity`].
 #[must_use]
-pub fn project_hold_for(source: HoldPatronSource, claims: &UserClaims, full: &HashMap<i64, UserShort>) -> Option<LoanBorrowerResponse> {
-    let patron = full
-        .get(&source.id)
-        .cloned()
-        .unwrap_or_else(|| partial_user_short(source.id, source.barcode, source.firstname, source.lastname));
+pub fn project_hold_for(
+    source: HoldPatronSource,
+    claims: &UserClaims,
+    full: &HashMap<i64, UserShort>,
+) -> Option<LoanBorrowerResponse> {
+    let patron = full.get(&source.id).cloned().unwrap_or_else(|| {
+        partial_user_short(source.id, source.barcode, source.firstname, source.lastname)
+    });
     hold_for_identity(&claims.rights, patron)
 }
 
 /// Patron row built from the columns already on a catalog or pick-list query.
 #[must_use]
-pub fn partial_user_short(id: i64, barcode: Option<String>, firstname: Option<String>, lastname: Option<String>) -> UserShort {
+pub fn partial_user_short(
+    id: i64,
+    barcode: Option<String>,
+    firstname: Option<String>,
+    lastname: Option<String>,
+) -> UserShort {
     UserShort {
         id,
         login: None,
@@ -866,7 +921,11 @@ pub fn project_listed_hold_patron(user: UserShort, claims: &UserClaims) -> LoanB
 /// [`UserShortStaff`] even when `users_rights` is only own. Catalog notices pass
 /// `false`, so a patron never receives another person's identity from the notice.
 #[must_use]
-pub fn project_borrower(user: UserShort, claims: &UserClaims, own_identity: bool) -> LoanBorrowerResponse {
+pub fn project_borrower(
+    user: UserShort,
+    claims: &UserClaims,
+    own_identity: bool,
+) -> LoanBorrowerResponse {
     let users_read = claims.rights.users_rights.rank() >= Rights::Read.rank();
     if users_read || (own_identity && user.id == claims.user_id) {
         LoanBorrowerResponse::Full(UserShortStaff::from(user))
@@ -1017,7 +1076,9 @@ impl HoldDetailsStaff {
             item_id: hold.item_id,
             pickup_site_id: hold.pickup_site_id,
             biblio: BiblioShortStaff::from(hold.biblio),
-            user: hold.user.map(|user| project_listed_hold_patron(user, claims)),
+            user: hold
+                .user
+                .map(|user| project_listed_hold_patron(user, claims)),
             created_at: hold.created_at,
             notified_at: hold.notified_at,
             expires_at: hold.expires_at,
@@ -1253,13 +1314,34 @@ mod tests {
 
     #[test]
     fn public_availability_collapses_temporary_states_and_hides_staff_fields() {
-        assert_eq!(ItemPublicAvailability::for_copy(ItemAvailability::ToSearch, false, Some(4)), ItemPublicAvailability::Unavailable);
-        assert_eq!(ItemPublicAvailability::for_copy(ItemAvailability::InTransit, true, None), ItemPublicAvailability::Unavailable);
-        assert_eq!(ItemPublicAvailability::for_copy(ItemAvailability::OnHold, true, None), ItemPublicAvailability::Unavailable);
-        assert_eq!(ItemPublicAvailability::for_copy(ItemAvailability::Unavailable, false, Some(2)), ItemPublicAvailability::Unavailable);
-        assert_eq!(ItemPublicAvailability::for_copy(ItemAvailability::Unavailable, false, None), ItemPublicAvailability::OnSiteOnly);
-        assert_eq!(ItemPublicAvailability::for_copy(ItemAvailability::OnLoan, true, Some(4)), ItemPublicAvailability::OnLoan);
-        assert_eq!(ItemPublicAvailability::for_copy(ItemAvailability::Available, true, None), ItemPublicAvailability::Available);
+        assert_eq!(
+            ItemPublicAvailability::for_copy(ItemAvailability::ToSearch, false, Some(4)),
+            ItemPublicAvailability::Unavailable
+        );
+        assert_eq!(
+            ItemPublicAvailability::for_copy(ItemAvailability::InTransit, true, None),
+            ItemPublicAvailability::Unavailable
+        );
+        assert_eq!(
+            ItemPublicAvailability::for_copy(ItemAvailability::OnHold, true, None),
+            ItemPublicAvailability::Unavailable
+        );
+        assert_eq!(
+            ItemPublicAvailability::for_copy(ItemAvailability::Unavailable, false, Some(2)),
+            ItemPublicAvailability::Unavailable
+        );
+        assert_eq!(
+            ItemPublicAvailability::for_copy(ItemAvailability::Unavailable, false, None),
+            ItemPublicAvailability::OnSiteOnly
+        );
+        assert_eq!(
+            ItemPublicAvailability::for_copy(ItemAvailability::OnLoan, true, Some(4)),
+            ItemPublicAvailability::OnLoan
+        );
+        assert_eq!(
+            ItemPublicAvailability::for_copy(ItemAvailability::Available, true, None),
+            ItemPublicAvailability::Available
+        );
 
         let item = ItemShort {
             id: 7,
@@ -1318,8 +1400,14 @@ mod tests {
             events_rights: Rights::Read,
             ..UserRights::default()
         };
-        assert!(!sees_internal_catalog(&claims(AccountTypeSlug::Librarian, patron.clone())));
-        assert!(!sees_internal_catalog(&claims(AccountTypeSlug::Reader, patron)));
+        assert!(!sees_internal_catalog(&claims(
+            AccountTypeSlug::Librarian,
+            patron.clone()
+        )));
+        assert!(!sees_internal_catalog(&claims(
+            AccountTypeSlug::Reader,
+            patron
+        )));
 
         let cataloger = UserRights {
             items_rights: Rights::Write,
@@ -1328,7 +1416,10 @@ mod tests {
             holds_rights: Rights::Own,
             ..UserRights::default()
         };
-        assert!(sees_internal_catalog(&claims(AccountTypeSlug::Reader, cataloger)));
+        assert!(sees_internal_catalog(&claims(
+            AccountTypeSlug::Reader,
+            cataloger
+        )));
 
         let loans_desk = UserRights {
             items_rights: Rights::Read,
@@ -1337,28 +1428,40 @@ mod tests {
             holds_rights: Rights::Own,
             ..UserRights::default()
         };
-        assert!(sees_internal_catalog(&claims(AccountTypeSlug::Group, loans_desk)));
+        assert!(sees_internal_catalog(&claims(
+            AccountTypeSlug::Group,
+            loans_desk
+        )));
 
         let users_desk = UserRights {
             items_rights: Rights::Read,
             users_rights: Rights::Read,
             ..UserRights::default()
         };
-        assert!(sees_internal_catalog(&claims(AccountTypeSlug::Reader, users_desk)));
+        assert!(sees_internal_catalog(&claims(
+            AccountTypeSlug::Reader,
+            users_desk
+        )));
 
         let holds_desk = UserRights {
             items_rights: Rights::Read,
             holds_rights: Rights::Read,
             ..UserRights::default()
         };
-        assert!(sees_internal_catalog(&claims(AccountTypeSlug::Reader, holds_desk)));
+        assert!(sees_internal_catalog(&claims(
+            AccountTypeSlug::Reader,
+            holds_desk
+        )));
 
         let weeder = UserRights {
             items_rights: Rights::Read,
             weeding_rights: Rights::Read,
             ..UserRights::default()
         };
-        assert!(sees_internal_catalog(&claims(AccountTypeSlug::Reader, weeder)));
+        assert!(sees_internal_catalog(&claims(
+            AccountTypeSlug::Reader,
+            weeder
+        )));
     }
 
     fn copy_with(availability: ItemAvailability, expected_return_date: Option<NaiveDate>) -> Item {
@@ -1391,7 +1494,11 @@ mod tests {
             hold_user_barcode: Some("SECRET-CARD".into()),
             hold_user_firstname: Some("Isolde".into()),
             hold_user_lastname: Some("Moreau".into()),
-            due_date: Some(Utc.with_ymd_and_hms(2026, 1, 16, 21, 30, 0).single().expect("due instant")),
+            due_date: Some(
+                Utc.with_ymd_and_hms(2026, 1, 16, 21, 30, 0)
+                    .single()
+                    .expect("due instant"),
+            ),
             expected_return_date,
             on_hold: false,
             deposit_batch_id: None,
@@ -1403,7 +1510,11 @@ mod tests {
     #[test]
     fn public_expected_return_date_is_date_only_and_only_on_loan() {
         let date = NaiveDate::from_ymd_opt(2026, 1, 16).expect("date");
-        let on_loan = serde_json::to_value(ItemPublicView::from(copy_with(ItemAvailability::OnLoan, Some(date)))).expect("json");
+        let on_loan = serde_json::to_value(ItemPublicView::from(copy_with(
+            ItemAvailability::OnLoan,
+            Some(date),
+        )))
+        .expect("json");
         assert_eq!(on_loan["availability"], "onLoan");
         assert_eq!(on_loan["expectedReturnDate"], "2026-01-16");
         let rendered = on_loan["expectedReturnDate"].as_str().expect("date string");
@@ -1416,16 +1527,36 @@ mod tests {
         assert!(on_loan.get("borrower").is_none(), "{on_loan}");
         assert!(on_loan.get("holdFor").is_none(), "{on_loan}");
         assert!(on_loan.get("loanId").is_none(), "{on_loan}");
-        assert!(on_loan.get("dueDate").is_none(), "ItemPublicView must not contain dueDate: {on_loan}");
+        assert!(
+            on_loan.get("dueDate").is_none(),
+            "ItemPublicView must not contain dueDate: {on_loan}"
+        );
 
-        let staff = serde_json::to_value(ItemStaffView::from(copy_with(ItemAvailability::OnLoan, Some(date)))).expect("staff json");
-        assert!(staff["dueDate"].as_str().is_some_and(|value| value.contains('T')), "ItemStaffView keeps dueDate: {staff}");
+        let staff = serde_json::to_value(ItemStaffView::from(copy_with(
+            ItemAvailability::OnLoan,
+            Some(date),
+        )))
+        .expect("staff json");
+        assert!(
+            staff["dueDate"]
+                .as_str()
+                .is_some_and(|value| value.contains('T')),
+            "ItemStaffView keeps dueDate: {staff}"
+        );
 
-        let shelved = serde_json::to_value(ItemPublicView::from(copy_with(ItemAvailability::Available, Some(date)))).expect("json");
+        let shelved = serde_json::to_value(ItemPublicView::from(copy_with(
+            ItemAvailability::Available,
+            Some(date),
+        )))
+        .expect("json");
         assert_eq!(shelved["availability"], "available");
         assert!(shelved.get("expectedReturnDate").is_none(), "{shelved}");
 
-        let undated = serde_json::to_value(ItemPublicView::from(copy_with(ItemAvailability::OnLoan, None))).expect("json");
+        let undated = serde_json::to_value(ItemPublicView::from(copy_with(
+            ItemAvailability::OnLoan,
+            None,
+        )))
+        .expect("json");
         assert_eq!(undated["availability"], "onLoan");
         assert!(undated.get("expectedReturnDate").is_none(), "{undated}");
     }
@@ -1471,7 +1602,9 @@ mod tests {
             holds_rights: Rights::Read,
             ..UserRights::default()
         };
-        let minimal = serde_json::to_value(hold_for_identity(&holds_only, patron.clone()).expect("holds")).expect("json");
+        let minimal =
+            serde_json::to_value(hold_for_identity(&holds_only, patron.clone()).expect("holds"))
+                .expect("json");
         assert_eq!(minimal["id"], "42", "{minimal}");
         assert_eq!(minimal["cardNumber"], "CARD", "{minimal}");
         assert_eq!(minimal["initials"], "AL", "{minimal}");
@@ -1485,7 +1618,10 @@ mod tests {
             holds_rights: Rights::Read,
             ..UserRights::default()
         };
-        let staff = serde_json::to_value(hold_for_identity(&holds_and_users, patron).expect("holds and users read")).expect("json");
+        let staff = serde_json::to_value(
+            hold_for_identity(&holds_and_users, patron).expect("holds and users read"),
+        )
+        .expect("json");
         assert_eq!(staff["firstname"], "Ada", "{staff}");
         assert_eq!(staff["lastname"], "Lovelace", "{staff}");
         assert_eq!(staff["login"], "ada", "{staff}");

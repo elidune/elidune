@@ -456,15 +456,20 @@ pub fn normalize_country_code(value: &str) -> AppResult<String> {
         return Err(AppError::Validation("Country code is required".to_string()));
     }
     let key = trimmed.to_lowercase();
-    let code = if let Ok(index) = COUNTRY_ALIASES.binary_search_by(|entry| entry.0.cmp(key.as_str())) {
-        COUNTRY_ALIASES[index].1.to_string()
-    } else if trimmed.len() == 2 && trimmed.chars().all(|c| c.is_ascii_alphabetic()) {
-        trimmed.to_ascii_uppercase()
-    } else {
-        return Err(AppError::Validation(format!("Unrecognized country '{trimmed}'")));
-    };
+    let code =
+        if let Ok(index) = COUNTRY_ALIASES.binary_search_by(|entry| entry.0.cmp(key.as_str())) {
+            COUNTRY_ALIASES[index].1.to_string()
+        } else if trimmed.len() == 2 && trimmed.chars().all(|c| c.is_ascii_alphabetic()) {
+            trimmed.to_ascii_uppercase()
+        } else {
+            return Err(AppError::Validation(format!(
+                "Unrecognized country '{trimmed}'"
+            )));
+        };
     if !crate::services::country_zones::is_known_country_code(&code) {
-        return Err(AppError::Validation(format!("Unrecognized country '{trimmed}'")));
+        return Err(AppError::Validation(format!(
+            "Unrecognized country '{trimmed}'"
+        )));
     }
     Ok(code)
 }
@@ -490,7 +495,10 @@ mod tests {
             assert_eq!(alias, alias.to_lowercase());
             assert_eq!(code.len(), 2);
             assert!(code.chars().all(|c| c.is_ascii_uppercase()));
-            assert!(crate::services::country_zones::is_known_country_code(code), "{alias} maps to unknown country {code}");
+            assert!(
+                crate::services::country_zones::is_known_country_code(code),
+                "{alias} maps to unknown country {code}"
+            );
             previous = alias;
         }
     }
@@ -555,7 +563,11 @@ mod tests {
     fn blank_optional_is_unchanged() {
         assert_eq!(normalize_optional_country(None).unwrap(), None);
         assert_eq!(normalize_optional_country(Some("  ".into())).unwrap(), None);
-        assert_eq!(normalize_optional_country(Some("france".into())).unwrap().as_deref(), Some("FR"));
+        assert_eq!(
+            normalize_optional_country(Some("france".into()))
+                .unwrap()
+                .as_deref(),
+            Some("FR")
+        );
     }
-
 }

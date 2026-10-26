@@ -15,7 +15,12 @@ use elidune_server::models::user::{AccountTypeSlug, Rights, UserClaims, UserRigh
 use serde_json::{json, Value};
 
 fn assert_error_shape(body: &Value) {
-    let mut keys: Vec<&str> = body.as_object().unwrap_or_else(|| panic!("error object: {body}")).keys().map(String::as_str).collect();
+    let mut keys: Vec<&str> = body
+        .as_object()
+        .unwrap_or_else(|| panic!("error object: {body}"))
+        .keys()
+        .map(String::as_str)
+        .collect();
     keys.sort_unstable();
     assert_eq!(keys, ["code", "error", "message"], "{body}");
 }
@@ -58,18 +63,27 @@ async fn stored_notes(app: &TestApp, hold_id: i64) -> (Option<String>, Option<St
 }
 
 async fn staff_list_row(app: &TestApp, token: &str, hold_id: i64) -> Value {
-    let (status, head) = app.get_json_with_auth("/api/v1/holds?perPage=200&page=1", token).await;
+    let (status, head) = app
+        .get_json_with_auth("/api/v1/holds?perPage=200&page=1", token)
+        .await;
     assert_eq!(status, StatusCode::OK, "{head}");
     let pages = head["page_count"].as_i64().unwrap_or(1).max(1);
     for page in (1..=pages).rev() {
         let body = if page == 1 {
             head.clone()
         } else {
-            let (status, body) = app.get_json_with_auth(&format!("/api/v1/holds?perPage=200&page={page}"), token).await;
+            let (status, body) = app
+                .get_json_with_auth(&format!("/api/v1/holds?perPage=200&page={page}"), token)
+                .await;
             assert_eq!(status, StatusCode::OK, "{body}");
             body
         };
-        if let Some(row) = body["items"].as_array().expect("items").iter().find(|row| fixtures::json_id(&row["id"]) == hold_id) {
+        if let Some(row) = body["items"]
+            .as_array()
+            .expect("items")
+            .iter()
+            .find(|row| fixtures::json_id(&row["id"]) == hold_id)
+        {
             return row.clone();
         }
     }
@@ -98,7 +112,10 @@ async fn create_copy(app: &TestApp, admin_token: &str, title: &str) -> (i64, i64
         )
         .await;
     assert_eq!(status, StatusCode::CREATED, "{body}");
-    (fixtures::json_id(&body["biblio"]["id"]), fixtures::json_id(&body["biblio"]["items"][0]["id"]))
+    (
+        fixtures::json_id(&body["biblio"]["id"]),
+        fixtures::json_id(&body["biblio"]["items"][0]["id"]),
+    )
 }
 
 async fn hold_count(app: &TestApp, biblio_id: i64) -> i64 {
@@ -137,7 +154,10 @@ async fn migration_replaces_holds_notes_with_patron_and_internal() {
     .fetch_all(app.state.services.repository.pool())
     .await
     .expect("hold note columns");
-    assert_eq!(columns, vec!["internal_note".to_string(), "patron_note".to_string()]);
+    assert_eq!(
+        columns,
+        vec!["internal_note".to_string(), "patron_note".to_string()]
+    );
 }
 
 #[tokio::test]
@@ -150,7 +170,8 @@ async fn staff_sees_both_notes_and_patrons_see_patron_note_only() {
     let suffix = fixtures::unique_suffix();
     let patron_note = format!("please keep the CD {suffix}");
     let internal_note = format!("desk only {suffix}");
-    let (biblio_id, item_id) = create_copy(&app, &admin_token, &format!("Hold notes {suffix}")).await;
+    let (biblio_id, item_id) =
+        create_copy(&app, &admin_token, &format!("Hold notes {suffix}")).await;
 
     let (status, created) = app
         .post_json(
@@ -169,13 +190,17 @@ async fn staff_sees_both_notes_and_patrons_see_patron_note_only() {
     let hold_id = fixtures::json_id(&created["id"]);
     assert_staff_hold(&created, &patron_note, &internal_note);
 
-    let (status, mine) = app.get_json_with_auth("/api/v1/me/holds?perPage=50", &reader_token).await;
+    let (status, mine) = app
+        .get_json_with_auth("/api/v1/me/holds?perPage=50", &reader_token)
+        .await;
     assert_eq!(status, StatusCode::OK, "{mine}");
     let row = find_hold(mine["items"].as_array().expect("items"), hold_id);
     assert_patron_hold(row, &patron_note, &internal_note);
     assert!(!mine.to_string().contains(&internal_note), "{mine}");
 
-    let (status, reader_list) = app.get_json_with_auth("/api/v1/holds?perPage=50", &reader_token).await;
+    let (status, reader_list) = app
+        .get_json_with_auth("/api/v1/holds?perPage=50", &reader_token)
+        .await;
     assert_eq!(status, StatusCode::OK, "{reader_list}");
     let row = find_hold(reader_list["items"].as_array().expect("items"), hold_id);
     assert_no_hold_notes(row, &internal_note);
@@ -212,7 +237,8 @@ async fn staff_sees_both_notes_and_patrons_see_patron_note_only() {
         .await;
     assert_eq!(status, StatusCode::CONFLICT, "{reader_created}");
 
-    let (other_biblio, _) = create_copy(&app, &admin_token, &format!("Patron place {suffix}")).await;
+    let (other_biblio, _) =
+        create_copy(&app, &admin_token, &format!("Patron place {suffix}")).await;
     let own_note = format!("my note {suffix}");
     let (status, reader_created) = app
         .post_json(
@@ -229,12 +255,16 @@ async fn staff_sees_both_notes_and_patrons_see_patron_note_only() {
     let own_id = fixtures::json_id(&reader_created["id"]);
     assert_patron_hold(&reader_created, &own_note, &internal_note);
 
-    let (status, cancelled) = app.delete_with_auth(&format!("/api/v1/holds/{own_id}"), &reader_token).await;
+    let (status, cancelled) = app
+        .delete_with_auth(&format!("/api/v1/holds/{own_id}"), &reader_token)
+        .await;
     assert_eq!(status, StatusCode::OK, "{cancelled}");
     assert_closed_notes_cleared(&cancelled, &own_note);
     assert_eq!(stored_notes(&app, own_id).await, (None, None));
 
-    let (status, staff_cancel) = app.delete_with_auth(&format!("/api/v1/holds/{hold_id}"), &admin_token).await;
+    let (status, staff_cancel) = app
+        .delete_with_auth(&format!("/api/v1/holds/{hold_id}"), &admin_token)
+        .await;
     assert_eq!(status, StatusCode::OK, "{staff_cancel}");
     assert_closed_notes_cleared(&staff_cancel, &patron_note);
     assert_closed_notes_cleared(&staff_cancel, &internal_note);
@@ -263,12 +293,17 @@ async fn patron_internal_note_is_forbidden_and_legacy_notes_write_nothing() {
             "internalNote": null
         }),
     ] {
-        let (status, denied) = app.post_json("/api/v1/holds", &body, Some(&reader_token)).await;
+        let (status, denied) = app
+            .post_json("/api/v1/holds", &body, Some(&reader_token))
+            .await;
         assert_eq!(status, StatusCode::FORBIDDEN, "{denied}");
         assert_error_shape(&denied);
         assert_eq!(denied["code"], "authorization_failed", "{denied}");
         assert_eq!(denied["error"], "Forbidden", "{denied}");
-        assert_eq!(denied["message"], "Insufficient rights to set an internal hold note", "{denied}");
+        assert_eq!(
+            denied["message"], "Insufficient rights to set an internal hold note",
+            "{denied}"
+        );
         assert!(!denied.to_string().contains("secret"), "{denied}");
         assert_eq!(hold_count(&app, biblio_id).await, 0);
     }
@@ -324,7 +359,10 @@ async fn overlong_notes_are_rejected_and_four_thousand_scalars_are_kept() {
     assert_error_shape(&denied);
     assert_eq!(denied["code"], "validation_error", "{denied}");
     assert_eq!(denied["error"], "Validation Error", "{denied}");
-    assert!(denied["message"].as_str().unwrap_or("").contains("4000"), "{denied}");
+    assert!(
+        denied["message"].as_str().unwrap_or("").contains("4000"),
+        "{denied}"
+    );
     assert_eq!(hold_count(&app, biblio_id).await, 0);
 
     let (status, denied) = app
@@ -340,7 +378,13 @@ async fn overlong_notes_are_rejected_and_four_thousand_scalars_are_kept() {
         .await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{denied}");
     assert_eq!(denied["code"], "validation_error", "{denied}");
-    assert!(denied["message"].as_str().unwrap_or("").contains("Internal note"), "{denied}");
+    assert!(
+        denied["message"]
+            .as_str()
+            .unwrap_or("")
+            .contains("Internal note"),
+        "{denied}"
+    );
     assert_eq!(hold_count(&app, biblio_id).await, 0);
 
     let accepted = "é".repeat(4000);
@@ -402,9 +446,15 @@ async fn note_visibility_follows_holds_rights_not_account_type() {
     assert_eq!(minted.account_type, AccountTypeSlug::Reader);
     assert_eq!(minted.rights.holds_rights, Rights::Write);
 
-    let (status, queue) = app.get_json_with_auth(&format!("/api/v1/items/{item_id}/holds"), &reader_read).await;
+    let (status, queue) = app
+        .get_json_with_auth(&format!("/api/v1/items/{item_id}/holds"), &reader_read)
+        .await;
     assert_eq!(status, StatusCode::OK, "{queue}");
-    assert_staff_hold(find_hold(queue.as_array().expect("queue"), hold_id), &patron_note, &internal_note);
+    assert_staff_hold(
+        find_hold(queue.as_array().expect("queue"), hold_id),
+        &patron_note,
+        &internal_note,
+    );
     let read_claims = UserClaims::from_token(&reader_read, &secret).expect("reader read");
     assert_eq!(read_claims.account_type, AccountTypeSlug::Reader);
     assert_eq!(read_claims.rights.holds_rights, Rights::Read);
@@ -444,12 +494,25 @@ async fn note_visibility_follows_holds_rights_not_account_type() {
     assert_patron_hold(&created, &own_note, &internal_note);
     let own_id = fixtures::json_id(&created["id"]);
 
-    let (status, listed) = app.get_json_with_auth("/api/v1/holds?perPage=50", &admin_own).await;
+    let (status, listed) = app
+        .get_json_with_auth("/api/v1/holds?perPage=50", &admin_own)
+        .await;
     assert_eq!(status, StatusCode::OK, "{listed}");
-    assert_no_hold_notes(find_hold(listed["items"].as_array().expect("items"), own_id), &internal_note);
-    assert_no_hold_notes(find_hold(listed["items"].as_array().expect("items"), own_id), &own_note);
+    assert_no_hold_notes(
+        find_hold(listed["items"].as_array().expect("items"), own_id),
+        &internal_note,
+    );
+    assert_no_hold_notes(
+        find_hold(listed["items"].as_array().expect("items"), own_id),
+        &own_note,
+    );
 
-    let (status, staff) = app.get_json_with_auth(&format!("/api/v1/biblios/{other_biblio}/holds"), &admin_token).await;
+    let (status, staff) = app
+        .get_json_with_auth(
+            &format!("/api/v1/biblios/{other_biblio}/holds"),
+            &admin_token,
+        )
+        .await;
     assert_eq!(status, StatusCode::OK, "{staff}");
     let row = find_hold(staff.as_array().expect("staff"), own_id);
     assert_eq!(row["patronNote"], own_note, "{row}");
@@ -532,14 +595,22 @@ async fn staff_with_holds_write_can_set_patron_note() {
     let hold_id = fixtures::json_id(&created["id"]);
     assert_eq!(created["patronNote"], patron_note, "{created}");
     assert!(created["internalNote"].is_null(), "{created}");
-    assert_eq!(stored_notes(&app, hold_id).await, (Some(patron_note.clone()), None));
+    assert_eq!(
+        stored_notes(&app, hold_id).await,
+        (Some(patron_note.clone()), None)
+    );
     let claims = UserClaims::from_token(&staff, &secret).expect("staff write");
     assert_eq!(claims.account_type, AccountTypeSlug::Reader);
     assert_eq!(claims.rights.holds_rights, Rights::Write);
 
-    let (status, queue) = app.get_json_with_auth(&format!("/api/v1/biblios/{biblio_id}/holds"), &staff).await;
+    let (status, queue) = app
+        .get_json_with_auth(&format!("/api/v1/biblios/{biblio_id}/holds"), &staff)
+        .await;
     assert_eq!(status, StatusCode::OK, "{queue}");
-    assert_eq!(find_hold(queue.as_array().expect("queue"), hold_id)["patronNote"], patron_note);
+    assert_eq!(
+        find_hold(queue.as_array().expect("queue"), hold_id)["patronNote"],
+        patron_note
+    );
 }
 
 #[tokio::test]
@@ -568,7 +639,9 @@ async fn anonymization_removes_both_hold_notes() {
         .await;
     assert_eq!(status, StatusCode::CREATED, "{created}");
 
-    let (status, body) = app.delete_with_auth(&format!("/api/v1/users/{reader_id}"), &admin_token).await;
+    let (status, body) = app
+        .delete_with_auth(&format!("/api/v1/users/{reader_id}"), &admin_token)
+        .await;
     assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
 
     let remaining: i64 = sqlx::query_scalar(
@@ -599,7 +672,14 @@ async fn closed_holds_clear_both_notes() {
     let patron_note = format!("close patron {suffix}");
     let internal_note = format!("close internal {suffix}");
 
-    async fn place(app: &TestApp, token: &str, reader_id: i64, title: &str, patron_note: &str, internal_note: &str) -> i64 {
+    async fn place(
+        app: &TestApp,
+        token: &str,
+        reader_id: i64,
+        title: &str,
+        patron_note: &str,
+        internal_note: &str,
+    ) -> i64 {
         let (biblio_id, _) = create_copy(app, token, title).await;
         let (status, created) = app
             .post_json(
@@ -617,11 +697,37 @@ async fn closed_holds_clear_both_notes() {
         fixtures::json_id(&created["id"])
     }
 
-    let cancel_id = place(&app, &admin_token, reader_id, &format!("Cancel {suffix}"), &patron_note, &internal_note).await;
-    let fulfill_id = place(&app, &admin_token, reader_id, &format!("Fulfill {suffix}"), &patron_note, &internal_note).await;
-    let expire_id = place(&app, &admin_token, reader_id, &format!("Expire {suffix}"), &patron_note, &internal_note).await;
+    let cancel_id = place(
+        &app,
+        &admin_token,
+        reader_id,
+        &format!("Cancel {suffix}"),
+        &patron_note,
+        &internal_note,
+    )
+    .await;
+    let fulfill_id = place(
+        &app,
+        &admin_token,
+        reader_id,
+        &format!("Fulfill {suffix}"),
+        &patron_note,
+        &internal_note,
+    )
+    .await;
+    let expire_id = place(
+        &app,
+        &admin_token,
+        reader_id,
+        &format!("Expire {suffix}"),
+        &patron_note,
+        &internal_note,
+    )
+    .await;
 
-    let (status, cancelled) = app.delete_with_auth(&format!("/api/v1/holds/{cancel_id}"), &admin_token).await;
+    let (status, cancelled) = app
+        .delete_with_auth(&format!("/api/v1/holds/{cancel_id}"), &admin_token)
+        .await;
     assert_eq!(status, StatusCode::OK, "{cancelled}");
     assert_closed_notes_cleared(&cancelled, &patron_note);
     assert_eq!(stored_notes(&app, cancel_id).await, (None, None));
@@ -632,17 +738,31 @@ async fn closed_holds_clear_both_notes() {
         .expect("cancel status");
     assert_eq!(status_text, "cancelled");
 
-    let fulfilled = app.state.services.repository.holds_fulfill(fulfill_id).await.expect("fulfill");
+    let fulfilled = app
+        .state
+        .services
+        .repository
+        .holds_fulfill(fulfill_id)
+        .await
+        .expect("fulfill");
     assert!(fulfilled.patron_note.is_none());
     assert!(fulfilled.internal_note.is_none());
     assert_eq!(stored_notes(&app, fulfill_id).await, (None, None));
 
-    sqlx::query("UPDATE holds SET status = 'ready', expires_at = NOW() - INTERVAL '1 day' WHERE id = $1")
-        .bind(expire_id)
-        .execute(app.state.services.repository.pool())
+    sqlx::query(
+        "UPDATE holds SET status = 'ready', expires_at = NOW() - INTERVAL '1 day' WHERE id = $1",
+    )
+    .bind(expire_id)
+    .execute(app.state.services.repository.pool())
+    .await
+    .expect("mark overdue");
+    let expired = app
+        .state
+        .services
+        .repository
+        .holds_expire_overdue()
         .await
-        .expect("mark overdue");
-    let expired = app.state.services.repository.holds_expire_overdue().await.expect("expire");
+        .expect("expire");
     assert!(expired.contains(&expire_id), "{expired:?}");
     assert_eq!(stored_notes(&app, expire_id).await, (None, None));
 }

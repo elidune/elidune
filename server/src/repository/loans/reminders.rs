@@ -148,7 +148,10 @@ impl Repository {
     /// legal guardian when the borrower is a `child` with a `user_guardians`
     /// row; otherwise the borrower (`school` included). Grouping remains per
     /// borrower (`l.user_id`).
-    pub async fn loans_get_overdue_for_reminders(&self, delays: ReminderTierDelays) -> AppResult<Vec<OverdueLoanRow>> {
+    pub async fn loans_get_overdue_for_reminders(
+        &self,
+        delays: ReminderTierDelays,
+    ) -> AppResult<Vec<OverdueLoanRow>> {
         let lost = CirculationStatus::LOST;
         let claimed = CirculationStatus::CLAIMED_RETURNED;
         let sql = format!(
@@ -203,12 +206,18 @@ impl Repository {
     }
 
     /// Get all overdue loans for the admin dashboard (paginated).
-    pub async fn loans_get_overdue(&self, page: i64, per_page: i64) -> AppResult<(Vec<OverdueLoanRow>, i64)> {
+    pub async fn loans_get_overdue(
+        &self,
+        page: i64,
+        per_page: i64,
+    ) -> AppResult<(Vec<OverdueLoanRow>, i64)> {
         let offset = (page - 1) * per_page;
 
-        let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM loans WHERE returned_at IS NULL AND expiry_at < NOW()")
-            .fetch_one(&self.pool)
-            .await?;
+        let total: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM loans WHERE returned_at IS NULL AND expiry_at < NOW()",
+        )
+        .fetch_one(&self.pool)
+        .await?;
 
         let sql = format!(
             r#"
@@ -224,7 +233,11 @@ impl Repository {
             LIMIT $1 OFFSET $2
             "#
         );
-        let rows = sqlx::query(&sql).bind(per_page).bind(offset).fetch_all(&self.pool).await?;
+        let rows = sqlx::query(&sql)
+            .bind(per_page)
+            .bind(offset)
+            .fetch_all(&self.pool)
+            .await?;
 
         let loans = rows.into_iter().map(OverdueLoanRow::from_row).collect();
 

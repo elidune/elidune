@@ -84,9 +84,17 @@ pub async fn create_site(
         (status = 404, description = "Not found", body = ErrorResponse),
     )
 )]
-pub async fn list_sites(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Query(query): Query<SitesQuery>) -> AppResult<Json<Vec<Site>>> {
+pub async fn list_sites(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    Query(query): Query<SitesQuery>,
+) -> AppResult<Json<Vec<Site>>> {
     claims.require_read_items()?;
-    let sources = state.services.sites.list(query.include_archived.unwrap_or(false)).await?;
+    let sources = state
+        .services
+        .sites
+        .list(query.include_archived.unwrap_or(false))
+        .await?;
     Ok(Json(sources))
 }
 
@@ -105,7 +113,11 @@ pub async fn list_sites(State(state): State<crate::AppState>, AuthenticatedUser(
         (status = 404, description = "Not found", body = ErrorResponse),
     )
 )]
-pub async fn get_site(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Path(id): Path<i64>) -> AppResult<Json<Site>> {
+pub async fn get_site(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    Path(id): Path<i64>,
+) -> AppResult<Json<Site>> {
     claims.require_read_items()?;
     let source = state.services.sites.get_by_id(id).await?;
     Ok(Json(source))
@@ -160,7 +172,12 @@ pub async fn update_site(
         (status = 422, description = "Cannot archive: active items linked")
     )
 )]
-pub async fn archive_site(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, ClientIp(ip): ClientIp, Path(id): Path<i64>) -> AppResult<Json<Site>> {
+pub async fn archive_site(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    ClientIp(ip): ClientIp,
+    Path(id): Path<i64>,
+) -> AppResult<Json<Site>> {
     claims.require_write_items()?;
     let source = state.services.sites.archive(id).await?;
     state.services.audit.log(

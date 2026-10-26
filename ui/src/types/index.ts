@@ -741,7 +741,7 @@ export type DepositCopyState =
   | 'returned'
   | 'missing';
 
-/** Embedded on item JSON. Null means own stock. */
+/** Embedded on staff item JSON. Null means own stock. */
 export interface ItemDeposit {
   batchId: string;
   lenderId: string;
@@ -754,6 +754,15 @@ export interface ItemDeposit {
    * Absent or null until `POST /items/{id}/deposit-loss-notified`.
    */
   depositLossNotifiedAt?: string | null;
+}
+
+/** Reader and OPAC deposit block. Batch return date is staff-only. */
+export interface ItemDepositPublic {
+  batchId: string;
+  lenderId: string;
+  lenderName: string;
+  reference: string;
+  batchStatus: DepositBatchStatus;
 }
 
 export interface Lender {
@@ -917,7 +926,7 @@ export interface ItemShortPublic {
   availability: ItemPublicAvailability;
   canHoldItem: boolean;
   /** Null or omitted means own stock. */
-  deposit?: ItemDeposit | null;
+  deposit?: ItemDepositPublic | null;
 }
 
 /** Staff search hit (`BiblioShortStaff`). */
@@ -1105,8 +1114,8 @@ export interface ItemPublicView {
    * An unassigned `pending` title hold leaves this false.
    */
   onHold: boolean;
-  /** Null or omitted means own stock. */
-  deposit?: ItemDeposit | null;
+  /** Null or omitted means own stock. Batch return date is staff-only. */
+  deposit?: ItemDepositPublic | null;
 }
 
 /** `GET /biblios/{id}`, `GET /items/{id}`, and `GET /items/barcode/{barcode}`. */
@@ -1897,7 +1906,16 @@ export type ApiErrorCode =
   | 'deposit_return_due'
   | 'deposit_renewal_no_extension'
   | 'deposit_batch_returning'
+  | 'deposit_item_delete_needs_confirmation'
+  | 'deposit_item_delete_use_batch_return'
+  | 'deposit_item_delete_unpaid_fine'
+  | 'item_delete_unpaid_fine'
   | 'deposit_item_not_owned'
+  | 'deposit_item_returned_to_lender'
+  | 'deposit_item_on_loan'
+  | 'deposit_item_was_lost'
+  | 'deposit_loss_not_declared'
+  | 'deposit_loss_already_notified'
   | 'deposit_site_mismatch'
   | 'deposit_batch_not_active'
   | 'deposit_import_options_conflict'

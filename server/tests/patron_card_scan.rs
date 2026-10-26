@@ -36,13 +36,22 @@ const LOAN_STATUS_KEYS: &[&str] = &[
 ];
 
 fn sorted_keys(value: &Value) -> Vec<&str> {
-    let mut keys: Vec<&str> = value.as_object().expect("object").keys().map(String::as_str).collect();
+    let mut keys: Vec<&str> = value
+        .as_object()
+        .expect("object")
+        .keys()
+        .map(String::as_str)
+        .collect();
     keys.sort_unstable();
     keys
 }
 
 fn assert_loan_status_shape(body: &Value) {
-    assert_eq!(sorted_keys(&body["loanStatus"]), LOAN_STATUS_KEYS, "loanStatus keys: {body}");
+    assert_eq!(
+        sorted_keys(&body["loanStatus"]),
+        LOAN_STATUS_KEYS,
+        "loanStatus keys: {body}"
+    );
 }
 
 fn reasons(body: &Value) -> Vec<&str> {
@@ -59,7 +68,12 @@ async fn scan(app: &TestApp, token: &str, card: &str) -> (StatusCode, Value) {
     app.get_json_with_auth(&path, token).await
 }
 
-async fn create_patron(app: &TestApp, admin_token: &str, prefix: &str, public_type_id: Option<i64>) -> (i64, String) {
+async fn create_patron(
+    app: &TestApp,
+    admin_token: &str,
+    prefix: &str,
+    public_type_id: Option<i64>,
+) -> (i64, String) {
     let suffix = fixtures::unique_suffix();
     let login = format!("{prefix}_{suffix}");
     let card = format!("CARD-{suffix}");
@@ -91,7 +105,12 @@ async fn create_patron(app: &TestApp, admin_token: &str, prefix: &str, public_ty
     assert_eq!(status, StatusCode::CREATED, "create patron: {body}");
     let user_id = fixtures::json_id(&body["id"]);
     fixtures::assign_public_type(app, user_id, public_type_id).await;
-    app.state.services.users.set_must_change_password(user_id, false).await.expect("clear password flag");
+    app.state
+        .services
+        .users
+        .set_must_change_password(user_id, false)
+        .await
+        .expect("clear password flag");
     (user_id, card)
 }
 
@@ -147,7 +166,13 @@ async fn borrowable_item(app: &TestApp, admin_token: &str) -> (i64, i64) {
     (biblio_id, item_id)
 }
 
-async fn checkout(app: &TestApp, token: &str, user_id: i64, item_id: i64, force: bool) -> (StatusCode, Value) {
+async fn checkout(
+    app: &TestApp,
+    token: &str,
+    user_id: i64,
+    item_id: i64,
+    force: bool,
+) -> (StatusCode, Value) {
     app.post_json(
         "/api/v1/loans",
         &json!({
@@ -185,16 +210,20 @@ async fn loans_only_card_scan_is_minimal_and_users_read_is_full() {
     let (biblio_a, item_a) = borrowable_item(&app, &admin_token).await;
     let (biblio_b, item_b) = borrowable_item(&app, &admin_token).await;
     let (biblio_c, item_c) = borrowable_item(&app, &admin_token).await;
-    let site_a: i64 = sqlx::query_scalar(r#"INSERT INTO sites (name, is_archive, "default") VALUES ($1, 0, FALSE) RETURNING id"#)
-        .bind(format!("site-a-{}", fixtures::unique_suffix()))
-        .fetch_one(app.state.services.repository.pool())
-        .await
-        .expect("site a");
-    let site_b: i64 = sqlx::query_scalar(r#"INSERT INTO sites (name, is_archive, "default") VALUES ($1, 0, FALSE) RETURNING id"#)
-        .bind(format!("site-b-{}", fixtures::unique_suffix()))
-        .fetch_one(app.state.services.repository.pool())
-        .await
-        .expect("site b");
+    let site_a: i64 = sqlx::query_scalar(
+        r#"INSERT INTO sites (name, is_archive, "default") VALUES ($1, 0, FALSE) RETURNING id"#,
+    )
+    .bind(format!("site-a-{}", fixtures::unique_suffix()))
+    .fetch_one(app.state.services.repository.pool())
+    .await
+    .expect("site a");
+    let site_b: i64 = sqlx::query_scalar(
+        r#"INSERT INTO sites (name, is_archive, "default") VALUES ($1, 0, FALSE) RETURNING id"#,
+    )
+    .bind(format!("site-b-{}", fixtures::unique_suffix()))
+    .fetch_one(app.state.services.repository.pool())
+    .await
+    .expect("site b");
 
     for (biblio_id, item_id, site_id, status_name) in [
         (biblio_a, item_a, Some(site_a), "ready"),
@@ -218,12 +247,23 @@ async fn loans_only_card_scan_is_minimal_and_users_read_is_full() {
         .expect("hold");
     }
 
-    let personal = ["Isolde", "Moreau", "0612345678", "12 Rue de la Paix", login.as_str(), "@secret.test"];
+    let personal = [
+        "Isolde",
+        "Moreau",
+        "0612345678",
+        "12 Rue de la Paix",
+        login.as_str(),
+        "@secret.test",
+    ];
 
     let loans_write = retarget(&admin_token, &secret, Rights::None, Rights::Write);
     let (status, body) = scan(&app, &loans_write, &card).await;
     assert_eq!(status, StatusCode::OK, "{body}");
-    assert_eq!(sorted_keys(&body), ["cardNumber", "id", "initials", "loanStatus"], "loans-only body: {body}");
+    assert_eq!(
+        sorted_keys(&body),
+        ["cardNumber", "id", "initials", "loanStatus"],
+        "loans-only body: {body}"
+    );
     assert_eq!(body["id"], reader_id.to_string(), "{body}");
     assert_eq!(body["cardNumber"], card, "{body}");
     assert_eq!(body["initials"], "IM", "{body}");
@@ -231,7 +271,10 @@ async fn loans_only_card_scan_is_minimal_and_users_read_is_full() {
     assert_eq!(body["loanStatus"]["blocked"], false, "{body}");
     assert_eq!(body["loanStatus"]["blockReasons"], json!([]), "{body}");
     assert_eq!(body["loanStatus"]["subscriptionValid"], true, "{body}");
-    assert!(body["loanStatus"]["subscriptionExpiresAt"].is_null(), "{body}");
+    assert!(
+        body["loanStatus"]["subscriptionExpiresAt"].is_null(),
+        "{body}"
+    );
     assert_eq!(body["loanStatus"]["activeLoans"], 0, "{body}");
     assert_eq!(body["loanStatus"]["overdueLoans"], 0, "{body}");
     assert_eq!(body["loanStatus"]["unpaidFinesCents"], 0, "{body}");
@@ -242,21 +285,39 @@ async fn loans_only_card_scan_is_minimal_and_users_read_is_full() {
     let loans_read = retarget(&admin_token, &secret, Rights::None, Rights::Read);
     let (status, body) = scan(&app, &loans_read, &card).await;
     assert_eq!(status, StatusCode::OK, "loans read: {body}");
-    assert_eq!(sorted_keys(&body), ["cardNumber", "id", "initials", "loanStatus"]);
+    assert_eq!(
+        sorted_keys(&body),
+        ["cardNumber", "id", "initials", "loanStatus"]
+    );
     assert_no_personal_text(&body, &personal);
 
     let users_own = retarget(&admin_token, &secret, Rights::Own, Rights::None);
     let (status, _) = scan(&app, &users_own, &card).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
 
-    let (status, listed) = app.get_json_with_auth(&format!("/api/v1/users?name=Isolde&barcode={card}"), &loans_write).await;
-    assert_eq!(status, StatusCode::FORBIDDEN, "name or list search: {listed}");
-    let (status, listed) = app.get_json_with_auth(&format!("/api/v1/users?name={}", "Moreau"), &loans_write).await;
+    let (status, listed) = app
+        .get_json_with_auth(
+            &format!("/api/v1/users?name=Isolde&barcode={card}"),
+            &loans_write,
+        )
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "name or list search: {listed}"
+    );
+    let (status, listed) = app
+        .get_json_with_auth(&format!("/api/v1/users?name={}", "Moreau"), &loans_write)
+        .await;
     assert_eq!(status, StatusCode::FORBIDDEN, "name search: {listed}");
 
     let prefix = &card[..card.len().saturating_sub(2)];
     let (status, missing) = scan(&app, &loans_write, prefix).await;
-    assert_eq!(status, StatusCode::NOT_FOUND, "prefix is not a scan: {missing}");
+    assert_eq!(
+        status,
+        StatusCode::NOT_FOUND,
+        "prefix is not a scan: {missing}"
+    );
 
     let users_read = retarget(&admin_token, &secret, Rights::Read, Rights::None);
     let (status, full) = scan(&app, &users_read, &card).await;
@@ -264,7 +325,10 @@ async fn loans_only_card_scan_is_minimal_and_users_read_is_full() {
     assert_eq!(full["firstname"], "Isolde", "{full}");
     assert_eq!(full["lastname"], "Moreau", "{full}");
     assert_eq!(full["login"], login, "{full}");
-    assert_eq!(full["email"].as_str().unwrap_or(""), format!("{login}@secret.test"));
+    assert_eq!(
+        full["email"].as_str().unwrap_or(""),
+        format!("{login}@secret.test")
+    );
     assert_eq!(full["phone"], "0612345678", "{full}");
     assert_eq!(full["barcode"], card, "{full}");
     assert!(full.get("cardNumber").is_none(), "{full}");
@@ -295,15 +359,20 @@ async fn card_scan_reports_each_checkout_block_reason() {
     assert_eq!(reasons(&body), ["account_blocked"], "{body}");
     assert_no_personal_text(&body, &["Isolde", "Moreau"]);
 
-    sqlx::query("UPDATE users SET status = 'active', expiry_at = '2020-01-15T12:00:00Z' WHERE id = $1")
-        .bind(reader_id)
-        .execute(app.state.services.repository.pool())
-        .await
-        .expect("expire subscription");
+    sqlx::query(
+        "UPDATE users SET status = 'active', expiry_at = '2020-01-15T12:00:00Z' WHERE id = $1",
+    )
+    .bind(reader_id)
+    .execute(app.state.services.repository.pool())
+    .await
+    .expect("expire subscription");
     let (status, body) = scan(&app, &loans_only, &card).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["loanStatus"]["subscriptionValid"], false, "{body}");
-    assert_eq!(body["loanStatus"]["subscriptionExpiresAt"], "2020-01-15", "{body}");
+    assert_eq!(
+        body["loanStatus"]["subscriptionExpiresAt"], "2020-01-15",
+        "{body}"
+    );
     assert_eq!(body["loanStatus"]["blocked"], true, "{body}");
     assert_eq!(reasons(&body), ["subscription_expired"], "{body}");
 
@@ -348,7 +417,10 @@ async fn card_scan_reports_each_checkout_block_reason() {
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["loanStatus"]["overdueLoans"], 1, "{body}");
     assert_eq!(reasons(&body), ["overdue_loans"], "{body}");
-    assert_eq!(body["loanStatus"]["blocked"], false, "overdue loans do not block checkout: {body}");
+    assert_eq!(
+        body["loanStatus"]["blocked"], false,
+        "overdue loans do not block checkout: {body}"
+    );
 }
 
 #[tokio::test]
@@ -370,7 +442,10 @@ async fn card_scan_lost_card_blocks_checkout() {
 
     let (status, body) = scan(&app, &loans_only, &card).await;
     assert_eq!(status, StatusCode::OK, "{body}");
-    assert_eq!(sorted_keys(&body), ["cardNumber", "id", "initials", "loanStatus"]);
+    assert_eq!(
+        sorted_keys(&body),
+        ["cardNumber", "id", "initials", "loanStatus"]
+    );
     assert_eq!(body["loanStatus"]["blocked"], true, "{body}");
     assert_eq!(reasons(&body), ["card_lost"], "{body}");
     assert_eq!(body["loanStatus"]["subscriptionValid"], true, "{body}");
@@ -399,7 +474,13 @@ async fn card_scan_lost_card_blocks_checkout() {
     assert_eq!(batch["errors"], 1, "{batch}");
     assert_eq!(batch["results"][0]["success"], false, "{batch}");
     assert_eq!(batch["results"][0]["code"], "card_lost", "{batch}");
-    assert!(batch["results"][0]["error"].as_str().unwrap_or("").contains("lost or stolen"), "{batch}");
+    assert!(
+        batch["results"][0]["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("lost or stolen"),
+        "{batch}"
+    );
 }
 
 fn assert_card_lost_body(status: StatusCode, body: &Value, forceable: Option<bool>) {
@@ -415,7 +496,10 @@ fn assert_card_lost_body(status: StatusCode, body: &Value, forceable: Option<boo
     }
     assert_eq!(body["code"], "card_lost", "{body}");
     assert_eq!(body["error"], "Business Rule Violation", "{body}");
-    assert_eq!(body["message"], "Library card is reported lost or stolen", "{body}");
+    assert_eq!(
+        body["message"], "Library card is reported lost or stolen",
+        "{body}"
+    );
 }
 
 #[tokio::test]
@@ -443,10 +527,20 @@ async fn lost_card_renewal_refused_with_admin_force_return_and_payment_accepted(
         .await
         .expect("mark card lost");
 
-    let (status, forced) = app.post_empty(&format!("/api/v1/loans/{loan_id}/renew?force=true"), Some(&admin_token)).await;
+    let (status, forced) = app
+        .post_empty(
+            &format!("/api/v1/loans/{loan_id}/renew?force=true"),
+            Some(&admin_token),
+        )
+        .await;
     assert_card_lost_body(status, &forced, Some(false));
 
-    let (status, by_barcode) = app.post_empty(&format!("/api/v1/loans/items/{barcode}/renew?force=true"), Some(&admin_token)).await;
+    let (status, by_barcode) = app
+        .post_empty(
+            &format!("/api/v1/loans/items/{barcode}/renew?force=true"),
+            Some(&admin_token),
+        )
+        .await;
     assert_card_lost_body(status, &by_barcode, Some(false));
 
     let login: Option<String> = sqlx::query_scalar("SELECT login FROM users WHERE id = $1")
@@ -454,11 +548,19 @@ async fn lost_card_renewal_refused_with_admin_force_return_and_payment_accepted(
         .fetch_one(app.state.services.repository.pool())
         .await
         .expect("patron login");
-    let (status, session) = app.post_json("/api/v1/auth/login", &json!({ "username": login, "password": "readerpass1234" }), None).await;
+    let (status, session) = app
+        .post_json(
+            "/api/v1/auth/login",
+            &json!({ "username": login, "password": "readerpass1234" }),
+            None,
+        )
+        .await;
     assert_eq!(status, StatusCode::OK, "patron login: {session}");
     let patron_token = session["token"].as_str().expect("token");
 
-    let (status, mine) = app.get_json_with_auth("/api/v1/me/loans?perPage=50", patron_token).await;
+    let (status, mine) = app
+        .get_json_with_auth("/api/v1/me/loans?perPage=50", patron_token)
+        .await;
     assert_eq!(status, StatusCode::OK, "{mine}");
     let row = mine["items"]
         .as_array()
@@ -469,7 +571,12 @@ async fn lost_card_renewal_refused_with_admin_force_return_and_payment_accepted(
     assert_eq!(row["canRenew"], false, "{row}");
     assert_eq!(row["renewalRefusalCode"], "card_lost", "{row}");
 
-    let (status, patron_renew) = app.post_empty(&format!("/api/v1/loans/{loan_id}/renew"), Some(patron_token)).await;
+    let (status, patron_renew) = app
+        .post_empty(
+            &format!("/api/v1/loans/{loan_id}/renew"),
+            Some(patron_token),
+        )
+        .await;
     assert_card_lost_body(status, &patron_renew, Some(false));
 
     let fine_id = next_id();
@@ -483,11 +590,22 @@ async fn lost_card_renewal_refused_with_admin_force_return_and_payment_accepted(
     .execute(app.state.services.repository.pool())
     .await
     .expect("insert fine");
-    let (status, paid) = app.post_json(&format!("/api/v1/fines/{fine_id}/pay"), &json!({ "amount": "5.00" }), Some(&admin_token)).await;
+    let (status, paid) = app
+        .post_json(
+            &format!("/api/v1/fines/{fine_id}/pay"),
+            &json!({ "amount": "5.00" }),
+            Some(&admin_token),
+        )
+        .await;
     assert_eq!(status, StatusCode::OK, "payment: {paid}");
     assert_eq!(paid["status"], "paid", "{paid}");
 
-    let (status, returned) = app.post_empty(&format!("/api/v1/loans/{loan_id}/return"), Some(&admin_token)).await;
+    let (status, returned) = app
+        .post_empty(
+            &format!("/api/v1/loans/{loan_id}/return"),
+            Some(&admin_token),
+        )
+        .await;
     assert_eq!(status, StatusCode::OK, "return: {returned}");
 }
 
@@ -534,7 +652,10 @@ async fn card_scan_unpaid_fines_follow_the_configured_threshold() {
     let (status, body) = scan(&app, &loans_only, &card).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["loanStatus"]["unpaidFinesCents"], 1000, "{body}");
-    assert_eq!(body["loanStatus"]["blocked"], false, "equal to the threshold does not block: {body}");
+    assert_eq!(
+        body["loanStatus"]["blocked"], false,
+        "equal to the threshold does not block: {body}"
+    );
     assert!(!reasons(&body).contains(&"unpaid_fines"), "{body}");
 
     sqlx::query("UPDATE fines SET amount = 1001 WHERE id = $1")

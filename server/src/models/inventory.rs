@@ -51,7 +51,9 @@ impl sqlx::Type<sqlx::Postgres> for InventoryScanResult {
 }
 
 impl<'r> sqlx::Decode<'r, sqlx::Postgres> for InventoryScanResult {
-    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    fn decode(
+        value: sqlx::postgres::PgValueRef<'r>,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let s: String = sqlx::Decode::<sqlx::Postgres>::decode(value)?;
         Ok(Self::from(s))
     }
@@ -108,7 +110,9 @@ impl sqlx::Type<sqlx::Postgres> for InventoryStatus {
 }
 
 impl<'r> sqlx::Decode<'r, sqlx::Postgres> for InventoryStatus {
-    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    fn decode(
+        value: sqlx::postgres::PgValueRef<'r>,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let s: String = sqlx::Decode::<sqlx::Postgres>::decode(value)?;
         Ok(Self::from(s))
     }

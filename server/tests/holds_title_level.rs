@@ -8,7 +8,12 @@ use common::TestApp;
 use elidune_server::models::hold::{CreateHold, HoldStatus};
 use serde_json::json;
 
-async fn create_title_with_copies(app: &TestApp, admin_token: &str, title: &str, copy_count: usize) -> (i64, Vec<i64>) {
+async fn create_title_with_copies(
+    app: &TestApp,
+    admin_token: &str,
+    title: &str,
+    copy_count: usize,
+) -> (i64, Vec<i64>) {
     let items: Vec<serde_json::Value> = (0..copy_count)
         .map(|i| {
             json!({
@@ -23,10 +28,17 @@ async fn create_title_with_copies(app: &TestApp, admin_token: &str, title: &str,
         "lang": "french",
         "items": items
     });
-    let (status, body) = app.post_json("/api/v1/biblios", &payload, Some(admin_token)).await;
+    let (status, body) = app
+        .post_json("/api/v1/biblios", &payload, Some(admin_token))
+        .await;
     assert_eq!(status, StatusCode::CREATED, "create biblio: {body}");
     let biblio_id = fixtures::json_id(&body["biblio"]["id"]);
-    let item_ids: Vec<i64> = body["biblio"]["items"].as_array().expect("items").iter().map(|item| fixtures::json_id(&item["id"])).collect();
+    let item_ids: Vec<i64> = body["biblio"]["items"]
+        .as_array()
+        .expect("items")
+        .iter()
+        .map(|item| fixtures::json_id(&item["id"]))
+        .collect();
     (biblio_id, item_ids)
 }
 
@@ -46,12 +58,22 @@ async fn checkout(app: &TestApp, admin_token: &str, user_id: i64, item_id: i64) 
 }
 
 async fn return_loan(app: &TestApp, admin_token: &str, loan_id: i64) -> serde_json::Value {
-    let (status, body) = app.post_empty(&format!("/api/v1/loans/{loan_id}/return"), Some(admin_token)).await;
+    let (status, body) = app
+        .post_empty(
+            &format!("/api/v1/loans/{loan_id}/return"),
+            Some(admin_token),
+        )
+        .await;
     assert_eq!(status, StatusCode::OK, "return: {body}");
     body
 }
 
-async fn place_title_hold(app: &TestApp, token: &str, user_id: i64, biblio_id: i64) -> (StatusCode, serde_json::Value) {
+async fn place_title_hold(
+    app: &TestApp,
+    token: &str,
+    user_id: i64,
+    biblio_id: i64,
+) -> (StatusCode, serde_json::Value) {
     app.post_json(
         "/api/v1/holds",
         &json!({
@@ -91,17 +113,25 @@ async fn place_title_hold_with_shelf_copy_is_to_pick() {
 
     let (status, body) = place_title_hold(&app, &reader_token, reader_id, biblio_id).await;
     assert_eq!(status, StatusCode::CREATED, "place title hold: {body}");
-    assert!(!body["itemId"].is_null(), "shelf copy must be assigned: {body}");
+    assert!(
+        !body["itemId"].is_null(),
+        "shelf copy must be assigned: {body}"
+    );
     assert_eq!(fixtures::json_id(&body["biblioId"]), biblio_id);
     assert_eq!(body["status"], "to_pick");
     assert!(body["notifiedAt"].is_null(), "no notice while on the shelf");
 
-    let (status, queue) = app.get_json_with_auth(&format!("/api/v1/biblios/{biblio_id}/holds"), &admin_token).await;
+    let (status, queue) = app
+        .get_json_with_auth(&format!("/api/v1/biblios/{biblio_id}/holds"), &admin_token)
+        .await;
     assert_eq!(status, StatusCode::OK, "title queue: {queue}");
     let rows = queue.as_array().expect("queue array");
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0]["status"], "to_pick");
-    assert_eq!(fixtures::json_id(&rows[0]["id"]), fixtures::json_id(&body["id"]));
+    assert_eq!(
+        fixtures::json_id(&rows[0]["id"]),
+        fixtures::json_id(&body["id"])
+    );
 }
 
 #[tokio::test]
@@ -113,7 +143,8 @@ async fn promote_title_hold_assigns_returned_copy_fifo() {
     let (reader_a, _) = fixtures::create_reader(&app, &admin_token, "ttlprom_a").await;
     let (reader_b, token_b) = fixtures::create_reader(&app, &admin_token, "ttlprom_b").await;
     let (reader_c, token_c) = fixtures::create_reader(&app, &admin_token, "ttlprom_c").await;
-    let (biblio_id, item_ids) = create_title_with_copies(&app, &admin_token, "Title Hold Promote", 2).await;
+    let (biblio_id, item_ids) =
+        create_title_with_copies(&app, &admin_token, "Title Hold Promote", 2).await;
     let item_a = item_ids[0];
 
     let loan_id = checkout(&app, &admin_token, reader_a, item_a).await;
@@ -128,12 +159,22 @@ async fn promote_title_hold_assigns_returned_copy_fifo() {
 
     return_loan(&app, &admin_token, loan_id).await;
     let repo = app.state.services.repository.as_ref();
-    let ready = repo.holds_get_by_id(fixtures::json_id(&hold_b["id"])).await.expect("hold B after return");
-    assert_eq!(ready.status, HoldStatus::Ready, "FIFO must promote first title hold");
+    let ready = repo
+        .holds_get_by_id(fixtures::json_id(&hold_b["id"]))
+        .await
+        .expect("hold B after return");
+    assert_eq!(
+        ready.status,
+        HoldStatus::Ready,
+        "FIFO must promote first title hold"
+    );
     assert_eq!(ready.item_id, Some(item_a));
     assert!(ready.expires_at.is_some());
 
-    let after = repo.holds_get_by_id(fixtures::json_id(&hold_c["id"])).await.expect("hold C still pending");
+    let after = repo
+        .holds_get_by_id(fixtures::json_id(&hold_c["id"]))
+        .await
+        .expect("hold C still pending");
     assert_eq!(after.status, HoldStatus::Pending);
     assert!(after.item_id.is_none());
 }
@@ -147,7 +188,8 @@ async fn biblio_queue_fifo_allocates_returned_copy_to_next_eligible_hold() {
     let (reader_a, _) = fixtures::create_reader(&app, &admin_token, "ttlprec_a").await;
     let (reader_b, token_b) = fixtures::create_reader(&app, &admin_token, "ttlprec_b").await;
     let (reader_c, token_c) = fixtures::create_reader(&app, &admin_token, "ttlprec_c").await;
-    let (biblio_id, item_ids) = create_title_with_copies(&app, &admin_token, "Title Hold Precedence", 2).await;
+    let (biblio_id, item_ids) =
+        create_title_with_copies(&app, &admin_token, "Title Hold Precedence", 2).await;
     let item_a = item_ids[0];
     let item_b = item_ids[1];
 
@@ -172,13 +214,23 @@ async fn biblio_queue_fifo_allocates_returned_copy_to_next_eligible_hold() {
     // One biblio FIFO: the earlier title hold takes the first returned copy.
     return_loan(&app, &admin_token, loan_a).await;
     let repo = app.state.services.repository.as_ref();
-    let title_after = repo.holds_get_by_id(fixtures::json_id(&title_hold["id"])).await.expect("title hold after first return");
+    let title_after = repo
+        .holds_get_by_id(fixtures::json_id(&title_hold["id"]))
+        .await
+        .expect("title hold after first return");
     assert_eq!(title_after.status, HoldStatus::Ready);
     assert_eq!(title_after.item_id, Some(item_a));
 
     return_loan(&app, &admin_token, loan_b).await;
-    let pinned_after = repo.holds_get_by_id(fixtures::json_id(&pinned["id"])).await.expect("pinned hold after second return");
-    assert_eq!(pinned_after.status, HoldStatus::Pending, "pinned hold still waits for item A; item B is a different copy");
+    let pinned_after = repo
+        .holds_get_by_id(fixtures::json_id(&pinned["id"]))
+        .await
+        .expect("pinned hold after second return");
+    assert_eq!(
+        pinned_after.status,
+        HoldStatus::Pending,
+        "pinned hold still waits for item A; item B is a different copy"
+    );
     assert_eq!(pinned_after.item_id, Some(item_a));
 }
 
@@ -191,7 +243,8 @@ async fn pinned_copy_does_not_block_other_copies_in_the_biblio_queue() {
     let (reader_a, _) = fixtures::create_reader(&app, &admin_token, "ttlpins_a").await;
     let (reader_b, token_b) = fixtures::create_reader(&app, &admin_token, "ttlpins_b").await;
     let (reader_c, token_c) = fixtures::create_reader(&app, &admin_token, "ttlpins_c").await;
-    let (biblio_id, item_ids) = create_title_with_copies(&app, &admin_token, "Pinned Copy Skip", 2).await;
+    let (biblio_id, item_ids) =
+        create_title_with_copies(&app, &admin_token, "Pinned Copy Skip", 2).await;
     let item_a = item_ids[0];
     let item_b = item_ids[1];
 
@@ -214,12 +267,22 @@ async fn pinned_copy_does_not_block_other_copies_in_the_biblio_queue() {
 
     return_loan(&app, &admin_token, loan_b).await;
     let repo = app.state.services.repository.as_ref();
-    let title_after = repo.holds_get_by_id(fixtures::json_id(&title_hold["id"])).await.expect("title hold");
-    assert_eq!(title_after.status, HoldStatus::Ready, "later title hold takes the copy the pinned patron did not want");
+    let title_after = repo
+        .holds_get_by_id(fixtures::json_id(&title_hold["id"]))
+        .await
+        .expect("title hold");
+    assert_eq!(
+        title_after.status,
+        HoldStatus::Ready,
+        "later title hold takes the copy the pinned patron did not want"
+    );
     assert_eq!(title_after.item_id, Some(item_b));
 
     return_loan(&app, &admin_token, loan_a).await;
-    let pinned_after = repo.holds_get_by_id(fixtures::json_id(&pinned["id"])).await.expect("pinned hold");
+    let pinned_after = repo
+        .holds_get_by_id(fixtures::json_id(&pinned["id"]))
+        .await
+        .expect("pinned hold");
     assert_eq!(pinned_after.status, HoldStatus::Ready);
     assert_eq!(pinned_after.item_id, Some(item_a));
 }
@@ -233,7 +296,8 @@ async fn concurrent_return_of_two_copies_does_not_double_notify() {
     let (reader_a, _) = fixtures::create_reader(&app, &admin_token, "ttlrace_a").await;
     let (reader_b, token_b) = fixtures::create_reader(&app, &admin_token, "ttlrace_b").await;
     let (reader_c, token_c) = fixtures::create_reader(&app, &admin_token, "ttlrace_c").await;
-    let (biblio_id, item_ids) = create_title_with_copies(&app, &admin_token, "Title Hold Race", 2).await;
+    let (biblio_id, item_ids) =
+        create_title_with_copies(&app, &admin_token, "Title Hold Race", 2).await;
 
     let loan_1 = checkout(&app, &admin_token, reader_a, item_ids[0]).await;
     let loan_2 = checkout(&app, &admin_token, reader_a, item_ids[1]).await;
@@ -248,13 +312,27 @@ async fn concurrent_return_of_two_copies_does_not_double_notify() {
     let o1 = r1.expect("return 1");
     let o2 = r2.expect("return 2");
 
-    let ready_ids: Vec<i64> = [o1.readied_hold, o2.readied_hold].into_iter().flatten().map(|h| h.id).collect();
-    assert_eq!(ready_ids.len(), 2, "each returned copy should notify a different patron: {ready_ids:?}");
+    let ready_ids: Vec<i64> = [o1.readied_hold, o2.readied_hold]
+        .into_iter()
+        .flatten()
+        .map(|h| h.id)
+        .collect();
+    assert_eq!(
+        ready_ids.len(),
+        2,
+        "each returned copy should notify a different patron: {ready_ids:?}"
+    );
     let unique: std::collections::HashSet<i64> = ready_ids.iter().copied().collect();
     assert_eq!(unique.len(), 2, "same patron must not be notified twice");
 
-    let hold_b_row = repo.holds_get_by_id(fixtures::json_id(&hold_b["id"])).await.expect("hold B");
-    let hold_c_row = repo.holds_get_by_id(fixtures::json_id(&hold_c["id"])).await.expect("hold C");
+    let hold_b_row = repo
+        .holds_get_by_id(fixtures::json_id(&hold_b["id"]))
+        .await
+        .expect("hold B");
+    let hold_c_row = repo
+        .holds_get_by_id(fixtures::json_id(&hold_c["id"]))
+        .await
+        .expect("hold C");
     assert_eq!(hold_b_row.status, HoldStatus::Ready);
     assert_eq!(hold_c_row.status, HoldStatus::Ready);
     assert_ne!(hold_b_row.item_id, hold_c_row.item_id);
@@ -273,11 +351,15 @@ async fn cancel_pending_title_hold() {
     assert_eq!(status, StatusCode::CREATED, "place: {body}");
     let hold_id = fixtures::json_id(&body["id"]);
 
-    let (status, cancelled) = app.delete_with_auth(&format!("/api/v1/holds/{hold_id}"), &reader_token).await;
+    let (status, cancelled) = app
+        .delete_with_auth(&format!("/api/v1/holds/{hold_id}"), &reader_token)
+        .await;
     assert_eq!(status, StatusCode::OK, "cancel: {cancelled}");
     assert_eq!(cancelled["status"], "cancelled");
 
-    let (status, queue) = app.get_json_with_auth(&format!("/api/v1/biblios/{biblio_id}/holds"), &admin_token).await;
+    let (status, queue) = app
+        .get_json_with_auth(&format!("/api/v1/biblios/{biblio_id}/holds"), &admin_token)
+        .await;
     assert_eq!(status, StatusCode::OK, "queue after cancel: {queue}");
     let rows = queue.as_array().expect("queue");
     assert!(rows.is_empty(), "cancelled title hold must leave the queue");
@@ -292,7 +374,8 @@ async fn expire_ready_title_hold_promotes_next_title_hold() {
     let (reader_a, _) = fixtures::create_reader(&app, &admin_token, "ttlexp_a").await;
     let (reader_b, token_b) = fixtures::create_reader(&app, &admin_token, "ttlexp_b").await;
     let (reader_c, token_c) = fixtures::create_reader(&app, &admin_token, "ttlexp_c").await;
-    let (biblio_id, item_ids) = create_title_with_copies(&app, &admin_token, "Title Hold Expire", 1).await;
+    let (biblio_id, item_ids) =
+        create_title_with_copies(&app, &admin_token, "Title Hold Expire", 1).await;
 
     let loan_id = checkout(&app, &admin_token, reader_a, item_ids[0]).await;
     let (status, hold_b) = place_title_hold(&app, &token_b, reader_b, biblio_id).await;
@@ -308,10 +391,22 @@ async fn expire_ready_title_hold_promotes_next_title_hold() {
         .await
         .expect("expire hold B");
 
-    let expired = app.state.services.holds.expire_overdue().await.expect("expire");
+    let expired = app
+        .state
+        .services
+        .holds
+        .expire_overdue()
+        .await
+        .expect("expire");
     assert!(expired.contains(&hold_b_id), "B should expire: {expired:?}");
 
-    let hold_c_row = app.state.services.repository.holds_get_by_id(fixtures::json_id(&hold_c["id"])).await.expect("hold C");
+    let hold_c_row = app
+        .state
+        .services
+        .repository
+        .holds_get_by_id(fixtures::json_id(&hold_c["id"]))
+        .await
+        .expect("hold C");
     assert_eq!(hold_c_row.status, HoldStatus::Ready);
     assert_eq!(hold_c_row.item_id, Some(item_ids[0]));
 }
@@ -323,20 +418,32 @@ async fn title_level_hold_counts_toward_max_active() {
     };
     let admin_token = fixtures::ensure_first_setup(&app).await;
     let public_type_id = create_capped_public_type(&app, &admin_token, 1).await;
-    let (reader_id, reader_token) = fixtures::create_reader_with_public_type(&app, &admin_token, "ttlcap", Some(public_type_id)).await;
+    let (reader_id, reader_token) = fixtures::create_reader_with_public_type(
+        &app,
+        &admin_token,
+        "ttlcap",
+        Some(public_type_id),
+    )
+    .await;
     let (biblio_a, _) = create_title_with_copies(&app, &admin_token, "Title Cap A", 1).await;
     let (biblio_b, item_b) = create_title_with_copies(&app, &admin_token, "Title Cap B", 1).await;
 
     let (status, body) = place_title_hold(&app, &reader_token, reader_id, biblio_a).await;
     assert_eq!(status, StatusCode::CREATED, "first title hold: {body}");
 
-    let (status, quota) = app.get_json_with_auth("/api/v1/holds/quota", &reader_token).await;
+    let (status, quota) = app
+        .get_json_with_auth("/api/v1/holds/quota", &reader_token)
+        .await;
     assert_eq!(status, StatusCode::OK, "quota: {quota}");
     assert_eq!(quota["activeHolds"], 1);
     assert_eq!(quota["remaining"], 0);
 
     let (status, body) = place_title_hold(&app, &reader_token, reader_id, biblio_b).await;
-    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "second title hold blocked: {body}");
+    assert_eq!(
+        status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "second title hold blocked: {body}"
+    );
 
     let (status, body) = app
         .post_json(
@@ -348,7 +455,11 @@ async fn title_level_hold_counts_toward_max_active() {
             Some(&reader_token),
         )
         .await;
-    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "copy hold also blocked by title hold slot: {body}");
+    assert_eq!(
+        status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "copy hold also blocked by title hold slot: {body}"
+    );
 }
 
 #[tokio::test]
@@ -358,7 +469,8 @@ async fn cannot_combine_title_and_copy_hold_on_same_biblio() {
     };
     let admin_token = fixtures::ensure_first_setup(&app).await;
     let (reader_id, reader_token) = fixtures::create_reader(&app, &admin_token, "ttldup").await;
-    let (biblio_id, item_ids) = create_title_with_copies(&app, &admin_token, "Title Hold Dup", 2).await;
+    let (biblio_id, item_ids) =
+        create_title_with_copies(&app, &admin_token, "Title Hold Dup", 2).await;
 
     let (status, body) = place_title_hold(&app, &reader_token, reader_id, biblio_id).await;
     assert_eq!(status, StatusCode::CREATED, "title: {body}");
@@ -387,7 +499,13 @@ async fn reject_create_hold_without_item_or_biblio() {
     let admin_token = fixtures::ensure_first_setup(&app).await;
     let (reader_id, reader_token) = fixtures::create_reader(&app, &admin_token, "ttlnone").await;
 
-    let (status, body) = app.post_json("/api/v1/holds", &json!({ "userId": reader_id.to_string() }), Some(&reader_token)).await;
+    let (status, body) = app
+        .post_json(
+            "/api/v1/holds",
+            &json!({ "userId": reader_id.to_string() }),
+            Some(&reader_token),
+        )
+        .await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "missing target: {body}");
 }
 
@@ -432,10 +550,15 @@ async fn hold_list_exposes_user_id() {
         .await;
     assert_eq!(status, StatusCode::CREATED, "place hold: {body}");
 
-    let (status, list) = app.get_json_with_auth("/api/v1/holds?perPage=50", &reader_token).await;
+    let (status, list) = app
+        .get_json_with_auth("/api/v1/holds?perPage=50", &reader_token)
+        .await;
     assert_eq!(status, StatusCode::OK, "list holds: {list}");
     let items = list["items"].as_array().expect("items");
-    let row = items.iter().find(|row| fixtures::json_id(&row["biblioId"]) == biblio_id).expect("created hold in the list");
+    let row = items
+        .iter()
+        .find(|row| fixtures::json_id(&row["biblioId"]) == biblio_id)
+        .expect("created hold in the list");
     assert_eq!(fixtures::json_id(&row["userId"]), reader_id);
     assert_eq!(fixtures::json_id(&row["user"]["id"]), reader_id);
 }

@@ -53,7 +53,9 @@ impl sqlx::Type<sqlx::Postgres> for DepositBatchStatus {
 }
 
 impl<'r> sqlx::Decode<'r, sqlx::Postgres> for DepositBatchStatus {
-    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    fn decode(
+        value: sqlx::postgres::PgValueRef<'r>,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let s: String = sqlx::Decode::<sqlx::Postgres>::decode(value)?;
         Self::from_db_str(&s).ok_or_else(|| format!("unknown deposit batch status: {s}").into())
     }
@@ -129,7 +131,9 @@ impl sqlx::Type<sqlx::Postgres> for DepositCopyState {
 }
 
 impl<'r> sqlx::Decode<'r, sqlx::Postgres> for DepositCopyState {
-    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    fn decode(
+        value: sqlx::postgres::PgValueRef<'r>,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let s: String = sqlx::Decode::<sqlx::Postgres>::decode(value)?;
         Self::from_db_str(&s).ok_or_else(|| format!("unknown deposit copy state: {s}").into())
     }
@@ -321,11 +325,45 @@ pub struct ItemDeposit {
     pub deposit_loss_notified_at: Option<DateTime<Utc>>,
 }
 
+/// Deposit block on reader and OPAC item JSON. Batch return date is staff-only.
+#[serde_as]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ItemDepositPublic {
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub batch_id: i64,
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub lender_id: i64,
+    pub lender_name: String,
+    pub reference: String,
+    pub batch_status: DepositBatchStatus,
+}
+
+impl From<ItemDeposit> for ItemDepositPublic {
+    fn from(deposit: ItemDeposit) -> Self {
+        Self {
+            batch_id: deposit.batch_id,
+            lender_id: deposit.lender_id,
+            lender_name: deposit.lender_name,
+            reference: deposit.reference,
+            batch_status: deposit.batch_status,
+        }
+    }
+}
+
 /// `items.deposit_batch_id IS NULL`. Own stock, and the predicate exclusion
 /// rules share. Callers pass the items table alias.
 #[must_use]
 pub fn own_stock_sql(item_alias: &str) -> String {
     format!("{item_alias}.deposit_batch_id IS NULL")
+}
+
+/// True when copy alias `i` was scanned out or checked in for lender return (`deposit_returned_at`).
+#[must_use]
+pub fn deposit_copy_returned_to_lender_sql(item_alias: &str) -> String {
+    format!("{item_alias}.deposit_returned_at IS NOT NULL")
 }
 
 /// True when copy alias `i` must not be assigned to a hold.
@@ -462,7 +500,9 @@ impl sqlx::Type<sqlx::Postgres> for DepositLossKind {
 }
 
 impl<'r> sqlx::Decode<'r, sqlx::Postgres> for DepositLossKind {
-    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    fn decode(
+        value: sqlx::postgres::PgValueRef<'r>,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let s: String = sqlx::Decode::<sqlx::Postgres>::decode(value)?;
         Self::from_db_str(&s).ok_or_else(|| format!("unknown deposit loss kind: {s}").into())
     }
@@ -546,7 +586,9 @@ where
     if let Ok(date) = NaiveDate::parse_from_str(trimmed, "%Y-%m-%d") {
         return Ok(Some(NotifiedOn::Date(date)));
     }
-    Err(serde::de::Error::custom("notifiedOn must be a YYYY-MM-DD date or an RFC 3339 timestamp"))
+    Err(serde::de::Error::custom(
+        "notifiedOn must be a YYYY-MM-DD date or an RFC 3339 timestamp",
+    ))
 }
 
 /// JSON object for [`ItemDeposit`], or JSON null for own stock.
@@ -591,7 +633,9 @@ pub fn item_deposit_join(item_alias: &str) -> String {
 
 /// Decode a `deposit` jsonb column. NULL and a decode failure are own-stock `None`
 /// only for NULL; a present object that does not match [`ItemDeposit`] is an error.
-pub fn item_deposit_from_value(value: Option<serde_json::Value>) -> Result<Option<ItemDeposit>, serde_json::Error> {
+pub fn item_deposit_from_value(
+    value: Option<serde_json::Value>,
+) -> Result<Option<ItemDeposit>, serde_json::Error> {
     match value {
         None | Some(serde_json::Value::Null) => Ok(None),
         Some(value) => serde_json::from_value(value).map(Some),
@@ -608,7 +652,8 @@ mod tests {
         let absent: UpdateLender = serde_json::from_str(r#"{"name":"A"}"#).unwrap();
         assert!(absent.replacement_rate_cents.is_none());
 
-        let cleared: UpdateLender = serde_json::from_str(r#"{"replacementRateCents":null}"#).unwrap();
+        let cleared: UpdateLender =
+            serde_json::from_str(r#"{"replacementRateCents":null}"#).unwrap();
         assert_eq!(cleared.replacement_rate_cents, Some(None));
 
         let set: UpdateLender = serde_json::from_str(r#"{"replacementRateCents":1500}"#).unwrap();

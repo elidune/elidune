@@ -74,6 +74,10 @@ describe('deposit badge', () => {
       depositBadgeText(deposit, t, 'fr'),
       'Dépôt · Médiathèque départementale · retour le 1 septembre 2026',
     );
+    assert.equal(
+      depositBadgeText(deposit, t, 'fr', 'public'),
+      'Dépôt · Médiathèque départementale',
+    );
     assert.equal(depositBadgeText(null, t, 'fr'), null);
     assert.equal(depositBadgeText(undefined, t, 'fr'), null);
   });
@@ -223,6 +227,17 @@ describe('deposit error mappings', () => {
     assert.equal(
       getApiErrorMessage(axiosError(422, 'deposit_item_not_owned'), t),
       'This copy belongs to a deposit and cannot be weeded or withdrawn.',
+    );
+    assert.equal(
+      getApiErrorMessage(
+        axiosError(
+          422,
+          'deposit_item_on_loan',
+          'Check this copy in at the desk before scanning it out to the lender. It still has an open loan',
+        ),
+        t,
+      ),
+      'Check this copy in at the desk before scanning it out to the lender. It still has an open loan.',
     );
     assert.equal(
       marcImportFailureMessage({ code: 'barcode_already_exists', error: 'An item with barcode X already exists.' }, t),
@@ -407,15 +422,15 @@ describe('deposit loss notice', () => {
     assert.equal(depositLossNotifiedText({ ...deposit, depositLossNotifiedAt: '  ' }, t, 'fr'), null);
     assert.equal(
       getApiErrorMessage(axiosError(422, 'deposit_item_on_loan'), t),
-      'Cet exemplaire est encore en prêt. Enregistrez le retour au bureau avant de le scanner en sortie.',
+      'Enregistrez le retour de cet exemplaire au comptoir avant de le scanner en sortie vers le prêteur. Il est encore en prêt.',
     );
     assert.equal(
       getApiErrorMessage(axiosError(422, 'deposit_loss_not_declared'), t),
-      'Cet exemplaire n’est pas une perte de dépôt déclarée (perdu ou abîmé).',
+      'Cet exemplaire n’est pas un exemplaire de dépôt déclaré perdu ou endommagé.',
     );
     assert.equal(
       getApiErrorMessage(axiosError(409, 'deposit_loss_already_notified'), t),
-      'Le prêteur a déjà été prévenu pour cet exemplaire.',
+      'Le prêteur a déjà été informé pour cet exemplaire.',
     );
     assert.equal(isDepositsTab('losses'), true);
     assert.equal(isDepositsTab('lenders'), true);

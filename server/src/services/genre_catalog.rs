@@ -74,7 +74,12 @@ impl GenreCatalogSnapshot {
     pub fn label(&self, genre: Genre, lang: Option<Language>) -> Option<&str> {
         let entry = self.get(genre)?;
         let key = language_key(lang.unwrap_or(Language::English));
-        entry.labels.get(key).or_else(|| entry.labels.get("en")).or_else(|| entry.labels.values().next()).map(String::as_str)
+        entry
+            .labels
+            .get(key)
+            .or_else(|| entry.labels.get("en"))
+            .or_else(|| entry.labels.values().next())
+            .map(String::as_str)
     }
 
     #[must_use]
@@ -96,7 +101,12 @@ impl GenreCatalogSnapshot {
 
     /// Priority: form/genre headings (655) → comics media type → Dewey class.
     #[must_use]
-    pub fn resolve_genre(&self, record: &MarcRecord, media_type: &MediaType, dewey: Option<&str>) -> Option<Genre> {
+    pub fn resolve_genre(
+        &self,
+        record: &MarcRecord,
+        media_type: &MediaType,
+        dewey: Option<&str>,
+    ) -> Option<Genre> {
         for subject in &record.indexing.subjects {
             if matches!(subject.heading_type, SubjectType::Genre) {
                 if let Some(g) = self.match_heading(&subject.value) {
@@ -117,7 +127,11 @@ impl GenreCatalogSnapshot {
 /// Map a Dewey class number to a documentary-style [`Genre`] (hundreds). Kept in code (stable).
 #[must_use]
 pub fn genre_from_dewey(dewey: &str) -> Option<Genre> {
-    let digits: String = dewey.chars().filter(|c| c.is_ascii_digit()).take(3).collect();
+    let digits: String = dewey
+        .chars()
+        .filter(|c| c.is_ascii_digit())
+        .take(3)
+        .collect();
     if digits.is_empty() {
         return None;
     }
@@ -202,20 +216,26 @@ impl GenreCatalogService {
     async fn load(&self) -> AppResult<GenreCatalogSnapshot> {
         let pool = self.repository.pool();
 
-        let genre_rows = sqlx::query_as::<_, (i16, Option<String>, bool, i32)>(r#"SELECT code, shelf_code, active, sort_order FROM genres ORDER BY sort_order, code"#)
-            .fetch_all(pool)
-            .await
-            .map_err(|e| AppError::Internal(format!("load genres: {e}")))?;
+        let genre_rows = sqlx::query_as::<_, (i16, Option<String>, bool, i32)>(
+            r#"SELECT code, shelf_code, active, sort_order FROM genres ORDER BY sort_order, code"#,
+        )
+        .fetch_all(pool)
+        .await
+        .map_err(|e| AppError::Internal(format!("load genres: {e}")))?;
 
-        let label_rows = sqlx::query_as::<_, (i16, String, String)>(r#"SELECT genre_code, language, label FROM genre_labels"#)
-            .fetch_all(pool)
-            .await
-            .map_err(|e| AppError::Internal(format!("load genre_labels: {e}")))?;
+        let label_rows = sqlx::query_as::<_, (i16, String, String)>(
+            r#"SELECT genre_code, language, label FROM genre_labels"#,
+        )
+        .fetch_all(pool)
+        .await
+        .map_err(|e| AppError::Internal(format!("load genre_labels: {e}")))?;
 
-        let syn_rows = sqlx::query_as::<_, (i16, String, String, String)>(r#"SELECT genre_code, term, term_normalized, match_kind FROM genre_synonyms"#)
-            .fetch_all(pool)
-            .await
-            .map_err(|e| AppError::Internal(format!("load genre_synonyms: {e}")))?;
+        let syn_rows = sqlx::query_as::<_, (i16, String, String, String)>(
+            r#"SELECT genre_code, term, term_normalized, match_kind FROM genre_synonyms"#,
+        )
+        .fetch_all(pool)
+        .await
+        .map_err(|e| AppError::Internal(format!("load genre_synonyms: {e}")))?;
 
         let mut labels_by_code: HashMap<i16, HashMap<String, String>> = HashMap::new();
         for (code, lang, label) in label_rows {
@@ -254,7 +274,12 @@ impl GenreCatalogService {
             });
         }
 
-        Ok(GenreCatalogSnapshot { entries, by_code, exact, contains })
+        Ok(GenreCatalogSnapshot {
+            entries,
+            by_code,
+            exact,
+            contains,
+        })
     }
 }
 
@@ -327,25 +352,49 @@ mod tests {
     #[test]
     fn match_multilingual_headings() {
         let snap = fixture_snapshot();
-        assert_eq!(snap.match_heading("Romans"), Some(Genre::LitteratureFiction));
-        assert_eq!(snap.match_heading("Fiction"), Some(Genre::LitteratureFiction));
-        assert_eq!(snap.match_heading("Fiktion"), Some(Genre::LitteratureFiction));
-        assert_eq!(snap.match_heading("Ficción"), Some(Genre::LitteratureFiction));
-        assert_eq!(snap.match_heading("Romans policiers"), Some(Genre::LitteratureFiction));
+        assert_eq!(
+            snap.match_heading("Romans"),
+            Some(Genre::LitteratureFiction)
+        );
+        assert_eq!(
+            snap.match_heading("Fiction"),
+            Some(Genre::LitteratureFiction)
+        );
+        assert_eq!(
+            snap.match_heading("Fiktion"),
+            Some(Genre::LitteratureFiction)
+        );
+        assert_eq!(
+            snap.match_heading("Ficción"),
+            Some(Genre::LitteratureFiction)
+        );
+        assert_eq!(
+            snap.match_heading("Romans policiers"),
+            Some(Genre::LitteratureFiction)
+        );
     }
 
     #[test]
     fn shelf_and_label() {
         let snap = fixture_snapshot();
         assert_eq!(snap.shelf_code(Genre::LitteratureFiction), Some("ROM"));
-        assert_eq!(snap.label(Genre::LitteratureFiction, Some(Language::French)), Some("Romans"));
-        assert_eq!(snap.label(Genre::LitteratureFiction, Some(Language::English)), Some("Fiction"));
+        assert_eq!(
+            snap.label(Genre::LitteratureFiction, Some(Language::French)),
+            Some("Romans")
+        );
+        assert_eq!(
+            snap.label(Genre::LitteratureFiction, Some(Language::English)),
+            Some("Fiction")
+        );
         assert_eq!(snap.label(Genre::LitteratureFiction, None), Some("Fiction"));
     }
 
     #[test]
     fn dewey_mapping() {
-        assert_eq!(genre_from_dewey("843.914"), Some(Genre::LitteratureLitterature));
+        assert_eq!(
+            genre_from_dewey("843.914"),
+            Some(Genre::LitteratureLitterature)
+        );
         assert_eq!(genre_from_dewey("796.3"), Some(Genre::LitteratureSport));
         assert_eq!(genre_from_dewey("914.4"), Some(Genre::LitteratureGeography));
     }

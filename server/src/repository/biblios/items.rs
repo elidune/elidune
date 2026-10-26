@@ -20,7 +20,8 @@ use crate::models::item::WeedingStatus;
 /// `copy_state.availability` applies this precedence (first match wins):
 /// `onLoan`, `inTransit`, `onHold` (`to_pick`/`ready`), `toSearch`
 /// (`circulation_status` 4), `unavailable` (not borrowable, lost, damaged,
-/// claimed returned, declared missing, withdrawn), else `available`.
+/// claimed returned, declared missing, withdrawn, deposit returned to lender),
+/// else `available`.
 const ITEM_STATE_JOINS: &str = r#"
 LEFT JOIN LATERAL (
     SELECT l.id, l.expiry_at
@@ -52,6 +53,7 @@ LEFT JOIN LATERAL (
         WHEN active_transit.id IS NOT NULL THEN 'inTransit'
         WHEN assigned_hold.user_id IS NOT NULL THEN 'onHold'
         WHEN COALESCE(i.circulation_status, 0) = 4 THEN 'toSearch'
+        WHEN i.deposit_returned_at IS NOT NULL THEN 'unavailable'
         WHEN i.borrowable = FALSE
           OR i.weeding_status = 'withdrawn'
           OR COALESCE(i.circulation_status, 0) IN (1, 2, 3, 5)
@@ -143,18 +145,24 @@ fn item_short_sql(where_and_order: &str) -> String {
 impl Repository {
     /// Library-local calendar date of an open loan, for the public catalog only.
     async fn fill_expected_return_dates(&self, items: &mut [Item]) -> AppResult<()> {
-        let needs_date = items.iter().any(|item| item.availability == crate::models::item::ItemAvailability::OnLoan && item.due_date.is_some());
+        let needs_date = items.iter().any(|item| {
+            item.availability == crate::models::item::ItemAvailability::OnLoan
+                && item.due_date.is_some()
+        });
         if !needs_date {
             return Ok(());
         }
         let zone = self.library_zone().await?;
         let now = chrono::Utc::now();
         for item in items.iter_mut() {
-            item.expected_return_date = if item.availability == crate::models::item::ItemAvailability::OnLoan {
-                item.due_date.and_then(|due| crate::services::calendar::public_expected_return_date(zone, due, now))
-            } else {
-                None
-            };
+            item.expected_return_date =
+                if item.availability == crate::models::item::ItemAvailability::OnLoan {
+                    item.due_date.and_then(|due| {
+                        crate::services::calendar::public_expected_return_date(zone, due, now)
+                    })
+                } else {
+                    None
+                };
         }
         Ok(())
     }
@@ -162,10 +170,12 @@ impl Repository {
     /// Get items (physical copies) for a biblio (excludes archived items)
     #[tracing::instrument(skip(self), err)]
     pub async fn biblios_get_items(&self, biblio_id: i64) -> AppResult<Vec<Item>> {
-        let mut items = sqlx::query_as::<_, Item>(&item_sql("WHERE i.biblio_id = $1 AND i.archived_at IS NULL ORDER BY i.barcode"))
-            .bind(biblio_id)
-            .fetch_all(&self.pool)
-            .await?;
+        let mut items = sqlx::query_as::<_, Item>(&item_sql(
+            "WHERE i.biblio_id = $1 AND i.archived_at IS NULL ORDER BY i.barcode",
+        ))
+        .bind(biblio_id)
+        .fetch_all(&self.pool)
+        .await?;
         self.fill_expected_return_dates(&mut items).await?;
         Ok(items)
     }
@@ -173,41 +183,54 @@ impl Repository {
     /// Get one active item by id (same row shape as [`biblios_get_items`]).
     #[tracing::instrument(skip(self), err)]
     pub async fn items_get_active_by_id(&self, item_id: i64) -> AppResult<Item> {
-        let mut item = sqlx::query_as::<_, Item>(&item_sql("WHERE i.id = $1 AND i.archived_at IS NULL"))
-            .bind(item_id)
-            .fetch_optional(&self.pool)
-            .await?
-            .ok_or_else(|| AppError::NotFound(format!("Item {item_id} not found")))?;
-        self.fill_expected_return_dates(std::slice::from_mut(&mut item)).await?;
+        let mut item =
+            sqlx::query_as::<_, Item>(&item_sql("WHERE i.id = $1 AND i.archived_at IS NULL"))
+                .bind(item_id)
+                .fetch_optional(&self.pool)
+                .await?
+                .ok_or_else(|| AppError::NotFound(format!("Item {item_id} not found")))?;
+        self.fill_expected_return_dates(std::slice::from_mut(&mut item))
+            .await?;
         Ok(item)
     }
 
     /// Get one active item by barcode (same row shape as [`items_get_active_by_id`]).
     #[tracing::instrument(skip(self), err)]
     pub async fn items_get_active_by_barcode(&self, barcode: &str) -> AppResult<Item> {
-        let mut item = sqlx::query_as::<_, Item>(&item_sql("WHERE i.barcode = $1 AND i.archived_at IS NULL"))
-            .bind(barcode)
-            .fetch_optional(&self.pool)
-            .await?
-            .ok_or_else(|| AppError::NotFound(format!("Item with barcode {barcode} not found")))?;
-        self.fill_expected_return_dates(std::slice::from_mut(&mut item)).await?;
+        let mut item =
+            sqlx::query_as::<_, Item>(&item_sql("WHERE i.barcode = $1 AND i.archived_at IS NULL"))
+                .bind(barcode)
+                .fetch_optional(&self.pool)
+                .await?
+                .ok_or_else(|| {
+                    AppError::NotFound(format!("Item with barcode {barcode} not found"))
+                })?;
+        self.fill_expected_return_dates(std::slice::from_mut(&mut item))
+            .await?;
         Ok(item)
     }
 
     /// Get ItemShort for many biblios (excludes archived). Used to attach items to BiblioShort lists.
     #[tracing::instrument(skip(self), err)]
-    pub async fn biblios_get_items_short_by_biblio_ids(&self, biblio_ids: &[i64]) -> AppResult<HashMap<i64, Vec<ItemShort>>> {
+    pub async fn biblios_get_items_short_by_biblio_ids(
+        &self,
+        biblio_ids: &[i64],
+    ) -> AppResult<HashMap<i64, Vec<ItemShort>>> {
         if biblio_ids.is_empty() {
             return Ok(HashMap::new());
         }
-        let rows: Vec<ItemShortRow> = sqlx::query_as(&item_short_sql("WHERE i.biblio_id = ANY($1) AND i.archived_at IS NULL ORDER BY i.biblio_id, i.barcode"))
-            .bind(biblio_ids)
-            .fetch_all(&self.pool)
-            .await?;
+        let rows: Vec<ItemShortRow> = sqlx::query_as(&item_short_sql(
+            "WHERE i.biblio_id = ANY($1) AND i.archived_at IS NULL ORDER BY i.biblio_id, i.barcode",
+        ))
+        .bind(biblio_ids)
+        .fetch_all(&self.pool)
+        .await?;
 
         let mut map: HashMap<i64, Vec<ItemShort>> = HashMap::new();
         for row in rows {
-            map.entry(row.biblio_id).or_default().push(ItemShort::from(row));
+            map.entry(row.biblio_id)
+                .or_default()
+                .push(ItemShort::from(row));
         }
         Ok(map)
     }
@@ -310,10 +333,12 @@ impl Repository {
             .await?;
         } else {
             if let Some(ref barcode) = item.barcode {
-                let existing_id = sqlx::query_scalar::<_, i64>("SELECT id FROM items WHERE barcode = $1 AND archived_at IS NULL")
-                    .bind(barcode)
-                    .fetch_optional(&self.pool)
-                    .await?;
+                let existing_id = sqlx::query_scalar::<_, i64>(
+                    "SELECT id FROM items WHERE barcode = $1 AND archived_at IS NULL",
+                )
+                .bind(barcode)
+                .fetch_optional(&self.pool)
+                .await?;
                 item.id = existing_id;
             }
 
@@ -437,87 +462,262 @@ impl Repository {
         .execute(&self.pool)
         .await?;
 
-        let stored: (Option<String>, Option<String>) = sqlx::query_as("SELECT public_note, internal_note FROM items WHERE id = $1")
-            .bind(item.id.unwrap_or(0))
-            .fetch_one(&self.pool)
-            .await?;
+        let stored: (Option<String>, Option<String>) =
+            sqlx::query_as("SELECT public_note, internal_note FROM items WHERE id = $1")
+                .bind(item.id.unwrap_or(0))
+                .fetch_one(&self.pool)
+                .await?;
         item.public_note = stored.0;
         item.internal_note = stored.1;
 
         Ok(item)
     }
 
-    /// Delete an item (physical copy — soft delete, sets archived_at).
+    /// Delete an item (physical copy — soft delete, sets `archived_at`).
     ///
-    /// `force` does not bypass circulation history. A copy with any loan, hold, or fine
-    /// must be weeded instead.
+    /// **Own stock:** for cataloguing mistakes only. Open circulation, unpaid fines, or past
+    /// loan history require weeding or withdrawal instead. `force` does not bypass that.
+    ///
+    /// **Deposit copies:** allowed while the batch is `active` after explicit confirmation
+    /// (`force=true`). The first attempt returns `deposit_item_delete_needs_confirmation`.
+    /// Not a substitute for scan-out — batches in `returning` must use the deposit return workflow.
+    /// Past loans in `loans_archives` do not block deposit deletes.
     #[tracing::instrument(skip(self), err)]
     pub async fn items_delete(&self, id: i64, force: bool) -> AppResult<()> {
-        let _ = force;
         let now = Utc::now();
 
-        let (has_loan, has_hold, has_fine): (bool, bool, bool) = sqlx::query_as(
+        let mut tx = self.pool.begin().await?;
+
+        let locked: Option<(Option<i64>, Option<String>)> = sqlx::query_as(
             r#"
-            SELECT
-                (
-                    EXISTS (SELECT 1 FROM loans WHERE item_id = $1)
-                    OR EXISTS (SELECT 1 FROM loans_archives WHERE item_id = $1)
-                ),
-                EXISTS (SELECT 1 FROM holds WHERE item_id = $1),
-                (
-                    EXISTS (
-                        SELECT 1 FROM fines f
-                        JOIN loans l ON l.id = f.loan_id
-                        WHERE l.item_id = $1
-                    )
-                    OR EXISTS (
-                        SELECT 1 FROM fines f
-                        JOIN loans_archives la ON la.id = f.loan_id
-                        WHERE la.item_id = $1
-                    )
-                )
+            SELECT i.deposit_batch_id, db.status
+            FROM items i
+            LEFT JOIN deposit_batches db ON db.id = i.deposit_batch_id
+            WHERE i.id = $1 AND i.archived_at IS NULL
+            FOR UPDATE OF i
             "#,
         )
         .bind(id)
-        .fetch_one(&self.pool)
+        .fetch_optional(&mut *tx)
         .await?;
+        let Some((deposit_batch_id, batch_status)) = locked else {
+            return Err(AppError::NotFound(format!("Item {id} not found")));
+        };
 
-        if has_loan || has_hold || has_fine {
-            let mut kinds = Vec::new();
-            if has_loan {
-                kinds.push("loan");
+        if deposit_batch_id.is_some() {
+            self.items_delete_deposit_copy_tx(&mut tx, id, batch_status.as_deref(), now, force)
+                .await?;
+        } else {
+            let _ = force;
+            self.items_delete_own_stock_tx(&mut tx, id, now).await?;
+        }
+
+        tx.commit().await?;
+        Ok(())
+    }
+
+    async fn items_delete_deposit_copy_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        id: i64,
+        batch_status: Option<&str>,
+        now: chrono::DateTime<chrono::Utc>,
+        force: bool,
+    ) -> AppResult<()> {
+        match batch_status {
+            Some("returning") => {
+                return Err(AppError::coded(
+                    422,
+                    error_code::DEPOSIT_ITEM_DELETE_USE_BATCH_RETURN,
+                    "This copy belongs to a deposit batch that is being returned to the lender. \
+                     Use scan-out in the deposit batch to record that it was sent back; \
+                     catalog delete is not available during batch return.",
+                ));
             }
-            if has_hold {
-                kinds.push("hold");
+            Some("closed") => {
+                return Err(AppError::coded(
+                    422,
+                    error_code::DEPOSIT_ITEM_DELETE_USE_BATCH_RETURN,
+                    "This copy belongs to a closed deposit batch and is no longer on the active catalog.",
+                ));
             }
-            if has_fine {
-                kinds.push("fine");
+            Some("active") | None => {}
+            Some(other) => {
+                return Err(AppError::Internal(format!(
+                    "Unknown deposit batch status: {other}"
+                )));
             }
+        }
+
+        let on_loan: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM loans WHERE item_id = $1 AND returned_at IS NULL)",
+        )
+        .bind(id)
+        .fetch_one(&mut **tx)
+        .await?;
+        if on_loan {
+            return Err(AppError::coded(
+                422,
+                error_code::DEPOSIT_ITEM_ON_LOAN,
+                "This deposit copy is still on loan. Check it in at the desk before removing it from the catalog.",
+            ));
+        }
+
+        if self.item_has_unpaid_fine_tx(tx, id).await? {
+            return Err(AppError::coded(
+                422,
+                error_code::DEPOSIT_ITEM_DELETE_UNPAID_FINE,
+                "This deposit copy has an unpaid fine. Settle or waive the fine before removing it from the catalog.",
+            ));
+        }
+
+        if !force {
+            return Err(AppError::coded(
+                409,
+                error_code::DEPOSIT_ITEM_DELETE_NEEDS_CONFIRMATION,
+                "This copy belongs to a lender deposit. Removing it from the catalog does not send it back to the \
+                 lender — use scan-out in the deposit batch for that. Confirm with force=true only to fix a cataloguing \
+                 mistake (the copy will count as missing when the batch is closed unless it was scanned out first).",
+            ));
+        }
+
+        self.holds_release_deposit_copies_tx(tx, &[id]).await?;
+
+        sqlx::query("UPDATE items SET archived_at = $1, updated_at = $1 WHERE id = $2 AND archived_at IS NULL")
+            .bind(now)
+            .bind(id)
+            .execute(&mut **tx)
+            .await?;
+
+        Ok(())
+    }
+
+    async fn items_delete_own_stock_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        id: i64,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> AppResult<()> {
+        let on_loan: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM loans WHERE item_id = $1 AND returned_at IS NULL)",
+        )
+        .bind(id)
+        .fetch_one(&mut **tx)
+        .await?;
+        if on_loan {
+            return Err(AppError::coded(
+                422,
+                error_code::ITEM_ON_LOAN,
+                "This copy is still on loan. Check it in before removing it from the catalog.",
+            ));
+        }
+
+        let in_transit: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM item_transits WHERE item_id = $1 AND status IN ('requested', 'in_transit'))",
+        )
+        .bind(id)
+        .fetch_one(&mut **tx)
+        .await?;
+        if in_transit {
+            return Err(AppError::coded(
+                422,
+                error_code::ITEM_IN_TRANSIT,
+                "This copy is in transit. Finish or cancel the transit before removing it from the catalog.",
+            ));
+        }
+
+        let on_hold: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM holds WHERE item_id = $1 AND status IN ('pending', 'to_pick', 'ready'))",
+        )
+        .bind(id)
+        .fetch_one(&mut **tx)
+        .await?;
+        if on_hold {
+            return Err(AppError::coded(
+                422,
+                error_code::ITEM_ON_HOLD,
+                "This copy is reserved for a reader. Cancel the hold or assign another copy before removing it from the catalog.",
+            ));
+        }
+
+        if self.item_has_unpaid_fine_tx(tx, id).await? {
+            return Err(AppError::coded(
+                422,
+                error_code::ITEM_DELETE_UNPAID_FINE,
+                "This copy has an unpaid fine. Settle or waive the fine before removing it from the catalog.",
+            ));
+        }
+
+        let has_loan_history: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM loans_archives WHERE item_id = $1)")
+                .bind(id)
+                .fetch_one(&mut **tx)
+                .await?;
+        if has_loan_history {
             return Err(AppError::coded(
                 422,
                 error_code::ITEM_HAS_HISTORY_USE_WEEDING,
-                format!("This copy has {} history and cannot be deleted. Weed it instead.", kinds.join(", ")),
+                "This library-owned copy was loaned before and cannot be deleted from the catalog. \
+                 Weed or withdraw it instead to keep a proper disposal record.",
             ));
         }
 
         sqlx::query("UPDATE items SET archived_at = $1, updated_at = $1 WHERE id = $2 AND archived_at IS NULL")
             .bind(now)
             .bind(id)
-            .execute(&self.pool)
+            .execute(&mut **tx)
             .await?;
 
         Ok(())
     }
 
+    async fn item_has_unpaid_fine_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        item_id: i64,
+    ) -> AppResult<bool> {
+        let open: bool = sqlx::query_scalar(
+            r#"
+            SELECT EXISTS (
+                SELECT 1
+                FROM fines f
+                WHERE f.status IN ('pending', 'partial')
+                  AND (
+                      f.item_id = $1
+                      OR EXISTS (SELECT 1 FROM loans l WHERE l.id = f.loan_id AND l.item_id = $1)
+                      OR EXISTS (
+                          SELECT 1 FROM loans_archives la
+                          WHERE la.loan_id = f.loan_id
+                            AND la.item_id = $1
+                      )
+                  )
+            )
+            "#,
+        )
+        .bind(item_id)
+        .fetch_one(&mut **tx)
+        .await?;
+        Ok(open)
+    }
+
     /// Check if item barcode already exists
     #[tracing::instrument(skip(self), err)]
-    pub async fn items_barcode_exists(&self, barcode: &str, exclude_item_id: Option<i64>) -> AppResult<bool> {
-        self.items_barcode_exists_active(barcode, exclude_item_id).await
+    pub async fn items_barcode_exists(
+        &self,
+        barcode: &str,
+        exclude_item_id: Option<i64>,
+    ) -> AppResult<bool> {
+        self.items_barcode_exists_active(barcode, exclude_item_id)
+            .await
     }
 
     /// True when a non-archived copy uses this barcode.
     #[tracing::instrument(skip(self), err)]
-    pub async fn items_barcode_exists_active(&self, barcode: &str, exclude_item_id: Option<i64>) -> AppResult<bool> {
+    pub async fn items_barcode_exists_active(
+        &self,
+        barcode: &str,
+        exclude_item_id: Option<i64>,
+    ) -> AppResult<bool> {
         let exists: bool = if let Some(id) = exclude_item_id {
             sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM items WHERE barcode = $1 AND id != $2 AND archived_at IS NULL)")
                 .bind(barcode)
@@ -525,10 +725,12 @@ impl Repository {
                 .fetch_one(&self.pool)
                 .await?
         } else {
-            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM items WHERE barcode = $1 AND archived_at IS NULL)")
-                .bind(barcode)
-                .fetch_one(&self.pool)
-                .await?
+            sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM items WHERE barcode = $1 AND archived_at IS NULL)",
+            )
+            .bind(barcode)
+            .fetch_one(&self.pool)
+            .await?
         };
         Ok(exists)
     }
@@ -536,24 +738,37 @@ impl Repository {
     /// Active copy id, or none. Second tuple value is always `false` (kept for callers).
     #[tracing::instrument(skip(self), err)]
     pub async fn items_get_by_barcode(&self, barcode: &str) -> AppResult<Option<(i64, bool)>> {
-        Ok(self.items_get_active_id_by_barcode(barcode).await?.map(|id| (id, false)))
+        Ok(self
+            .items_get_active_id_by_barcode(barcode)
+            .await?
+            .map(|id| (id, false)))
     }
 
     /// Get active copy id by barcode.
     #[tracing::instrument(skip(self), err)]
     pub async fn items_get_active_id_by_barcode(&self, barcode: &str) -> AppResult<Option<i64>> {
-        let id: Option<i64> = sqlx::query_scalar("SELECT id FROM items WHERE barcode = $1 AND archived_at IS NULL LIMIT 1")
-            .bind(barcode)
-            .fetch_optional(&self.pool)
-            .await?;
+        let id: Option<i64> = sqlx::query_scalar(
+            "SELECT id FROM items WHERE barcode = $1 AND archived_at IS NULL LIMIT 1",
+        )
+        .bind(barcode)
+        .fetch_optional(&self.pool)
+        .await?;
         Ok(id)
     }
 
     /// Reactivate an archived item and update its fields.
     #[tracing::instrument(skip(self), err)]
-    pub async fn items_reactivate(&self, item_id: i64, biblio_id: i64, item: &Item) -> AppResult<Item> {
+    pub async fn items_reactivate(
+        &self,
+        item_id: i64,
+        biblio_id: i64,
+        item: &Item,
+    ) -> AppResult<Item> {
         if let Some(ref barcode) = item.barcode {
-            if self.items_barcode_exists_active(barcode, Some(item_id)).await? {
+            if self
+                .items_barcode_exists_active(barcode, Some(item_id))
+                .await?
+            {
                 return Err(AppError::coded(
                     422,
                     error_code::ITEM_REACTIVATION_BARCODE_TAKEN,
@@ -602,16 +817,32 @@ impl Repository {
         .execute(&self.pool)
         .await?;
 
-        let mut item = sqlx::query_as::<_, Item>(&item_sql("WHERE i.id = $1")).bind(item_id).fetch_one(&self.pool).await?;
-        self.fill_expected_return_dates(std::slice::from_mut(&mut item)).await?;
+        let mut item = sqlx::query_as::<_, Item>(&item_sql("WHERE i.id = $1"))
+            .bind(item_id)
+            .fetch_one(&self.pool)
+            .await?;
+        self.fill_expected_return_dates(std::slice::from_mut(&mut item))
+            .await?;
         Ok(item)
     }
 
     /// Re-attach a returned archived deposit copy to a new batch.
     #[allow(clippy::too_many_arguments)]
     #[tracing::instrument(skip(self, item), err)]
-    pub async fn items_reactivate_deposit_copy(&self, item_id: i64, biblio_id: i64, deposit_batch_id: i64, site_id: i64, barcode: &str, lender_barcode: &str, item: &Item) -> AppResult<Item> {
-        if self.items_barcode_exists_active(barcode, Some(item_id)).await? {
+    pub async fn items_reactivate_deposit_copy(
+        &self,
+        item_id: i64,
+        biblio_id: i64,
+        deposit_batch_id: i64,
+        site_id: i64,
+        barcode: &str,
+        lender_barcode: &str,
+        item: &Item,
+    ) -> AppResult<Item> {
+        if self
+            .items_barcode_exists_active(barcode, Some(item_id))
+            .await?
+        {
             return Err(AppError::coded(
                 422,
                 error_code::ITEM_REACTIVATION_BARCODE_TAKEN,
@@ -660,15 +891,27 @@ impl Repository {
         .execute(&self.pool)
         .await?;
 
-        let mut item = sqlx::query_as::<_, Item>(&item_sql("WHERE i.id = $1")).bind(item_id).fetch_one(&self.pool).await?;
-        self.fill_expected_return_dates(std::slice::from_mut(&mut item)).await?;
+        let mut item = sqlx::query_as::<_, Item>(&item_sql("WHERE i.id = $1"))
+            .bind(item_id)
+            .fetch_one(&self.pool)
+            .await?;
+        self.fill_expected_return_dates(std::slice::from_mut(&mut item))
+            .await?;
         Ok(item)
     }
 
     /// Replace fields on an active copy during deposit MARC import (overwrite duplicate).
     #[allow(clippy::too_many_arguments)]
     #[tracing::instrument(skip(self, item), err)]
-    pub async fn items_deposit_overwrite_from_import(&self, item_id: i64, biblio_id: i64, deposit_batch_id: i64, site_id: i64, lender_barcode: &str, item: &Item) -> AppResult<Item> {
+    pub async fn items_deposit_overwrite_from_import(
+        &self,
+        item_id: i64,
+        biblio_id: i64,
+        deposit_batch_id: i64,
+        site_id: i64,
+        lender_barcode: &str,
+        item: &Item,
+    ) -> AppResult<Item> {
         let now = Utc::now();
         let public_note = note_stored_value(item.public_note.clone());
         let internal_note = note_stored_value(item.internal_note.clone());
@@ -707,25 +950,37 @@ impl Repository {
         .execute(&self.pool)
         .await?;
 
-        let mut item = sqlx::query_as::<_, Item>(&item_sql("WHERE i.id = $1")).bind(item_id).fetch_one(&self.pool).await?;
-        self.fill_expected_return_dates(std::slice::from_mut(&mut item)).await?;
+        let mut item = sqlx::query_as::<_, Item>(&item_sql("WHERE i.id = $1"))
+            .bind(item_id)
+            .fetch_one(&self.pool)
+            .await?;
+        self.fill_expected_return_dates(std::slice::from_mut(&mut item))
+            .await?;
         Ok(item)
     }
 
     /// Find an existing item by barcode and return its short representation.
     #[tracing::instrument(skip(self), err)]
-    pub async fn items_find_short_by_barcode(&self, barcode: &str, exclude_item_id: Option<i64>) -> AppResult<Option<ItemShort>> {
+    pub async fn items_find_short_by_barcode(
+        &self,
+        barcode: &str,
+        exclude_item_id: Option<i64>,
+    ) -> AppResult<Option<ItemShort>> {
         let row: Option<ItemShortRow> = if let Some(eid) = exclude_item_id {
-            sqlx::query_as(&item_short_sql("WHERE i.barcode = $1 AND i.id != $2 AND i.archived_at IS NULL LIMIT 1"))
-                .bind(barcode)
-                .bind(eid)
-                .fetch_optional(&self.pool)
-                .await?
+            sqlx::query_as(&item_short_sql(
+                "WHERE i.barcode = $1 AND i.id != $2 AND i.archived_at IS NULL LIMIT 1",
+            ))
+            .bind(barcode)
+            .bind(eid)
+            .fetch_optional(&self.pool)
+            .await?
         } else {
-            sqlx::query_as(&item_short_sql("WHERE i.barcode = $1 AND i.archived_at IS NULL LIMIT 1"))
-                .bind(barcode)
-                .fetch_optional(&self.pool)
-                .await?
+            sqlx::query_as(&item_short_sql(
+                "WHERE i.barcode = $1 AND i.archived_at IS NULL LIMIT 1",
+            ))
+            .bind(barcode)
+            .fetch_optional(&self.pool)
+            .await?
         };
         Ok(row.map(ItemShort::from))
     }
@@ -734,14 +989,27 @@ impl Repository {
     /// Withdrawal is a separate event (`POST /items/{id}/withdrawals`).
     /// Does not touch `archived_at` or circulation exceptions.
     #[tracing::instrument(skip(self), err)]
-    pub async fn items_set_weeding(&self, item_id: i64, status: WeedingStatus, reason: Option<String>) -> AppResult<Item> {
-        let reason = reason.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    pub async fn items_set_weeding(
+        &self,
+        item_id: i64,
+        status: WeedingStatus,
+        reason: Option<String>,
+    ) -> AppResult<Item> {
+        let reason = reason
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
         if reason.as_ref().is_some_and(|s| s.chars().count() > 200) {
-            return Err(AppError::Validation("Weeding reason must be at most 200 characters".to_string()));
+            return Err(AppError::Validation(
+                "Weeding reason must be at most 200 characters".to_string(),
+            ));
         }
 
         if status == WeedingStatus::Withdrawn {
-            return Err(AppError::coded(422, error_code::WITHDRAWN_VIA_WITHDRAWAL, "Withdraw a copy with POST /api/v1/items/{id}/withdrawals"));
+            return Err(AppError::coded(
+                422,
+                error_code::WITHDRAWN_VIA_WITHDRAWAL,
+                "Withdraw a copy with POST /api/v1/items/{id}/withdrawals",
+            ));
         }
 
         let mut tx = self.pool.begin().await?;
@@ -753,14 +1021,22 @@ impl Repository {
             return Err(AppError::NotFound(format!("Item {item_id} not found")));
         };
         if deposit_batch_id.is_some() {
-            return Err(AppError::coded(422, error_code::DEPOSIT_ITEM_NOT_OWNED, "A deposit copy is not part of the library's own stock"));
+            return Err(AppError::coded(
+                422,
+                error_code::DEPOSIT_ITEM_NOT_OWNED,
+                "A deposit copy is not part of the library's own stock",
+            ));
         }
         let active_withdrawal: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM item_withdrawals WHERE item_id = $1 AND cancelled_at IS NULL)")
             .bind(item_id)
             .fetch_one(&mut *tx)
             .await?;
         if current == WeedingStatus::Withdrawn || active_withdrawal {
-            return Err(AppError::coded(422, error_code::WITHDRAWAL_USE_CANCEL, "Cancel the active withdrawal before changing weeding status"));
+            return Err(AppError::coded(
+                422,
+                error_code::WITHDRAWAL_USE_CANCEL,
+                "Cancel the active withdrawal before changing weeding status",
+            ));
         }
 
         sqlx::query(

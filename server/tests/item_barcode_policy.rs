@@ -9,7 +9,9 @@ use serde_json::json;
 async fn site(app: &TestApp, token: &str) -> i64 {
     let (status, body) = app.get_json_with_auth("/api/v1/sites", token).await;
     assert_eq!(status, StatusCode::OK, "{body}");
-    fixtures::json_id(&body["items"][0]["id"])
+    let sites = body.as_array().expect("site list");
+    assert!(!sites.is_empty(), "{body}");
+    fixtures::json_id(&sites[0]["id"])
 }
 
 #[tokio::test]
@@ -36,7 +38,8 @@ async fn active_barcode_unique_archived_may_duplicate() {
     assert_eq!(status, StatusCode::CREATED, "{first}");
     let first_id = fixtures::json_id(&first["biblio"]["items"][0]["id"]);
 
-    app.delete_with_auth(&format!("/api/v1/items/{first_id}"), &token).await;
+    app.delete_with_auth(&format!("/api/v1/items/{first_id}"), &token)
+        .await;
 
     let stored: String = sqlx::query_scalar("SELECT barcode FROM items WHERE id = $1")
         .bind(first_id)

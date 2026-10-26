@@ -6,8 +6,10 @@ use utoipa::{Modify, OpenApi};
 use utoipa_swagger_ui::SwaggerUi;
 
 use crate::api::{
-    account_types, acquisitions, admin_config, audit, auth, batch, biblios, collections, deposits, email_templates, equipment, events, fines, first_setup, genres, health, holds, inventory, items,
-    library_info, loans, maintenance, metrics, opac, public_types, schedules, series, sites, stats, suggestions, tasks, transits, users, visitor_counts, withdrawals, z3950,
+    account_types, acquisitions, admin_config, audit, auth, batch, biblios, collections, deposits,
+    email_templates, equipment, events, fines, first_setup, genres, health, holds, inventory,
+    items, library_info, loans, maintenance, metrics, opac, public_types, schedules, series, sites,
+    stats, suggestions, tasks, transits, users, visitor_counts, withdrawals, z3950,
 };
 
 #[derive(OpenApi)]
@@ -602,6 +604,7 @@ use crate::api::{
             crate::models::deposit::DepositBatchStatus,
             crate::models::deposit::DepositCopyState,
             crate::models::deposit::ItemDeposit,
+            crate::models::deposit::ItemDepositPublic,
             crate::models::deposit::DepositScanOutRequest,
             crate::models::deposit::DepositScanOut,
             crate::models::deposit::DepositGlobalScanOut,
@@ -777,7 +780,10 @@ impl Modify for SecurityAddon {
                     HttpBuilder::new()
                         .scheme(HttpAuthScheme::Bearer)
                         .bearer_format("JWT")
-                        .description(Some("Bearer authentication using JWT. Use 'Authorization: Bearer <token>'".to_string()))
+                        .description(Some(
+                            "Bearer authentication using JWT. Use 'Authorization: Bearer <token>'"
+                                .to_string(),
+                        ))
                         .build(),
                 ),
             );
@@ -787,7 +793,8 @@ impl Modify for SecurityAddon {
 
 /// Create the OpenAPI documentation router
 pub fn create_openapi_router() -> Router {
-    Router::new().merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
+    Router::new()
+        .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
 }
 
 #[cfg(test)]
@@ -807,11 +814,25 @@ mod tests {
         let value = serde_json::to_value(&doc).expect("openapi json");
         let schemas = &value["components"]["schemas"];
         let public_props = &schemas["ItemPublicView"]["properties"];
-        assert!(public_props.get("dueDate").is_none(), "ItemPublicView must not declare dueDate: {public_props}");
-        assert!(schemas["ItemStaffView"]["properties"]["dueDate"].is_object(), "ItemStaffView keeps dueDate");
-        assert!(schemas["MyLoanView"]["properties"]["dueDate"].is_object(), "MyLoanView keeps dueDate");
-        let opac = value["paths"]["/opac/biblios/{id}"]["get"]["responses"]["200"]["description"].as_str().unwrap_or("");
-        assert!(opac.contains("omits `dueDate`"), "OPAC docs must say the key is omitted: {opac}");
+        assert!(
+            public_props.get("dueDate").is_none(),
+            "ItemPublicView must not declare dueDate: {public_props}"
+        );
+        assert!(
+            schemas["ItemStaffView"]["properties"]["dueDate"].is_object(),
+            "ItemStaffView keeps dueDate"
+        );
+        assert!(
+            schemas["MyLoanView"]["properties"]["dueDate"].is_object(),
+            "MyLoanView keeps dueDate"
+        );
+        let opac = value["paths"]["/opac/biblios/{id}"]["get"]["responses"]["200"]["description"]
+            .as_str()
+            .unwrap_or("");
+        assert!(
+            opac.contains("omits `dueDate`"),
+            "OPAC docs must say the key is omitted: {opac}"
+        );
     }
 
     #[test]
@@ -819,7 +840,10 @@ mod tests {
         let doc = ApiDoc::openapi();
         let value = serde_json::to_value(&doc).expect("openapi json");
         for path in ["/users/{id}/card-lost", "/users/{id}/replace-card"] {
-            assert!(value["paths"][path]["post"].is_object(), "{path} must be documented");
+            assert!(
+                value["paths"][path]["post"].is_object(),
+                "{path} must be documented"
+            );
         }
         let schemas = &value["components"]["schemas"];
         assert!(schemas["ReportCardLostRequest"].is_object());
@@ -837,26 +861,58 @@ mod tests {
         let value = serde_json::to_value(&doc).expect("openapi json");
         let path = "/loans/items/{barcode}/return";
         let post = &value["paths"][path]["post"];
-        assert!(post.is_object(), "return scan must stay POST {path} (one segment, named barcode)");
-        assert!(value["paths"]["/loans/items/{item_id}/return"].is_null(), "return path param must not be documented as item_id");
+        assert!(
+            post.is_object(),
+            "return scan must stay POST {path} (one segment, named barcode)"
+        );
+        assert!(
+            value["paths"]["/loans/items/{item_id}/return"].is_null(),
+            "return path param must not be documented as item_id"
+        );
         let params = post["parameters"].as_array().expect("parameters");
         assert!(
-            params.iter().any(|param| param["in"] == "path" && param["name"] == "barcode"),
+            params
+                .iter()
+                .any(|param| param["in"] == "path" && param["name"] == "barcode"),
             "path param must be named barcode: {params:?}"
         );
-        let ok = post["responses"]["200"]["description"].as_str().unwrap_or("");
-        assert!(ok.contains("item_not_on_loan") && ok.contains("informational"), "200 must document the informational notice: {ok}");
+        let ok = post["responses"]["200"]["description"]
+            .as_str()
+            .unwrap_or("");
         assert!(
-            ok.contains("item_not_available_status") && ok.contains("warning") && ok.contains("circulationStatus") && ok.contains("weedingStatus") && ok.contains("unchanged"),
+            ok.contains("item_not_on_loan") && ok.contains("informational"),
+            "200 must document the informational notice: {ok}"
+        );
+        assert!(
+            ok.contains("item_not_available_status")
+                && ok.contains("warning")
+                && ok.contains("circulationStatus")
+                && ok.contains("weedingStatus")
+                && ok.contains("unchanged"),
             "200 must document the blocked-status warning: {ok}"
         );
-        let missing = post["responses"]["404"]["description"].as_str().unwrap_or("");
-        assert!(!missing.contains("item_not_on_loan"), "unknown barcode stays not_found: {missing}");
+        let missing = post["responses"]["404"]["description"]
+            .as_str()
+            .unwrap_or("");
+        assert!(
+            !missing.contains("item_not_on_loan"),
+            "unknown barcode stays not_found: {missing}"
+        );
         assert!(value["components"]["schemas"]["DeskNotice"].is_object());
-        assert!(value["components"]["schemas"]["ReturnResponse"]["properties"]["notice"].is_object());
-        assert!(value["components"]["schemas"]["ReturnResponse"]["properties"]["holdFor"].is_object());
-        assert!(value["components"]["schemas"]["ReturnResponse"]["properties"]["circulationStatus"].is_object());
-        assert!(value["components"]["schemas"]["ReturnResponse"]["properties"]["weedingStatus"].is_object());
+        assert!(
+            value["components"]["schemas"]["ReturnResponse"]["properties"]["notice"].is_object()
+        );
+        assert!(
+            value["components"]["schemas"]["ReturnResponse"]["properties"]["holdFor"].is_object()
+        );
+        assert!(
+            value["components"]["schemas"]["ReturnResponse"]["properties"]["circulationStatus"]
+                .is_object()
+        );
+        assert!(
+            value["components"]["schemas"]["ReturnResponse"]["properties"]["weedingStatus"]
+                .is_object()
+        );
         for field in ["holdStatus", "transitId", "pickupSiteId"] {
             assert!(
                 value["components"]["schemas"]["ReturnResponse"]["properties"][field].is_object(),
@@ -867,9 +923,13 @@ mod tests {
             ok.contains("holdStatus") && ok.contains("transitId") && ok.contains("pickupSiteId"),
             "200 must document the set-aside outcome: {ok}"
         );
-        let refused = post["responses"]["422"]["description"].as_str().unwrap_or("");
+        let refused = post["responses"]["422"]["description"]
+            .as_str()
+            .unwrap_or("");
         assert!(
-            refused.contains("set_aside_item_mismatch") && refused.contains("set_aside_wrong_title") && refused.contains("set_aside_not_oldest"),
+            refused.contains("set_aside_item_mismatch")
+                && refused.contains("set_aside_wrong_title")
+                && refused.contains("set_aside_not_oldest"),
             "422 must document set-aside guards: {refused}"
         );
     }
@@ -879,31 +939,60 @@ mod tests {
         let doc = ApiDoc::openapi();
         let value = serde_json::to_value(&doc).expect("openapi json");
         let post = &value["paths"]["/users"]["post"];
-        assert!(post["responses"].get("422").is_some(), "POST /users must document 422: {}", post["responses"]);
+        assert!(
+            post["responses"].get("422").is_some(),
+            "POST /users must document 422: {}",
+            post["responses"]
+        );
         let schemas = value["components"]["schemas"].as_object().expect("schemas");
         let prop = &schemas["UserPayload"]["properties"]["language"];
-        assert!(prop.is_object(), "UserPayload.language missing from OpenAPI: {prop}");
+        assert!(
+            prop.is_object(),
+            "UserPayload.language missing from OpenAPI: {prop}"
+        );
         let nullable = prop.get("nullable").and_then(|flag| flag.as_bool()) == Some(true)
-            || prop["anyOf"]
-                .as_array()
-                .is_some_and(|items| items.iter().any(|item| item.get("type").and_then(|kind| kind.as_str()) == Some("null")));
+            || prop["anyOf"].as_array().is_some_and(|items| {
+                items
+                    .iter()
+                    .any(|item| item.get("type").and_then(|kind| kind.as_str()) == Some("null"))
+            });
         assert!(nullable, "create language must be nullable: {prop}");
         let reference = prop["allOf"][0]["$ref"]
             .as_str()
             .or_else(|| prop["$ref"].as_str())
-            .or_else(|| prop["anyOf"].as_array().and_then(|items| items.iter().find_map(|item| item["$ref"].as_str())));
+            .or_else(|| {
+                prop["anyOf"]
+                    .as_array()
+                    .and_then(|items| items.iter().find_map(|item| item["$ref"].as_str()))
+            });
         let enum_schema = match reference {
             Some(reference) => {
                 let name = reference.rsplit('/').next().expect("schema name");
-                schemas.get(name).unwrap_or_else(|| panic!("missing schema {name} for language property {prop}"))
+                schemas
+                    .get(name)
+                    .unwrap_or_else(|| panic!("missing schema {name} for language property {prop}"))
             }
             None => prop,
         };
         let codes = enum_schema["enum"]
             .as_array()
-            .map(|items| items.iter().filter_map(|item| item.as_str().map(str::to_string)).collect::<Vec<_>>())
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|item| item.as_str().map(str::to_string))
+                    .collect::<Vec<_>>()
+            })
             .unwrap_or_default();
-        assert_eq!(codes, vec!["english".to_string(), "french".to_string(), "german".to_string(), "spanish".to_string()], "{enum_schema}");
+        assert_eq!(
+            codes,
+            vec![
+                "english".to_string(),
+                "french".to_string(),
+                "german".to_string(),
+                "spanish".to_string()
+            ],
+            "{enum_schema}"
+        );
     }
 
     #[test]
@@ -912,29 +1001,54 @@ mod tests {
         let value = serde_json::to_value(&doc).expect("openapi json");
         let schemas = value["components"]["schemas"].as_object().expect("schemas");
         let prop = &schemas["LibraryInfo"]["properties"]["language"];
-        assert!(prop.is_object(), "LibraryInfo.language missing from OpenAPI: {prop}");
+        assert!(
+            prop.is_object(),
+            "LibraryInfo.language missing from OpenAPI: {prop}"
+        );
         let nullable = prop.get("nullable").and_then(|flag| flag.as_bool()) == Some(true)
-            || prop["anyOf"]
-                .as_array()
-                .is_some_and(|items| items.iter().any(|item| item.get("type").and_then(|kind| kind.as_str()) == Some("null")));
+            || prop["anyOf"].as_array().is_some_and(|items| {
+                items
+                    .iter()
+                    .any(|item| item.get("type").and_then(|kind| kind.as_str()) == Some("null"))
+            });
         assert!(nullable, "language must be nullable: {prop}");
 
         let reference = prop["allOf"][0]["$ref"]
             .as_str()
             .or_else(|| prop["$ref"].as_str())
-            .or_else(|| prop["anyOf"].as_array().and_then(|items| items.iter().find_map(|item| item["$ref"].as_str())));
+            .or_else(|| {
+                prop["anyOf"]
+                    .as_array()
+                    .and_then(|items| items.iter().find_map(|item| item["$ref"].as_str()))
+            });
         let enum_schema = match reference {
             Some(reference) => {
                 let name = reference.rsplit('/').next().expect("schema name");
-                schemas.get(name).unwrap_or_else(|| panic!("missing schema {name} for language property {prop}"))
+                schemas
+                    .get(name)
+                    .unwrap_or_else(|| panic!("missing schema {name} for language property {prop}"))
             }
             None => prop,
         };
         let codes = enum_schema["enum"]
             .as_array()
-            .map(|items| items.iter().filter_map(|item| item.as_str().map(str::to_string)).collect::<Vec<_>>())
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|item| item.as_str().map(str::to_string))
+                    .collect::<Vec<_>>()
+            })
             .unwrap_or_default();
-        assert_eq!(codes, vec!["fr".to_string(), "en".to_string(), "de".to_string(), "es".to_string()], "{enum_schema}");
+        assert_eq!(
+            codes,
+            vec![
+                "fr".to_string(),
+                "en".to_string(),
+                "de".to_string(),
+                "es".to_string()
+            ],
+            "{enum_schema}"
+        );
     }
 
     #[test]
@@ -944,9 +1058,17 @@ mod tests {
         let action = &value["components"]["schemas"]["LostFineAction"];
         let codes = action["enum"]
             .as_array()
-            .map(|items| items.iter().filter_map(|item| item.as_str()).collect::<Vec<_>>())
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|item| item.as_str())
+                    .collect::<Vec<_>>()
+            })
             .unwrap_or_default();
-        assert!(codes.contains(&"unchanged"), "LostFineAction must include unchanged: {action}");
+        assert!(
+            codes.contains(&"unchanged"),
+            "LostFineAction must include unchanged: {action}"
+        );
 
         let path = &value["paths"]["/loans/items/{item_id}/lost-found"]["post"];
         let description = path["description"].as_str().unwrap_or("");
@@ -965,10 +1087,14 @@ mod tests {
     fn password_reset_request_marks_reset_url_deprecated_and_ignored() {
         let doc = ApiDoc::openapi();
         let value = serde_json::to_value(&doc).expect("openapi json");
-        let prop = &value["components"]["schemas"]["RequestPasswordResetRequest"]["properties"]["resetUrl"];
+        let prop = &value["components"]["schemas"]["RequestPasswordResetRequest"]["properties"]
+            ["resetUrl"];
         assert_eq!(prop["deprecated"], true, "{prop}");
         let description = prop["description"].as_str().unwrap_or("");
-        assert!(description.to_ascii_lowercase().contains("ignored"), "{description}");
+        assert!(
+            description.to_ascii_lowercase().contains("ignored"),
+            "{description}"
+        );
     }
 
     #[test]
@@ -976,7 +1102,10 @@ mod tests {
         let doc = ApiDoc::openapi();
         let value = serde_json::to_value(&doc).expect("openapi json");
         let paths = value["paths"].as_object().expect("paths");
-        let (_path, item) = paths.iter().find(|(path, _)| path.ends_with("request-password-reset")).expect("request-password-reset");
+        let (_path, item) = paths
+            .iter()
+            .find(|(path, _)| path.ends_with("request-password-reset"))
+            .expect("request-password-reset");
         let responses = &item["post"]["responses"];
         assert!(responses.get("404").is_none(), "{responses}");
         assert!(responses.get("429").is_none(), "{responses}");
@@ -993,7 +1122,9 @@ mod tests {
     fn checkout_documents_refusal_codes() {
         let doc = ApiDoc::openapi();
         let value = serde_json::to_value(&doc).expect("openapi json");
-        let description = value["paths"]["/loans"]["post"]["responses"]["422"]["description"].as_str().unwrap_or("");
+        let description = value["paths"]["/loans"]["post"]["responses"]["422"]["description"]
+            .as_str()
+            .unwrap_or("");
         for code in [
             "subscription_expired",
             "fines_over_threshold",
@@ -1006,21 +1137,31 @@ mod tests {
             "item_to_pick_for_other",
             "business_rule_violation",
         ] {
-            assert!(description.contains(code), "POST /loans 422 must list {code}: {description}");
+            assert!(
+                description.contains(code),
+                "POST /loans 422 must list {code}: {description}"
+            );
         }
         assert!(
-            description.contains("forceable") && description.contains("circulation_override_rights"),
+            description.contains("forceable")
+                && description.contains("circulation_override_rights"),
             "POST /loans 422 must document caller-specific forceable: {description}"
         );
         assert!(
-            description.contains("loans_rights") && description.contains("loan.fine_threshold_overridden") && description.contains("patron_id"),
+            description.contains("loans_rights")
+                && description.contains("loan.fine_threshold_overridden")
+                && description.contains("patron_id"),
             "POST /loans 422 must document the shared fine override: {description}"
         );
         assert!(
-            description.contains("reasonRequired") && description.contains("override_reason_required"),
+            description.contains("reasonRequired")
+                && description.contains("override_reason_required"),
             "POST /loans 422 must document the mandatory reason: {description}"
         );
-        assert!(description.contains("overrideReason"), "POST /loans 422 must document overrideReason: {description}");
+        assert!(
+            description.contains("overrideReason"),
+            "POST /loans 422 must document overrideReason: {description}"
+        );
         assert!(
             description.contains("`item_held_for_other` is `{ holdId }` only")
                 && description.contains("userId")
@@ -1030,18 +1171,36 @@ mod tests {
             "POST /loans 422 must document hold-id-only details: {description}"
         );
         let held = &value["components"]["schemas"]["ItemHeldForOtherDetails"];
-        let mut held_keys: Vec<_> = held["properties"].as_object().expect("ItemHeldForOtherDetails properties").keys().cloned().collect();
+        let mut held_keys: Vec<_> = held["properties"]
+            .as_object()
+            .expect("ItemHeldForOtherDetails properties")
+            .keys()
+            .cloned()
+            .collect();
         held_keys.sort();
-        assert_eq!(held_keys, ["holdId"], "ItemHeldForOtherDetails must be holdId only: {held}");
+        assert_eq!(
+            held_keys,
+            ["holdId"],
+            "ItemHeldForOtherDetails must be holdId only: {held}"
+        );
         let held_text = held.to_string();
         for forbidden in ["userId", "cardNumber", "initials", "firstname", "lastname"] {
-            assert!(!held_text.contains(forbidden), "{forbidden} must be absent from ItemHeldForOtherDetails: {held}");
+            assert!(
+                !held_text.contains(forbidden),
+                "{forbidden} must be absent from ItemHeldForOtherDetails: {held}"
+            );
         }
         let to_pick = &value["components"]["schemas"]["ItemToPickDetails"]["properties"];
         for key in ["holdId", "userId", "cardNumber", "initials"] {
-            assert!(to_pick[key].is_object(), "{key} must stay on ItemToPickDetails: {to_pick}");
+            assert!(
+                to_pick[key].is_object(),
+                "{key} must stay on ItemToPickDetails: {to_pick}"
+            );
         }
-        let batch = value["paths"]["/loans/batch-create"]["post"]["responses"]["200"]["description"].as_str().unwrap_or("");
+        let batch = value["paths"]["/loans/batch-create"]["post"]["responses"]["200"]
+            ["description"]
+            .as_str()
+            .unwrap_or("");
         assert!(
             batch.contains("fines_over_threshold")
                 && batch.contains("loans_rights")
@@ -1050,10 +1209,14 @@ mod tests {
                 && batch.contains("overrideReason"),
             "batch checkout must document both overrides: {batch}"
         );
-        let schema = value["paths"]["/loans"]["post"]["responses"]["422"]["content"]["application/json"]["schema"]["$ref"]
+        let schema = value["paths"]["/loans"]["post"]["responses"]["422"]["content"]
+            ["application/json"]["schema"]["$ref"]
             .as_str()
             .unwrap_or("");
-        assert!(schema.contains("CheckoutRefusalBody"), "POST /loans 422 body must be CheckoutRefusalBody: {schema}");
+        assert!(
+            schema.contains("CheckoutRefusalBody"),
+            "POST /loans 422 body must be CheckoutRefusalBody: {schema}"
+        );
         let properties = &value["components"]["schemas"]["CheckoutRefusalBody"]["properties"];
         assert!(properties["forceable"].is_object(), "{properties}");
         assert!(properties["reasonRequired"].is_object(), "{properties}");
@@ -1070,8 +1233,13 @@ mod tests {
         let doc = ApiDoc::openapi();
         let value = serde_json::to_value(&doc).expect("openapi json");
         for path in ["/loans/{id}/renew", "/loans/items/{item_id}/renew"] {
-            let description = value["paths"][path]["post"]["responses"]["422"]["description"].as_str().unwrap_or("");
-            assert!(description.contains("subscription_expired"), "{path}: {description}");
+            let description = value["paths"][path]["post"]["responses"]["422"]["description"]
+                .as_str()
+                .unwrap_or("");
+            assert!(
+                description.contains("subscription_expired"),
+                "{path}: {description}"
+            );
             assert!(
                 description.contains("forceable") && description.contains("loans_rights"),
                 "{path} 422 must document caller-specific forceable: {description}"
@@ -1081,19 +1249,29 @@ mod tests {
                 "{path} 422 must document circulation override write for subscription_expired: {description}"
             );
             assert!(
-                description.contains("reasonRequired") && description.contains("override_reason_required"),
+                description.contains("reasonRequired")
+                    && description.contains("override_reason_required"),
                 "{path} 422 must document the mandatory reason: {description}"
             );
             assert!(
                 description.contains("max_renewals") && description.contains("renewal_too_early"),
                 "{path} 422 must document the limit codes force can lift: {description}"
             );
-            let body_schema = value["paths"][path]["post"]["responses"]["422"]["content"]["application/json"]["schema"]["$ref"].as_str().unwrap_or("");
-            assert!(body_schema.contains("RenewalRefusalBody"), "{path} 422 body must be RenewalRefusalBody: {body_schema}");
+            let body_schema = value["paths"][path]["post"]["responses"]["422"]["content"]
+                ["application/json"]["schema"]["$ref"]
+                .as_str()
+                .unwrap_or("");
+            assert!(
+                body_schema.contains("RenewalRefusalBody"),
+                "{path} 422 body must be RenewalRefusalBody: {body_schema}"
+            );
         }
         let schema = &value["components"]["schemas"]["RenewalRefusal"];
         let rendered = schema.to_string();
-        assert!(rendered.contains("subscription_expired"), "RenewalRefusal must list subscription_expired: {schema}");
+        assert!(
+            rendered.contains("subscription_expired"),
+            "RenewalRefusal must list subscription_expired: {schema}"
+        );
         let properties = &value["components"]["schemas"]["RenewalRefusalBody"]["properties"];
         assert!(properties["code"].is_object(), "{properties}");
         assert!(properties["error"].is_object(), "{properties}");
@@ -1107,22 +1285,48 @@ mod tests {
         let doc = ApiDoc::openapi();
         let value = serde_json::to_value(&doc).expect("openapi json");
         let schemas = &value["components"]["schemas"];
-        for name in ["LoanDetails", "LoanDetailsStaff", "LoanDetailsPublic", "LoanDetailsOwn", "LoanDetailsView", "MyLoanView"] {
+        for name in [
+            "LoanDetails",
+            "LoanDetailsStaff",
+            "LoanDetailsPublic",
+            "LoanDetailsOwn",
+            "LoanDetailsView",
+            "MyLoanView",
+        ] {
             let properties = &schemas[name]["properties"];
-            assert!(properties["closureReason"].is_object(), "{name} must expose closureReason: {properties}");
-            assert!(properties["foundAt"].is_object(), "{name} must expose foundAt: {properties}");
+            assert!(
+                properties["closureReason"].is_object(),
+                "{name} must expose closureReason: {properties}"
+            );
+            assert!(
+                properties["foundAt"].is_object(),
+                "{name} must expose foundAt: {properties}"
+            );
             let found_at = properties["foundAt"].to_string();
-            assert!(found_at.contains("date-time") || found_at.contains("DateTime"), "{name} foundAt must be a timestamp: {found_at}");
+            assert!(
+                found_at.contains("date-time") || found_at.contains("DateTime"),
+                "{name} foundAt must be a timestamp: {found_at}"
+            );
         }
         let reason = &schemas["LoanClosureReason"];
         let codes = reason["enum"]
             .as_array()
-            .map(|items| items.iter().filter_map(|item| item.as_str()).collect::<Vec<_>>())
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|item| item.as_str())
+                    .collect::<Vec<_>>()
+            })
             .unwrap_or_default();
         assert_eq!(codes, vec!["returned", "lost"], "{reason}");
 
-        let me = value["paths"]["/me/loans"]["get"]["description"].as_str().unwrap_or("");
-        assert!(me.contains("closureReason") && me.contains("foundAt") && me.contains("archived=true"), "{me}");
+        let me = value["paths"]["/me/loans"]["get"]["description"]
+            .as_str()
+            .unwrap_or("");
+        assert!(
+            me.contains("closureReason") && me.contains("foundAt") && me.contains("archived=true"),
+            "{me}"
+        );
     }
 
     #[test]
@@ -1131,8 +1335,14 @@ mod tests {
         let value = serde_json::to_value(&doc).expect("openapi json");
         let pay = &value["paths"]["/fines/{id}/pay"]["post"]["responses"]["422"];
         let pay_description = pay["description"].as_str().unwrap_or("");
-        assert!(pay_description.contains("payment_exceeds_balance") && pay_description.contains("remainingCents"), "{pay}");
-        let pay_schema = pay["content"]["application/json"]["schema"]["$ref"].as_str().unwrap_or("");
+        assert!(
+            pay_description.contains("payment_exceeds_balance")
+                && pay_description.contains("remainingCents"),
+            "{pay}"
+        );
+        let pay_schema = pay["content"]["application/json"]["schema"]["$ref"]
+            .as_str()
+            .unwrap_or("");
         assert!(
             pay_schema.contains("PaymentExceedsBalanceBody"),
             "POST /fines/{{id}}/pay 422 body must be PaymentExceedsBalanceBody: {pay_schema}"
@@ -1150,15 +1360,34 @@ mod tests {
         let put = &value["paths"]["/items/{id}"]["put"];
         let description = put["description"].as_str().unwrap_or("");
         let lower = description.to_ascii_lowercase();
-        assert!(lower.contains("circulation_status_read_only"), "{description}");
-        assert!(description.contains("lost") && description.contains("missing") && description.contains("to-search"), "{description}");
+        assert!(
+            lower.contains("circulation_status_read_only"),
+            "{description}"
+        );
+        assert!(
+            description.contains("lost")
+                && description.contains("missing")
+                && description.contains("to-search"),
+            "{description}"
+        );
         let rejected = &put["responses"]["422"];
         let rejected_description = rejected["description"].as_str().unwrap_or("");
-        assert!(rejected_description.contains("circulation_status_read_only"), "{rejected}");
-        let schema = rejected["content"]["application/json"]["schema"]["$ref"].as_str().unwrap_or("");
-        assert!(schema.contains("ErrorResponse"), "422 body must be ErrorResponse: {rejected}");
+        assert!(
+            rejected_description.contains("circulation_status_read_only"),
+            "{rejected}"
+        );
+        let schema = rejected["content"]["application/json"]["schema"]["$ref"]
+            .as_str()
+            .unwrap_or("");
+        assert!(
+            schema.contains("ErrorResponse"),
+            "422 body must be ErrorResponse: {rejected}"
+        );
         let field = &value["components"]["schemas"]["Item"]["properties"]["circulationStatus"];
         let field_description = field["description"].as_str().unwrap_or("");
-        assert!(field_description.contains("circulation_status_read_only"), "{field}");
+        assert!(
+            field_description.contains("circulation_status_read_only"),
+            "{field}"
+        );
     }
 }

@@ -9,8 +9,14 @@ use crate::{
     circulation_calendar::OpeningCalendar,
     error::{AppError, AppResult},
     models::{
-        dto::fines::{AccrualBreakdown, AccrueBatchError, AccrueBatchReport, AccrueLoanResult, AccrueOutcome, CirculationFinePolicy, UpdateCirculationFinePolicy},
-        fine::{resolve_global_amount, Cents, Fine, FineAccrualLoan, FineRule, GlobalUnpaidThresholdMode, StoredGlobalUnpaidThreshold},
+        dto::fines::{
+            AccrualBreakdown, AccrueBatchError, AccrueBatchReport, AccrueLoanResult, AccrueOutcome,
+            CirculationFinePolicy, UpdateCirculationFinePolicy,
+        },
+        fine::{
+            resolve_global_amount, Cents, Fine, FineAccrualLoan, FineRule,
+            GlobalUnpaidThresholdMode, StoredGlobalUnpaidThreshold,
+        },
         user::UserStatus,
     },
     repository::{FinesRepository, Repository},
@@ -43,7 +49,11 @@ impl UnpaidThresholdCheck {
     /// damaged bills remain visible on the account.
     #[must_use]
     pub fn new(unpaid: Cents, threshold: Option<Cents>, accrue_fines: bool) -> Self {
-        Self { unpaid, threshold, accrue_fines }
+        Self {
+            unpaid,
+            threshold,
+            accrue_fines,
+        }
     }
 
     /// Block when fine accrual is on, a threshold is set, and the unpaid remainder
@@ -89,12 +99,21 @@ pub struct FinesService {
 
 impl FinesService {
     pub fn new(repository: Arc<dyn FinesRepository>, calendar: Arc<dyn OpeningDays>) -> Self {
-        Self { repository, calendar, money: None }
+        Self {
+            repository,
+            calendar,
+            money: None,
+        }
     }
 
     /// Production constructor. Payments and waivers commit their audit row
     /// in the same transaction as the fine update.
-    pub fn with_money_audit(repository: Arc<dyn FinesRepository>, calendar: Arc<dyn OpeningDays>, db: Arc<Repository>, audit: AuditService) -> Self {
+    pub fn with_money_audit(
+        repository: Arc<dyn FinesRepository>,
+        calendar: Arc<dyn OpeningDays>,
+        db: Arc<Repository>,
+        audit: AuditService,
+    ) -> Self {
         Self {
             repository,
             calendar,
@@ -118,12 +137,26 @@ impl FinesService {
     ///
     /// Idempotent: updates the single open fine for `loan_id` instead of inserting another.
     #[tracing::instrument(skip(self), err)]
-    pub async fn accrue(&self, loan_id: i64, user_id: i64, media_type: Option<&str>, overdue_days: i64) -> AppResult<Fine> {
-        let result = self.accrue_computed(loan_id, user_id, media_type, overdue_days).await?;
+    pub async fn accrue(
+        &self,
+        loan_id: i64,
+        user_id: i64,
+        media_type: Option<&str>,
+        overdue_days: i64,
+    ) -> AppResult<Fine> {
+        let result = self
+            .accrue_computed(loan_id, user_id, media_type, overdue_days)
+            .await?;
         match result.outcome {
-            AccrueOutcome::SkippedGrace => Err(AppError::BusinessRule("Fine amount is zero — within grace period".to_string())),
-            AccrueOutcome::Created | AccrueOutcome::Updated | AccrueOutcome::Unchanged => result.fine.ok_or_else(|| AppError::Internal("Accrue succeeded without a fine".to_string())),
-            other => Err(AppError::BusinessRule(format!("Cannot accrue fine for loan {loan_id}: {other:?}"))),
+            AccrueOutcome::SkippedGrace => Err(AppError::BusinessRule(
+                "Fine amount is zero — within grace period".to_string(),
+            )),
+            AccrueOutcome::Created | AccrueOutcome::Updated | AccrueOutcome::Unchanged => result
+                .fine
+                .ok_or_else(|| AppError::Internal("Accrue succeeded without a fine".to_string())),
+            other => Err(AppError::BusinessRule(format!(
+                "Cannot accrue fine for loan {loan_id}: {other:?}"
+            ))),
         }
     }
 
@@ -156,7 +189,10 @@ impl FinesService {
                         AccrueOutcome::Created => report.created += 1,
                         AccrueOutcome::Updated => report.updated += 1,
                         AccrueOutcome::Unchanged => report.unchanged += 1,
-                        AccrueOutcome::SkippedGrace | AccrueOutcome::SkippedNotOverdue | AccrueOutcome::SkippedReturned | AccrueOutcome::SkippedDeletedUser => report.skipped += 1,
+                        AccrueOutcome::SkippedGrace
+                        | AccrueOutcome::SkippedNotOverdue
+                        | AccrueOutcome::SkippedReturned
+                        | AccrueOutcome::SkippedDeletedUser => report.skipped += 1,
                     }
                     report.results.push(result);
                 }
@@ -177,10 +213,20 @@ impl FinesService {
     ///
     /// The update itself rejects a payment above `amount - paid_amount`.
     #[tracing::instrument(skip(self, notes, client_ip), err)]
-    pub async fn pay(&self, id: i64, amount: Decimal, notes: Option<&str>, actor_id: i64, client_ip: Option<String>) -> AppResult<Fine> {
-        let payment = Cents::try_from_decimal(amount).map_err(|err| AppError::Validation(err.to_string()))?;
+    pub async fn pay(
+        &self,
+        id: i64,
+        amount: Decimal,
+        notes: Option<&str>,
+        actor_id: i64,
+        client_ip: Option<String>,
+    ) -> AppResult<Fine> {
+        let payment =
+            Cents::try_from_decimal(amount).map_err(|err| AppError::Validation(err.to_string()))?;
         if payment.0 <= 0 {
-            return Err(AppError::Validation("Payment amount must be positive".to_string()));
+            return Err(AppError::Validation(
+                "Payment amount must be positive".to_string(),
+            ));
         }
         let money = self.money()?;
         let mut tx = money.db.pool().begin().await?;
@@ -204,7 +250,13 @@ impl FinesService {
 
     /// Waive (write off) a fine and write `fine.waived` in the same transaction.
     #[tracing::instrument(skip(self, notes, client_ip), err)]
-    pub async fn waive(&self, id: i64, notes: Option<&str>, actor_id: i64, client_ip: Option<String>) -> AppResult<Fine> {
+    pub async fn waive(
+        &self,
+        id: i64,
+        notes: Option<&str>,
+        actor_id: i64,
+        client_ip: Option<String>,
+    ) -> AppResult<Fine> {
         let money = self.money()?;
         let mut tx = money.db.pool().begin().await?;
         let fine = Repository::fines_waive_tx(&mut tx, id, notes).await?;
@@ -226,9 +278,11 @@ impl FinesService {
     }
 
     fn money(&self) -> AppResult<&FineMoney> {
-        self.money
-            .as_ref()
-            .ok_or_else(|| AppError::Internal("Fine money movements require a transactional audit ledger".to_string()))
+        self.money.as_ref().ok_or_else(|| {
+            AppError::Internal(
+                "Fine money movements require a transactional audit ledger".to_string(),
+            )
+        })
     }
 
     /// Get total unpaid fines for a user
@@ -246,12 +300,20 @@ impl FinesService {
 
     /// Update the global unpaid-fine mode. An absent mode leaves the stored policy unchanged.
     #[tracing::instrument(skip(self), err)]
-    pub async fn set_policy(&self, update: &UpdateCirculationFinePolicy) -> AppResult<CirculationFinePolicy> {
+    pub async fn set_policy(
+        &self,
+        update: &UpdateCirculationFinePolicy,
+    ) -> AppResult<CirculationFinePolicy> {
         let Some(mode) = update.unpaid_threshold_mode else {
             return self.get_policy().await;
         };
-        let amount = resolve_global_amount(mode, update.unpaid_threshold_cents).map_err(|err| err.into_app_error())?;
-        policy_from_stored(self.repository.fines_set_global_unpaid_threshold(mode, amount).await?)
+        let amount = resolve_global_amount(mode, update.unpaid_threshold_cents)
+            .map_err(|err| err.into_app_error())?;
+        policy_from_stored(
+            self.repository
+                .fines_set_global_unpaid_threshold(mode, amount)
+                .await?,
+        )
     }
 
     /// Compare this patron's unpaid balance to the effective threshold.
@@ -259,9 +321,20 @@ impl FinesService {
     /// uses the global mode (`none` does not block, `amount` uses the global value).
     /// `reminders.accrue_fines` false ignores that threshold. Stored settings are unchanged.
     #[tracing::instrument(skip(self), err)]
-    pub async fn check_unpaid_threshold(&self, user_id: i64, public_type_id: Option<i64>) -> AppResult<UnpaidThresholdCheck> {
-        let (unpaid, threshold) = tokio::try_join!(self.repository.fines_total_unpaid(user_id), self.repository.fines_get_unpaid_threshold(public_type_id),)?;
-        Ok(UnpaidThresholdCheck::new(unpaid, threshold, self.repository.accrue_fines_enabled()))
+    pub async fn check_unpaid_threshold(
+        &self,
+        user_id: i64,
+        public_type_id: Option<i64>,
+    ) -> AppResult<UnpaidThresholdCheck> {
+        let (unpaid, threshold) = tokio::try_join!(
+            self.repository.fines_total_unpaid(user_id),
+            self.repository.fines_get_unpaid_threshold(public_type_id),
+        )?;
+        Ok(UnpaidThresholdCheck::new(
+            unpaid,
+            threshold,
+            self.repository.accrue_fines_enabled(),
+        ))
     }
 
     /// List fine rules
@@ -272,29 +345,62 @@ impl FinesService {
 
     /// Upsert a fine rule
     #[tracing::instrument(skip(self), err)]
-    pub async fn upsert_rule(&self, media_type: Option<&str>, daily_rate: Decimal, max_amount: Option<Decimal>, grace_days: i32) -> AppResult<FineRule> {
-        let daily_rate = Cents::try_from_decimal(daily_rate).map_err(|err| AppError::Validation(err.to_string()))?;
+    pub async fn upsert_rule(
+        &self,
+        media_type: Option<&str>,
+        daily_rate: Decimal,
+        max_amount: Option<Decimal>,
+        grace_days: i32,
+    ) -> AppResult<FineRule> {
+        let daily_rate = Cents::try_from_decimal(daily_rate)
+            .map_err(|err| AppError::Validation(err.to_string()))?;
         let max_amount = match max_amount {
-            Some(amount) => Some(Cents::try_from_decimal(amount).map_err(|err| AppError::Validation(err.to_string()))?),
+            Some(amount) => Some(
+                Cents::try_from_decimal(amount)
+                    .map_err(|err| AppError::Validation(err.to_string()))?,
+            ),
             None => None,
         };
-        self.repository.fines_upsert_rule(media_type, daily_rate, max_amount, grace_days).await
+        self.repository
+            .fines_upsert_rule(media_type, daily_rate, max_amount, grace_days)
+            .await
     }
 
-    async fn opening_for_loan(&self, loan: &FineAccrualLoan, now: DateTime<Utc>, zone: chrono_tz::Tz) -> AppResult<OpeningCalendar> {
-        self.opening_for_loans(std::slice::from_ref(loan), now, zone).await
+    async fn opening_for_loan(
+        &self,
+        loan: &FineAccrualLoan,
+        now: DateTime<Utc>,
+        zone: chrono_tz::Tz,
+    ) -> AppResult<OpeningCalendar> {
+        self.opening_for_loans(std::slice::from_ref(loan), now, zone)
+            .await
     }
 
-    async fn opening_for_loans(&self, loans: &[FineAccrualLoan], now: DateTime<Utc>, zone: chrono_tz::Tz) -> AppResult<OpeningCalendar> {
+    async fn opening_for_loans(
+        &self,
+        loans: &[FineAccrualLoan],
+        now: DateTime<Utc>,
+        zone: chrono_tz::Tz,
+    ) -> AppResult<OpeningCalendar> {
         let as_of = calendar::local_date(zone, now);
-        let earliest = loans.iter().filter_map(|loan| loan.expiry_at).map(|expiry| calendar::local_date(zone, expiry)).min();
+        let earliest = loans
+            .iter()
+            .filter_map(|loan| loan.expiry_at)
+            .map(|expiry| calendar::local_date(zone, expiry))
+            .min();
         match earliest {
             Some(from) if from < as_of => self.calendar.opening_between(from, as_of).await,
             _ => Ok(OpeningCalendar::empty()),
         }
     }
 
-    async fn accrue_loan_row(&self, loan: &FineAccrualLoan, now: DateTime<Utc>, zone: chrono_tz::Tz, opening: &OpeningCalendar) -> AppResult<AccrueLoanResult> {
+    async fn accrue_loan_row(
+        &self,
+        loan: &FineAccrualLoan,
+        now: DateTime<Utc>,
+        zone: chrono_tz::Tz,
+        opening: &OpeningCalendar,
+    ) -> AppResult<AccrueLoanResult> {
         if loan.user_status == UserStatus::Deleted {
             return Ok(skipped(loan, AccrueOutcome::SkippedDeletedUser));
         }
@@ -311,12 +417,25 @@ impl FinesService {
             return Ok(skipped(loan, AccrueOutcome::SkippedNotOverdue));
         }
 
-        self.accrue_computed(loan.loan_id, loan.user_id, loan.media_type.as_deref(), overdue_days).await
+        self.accrue_computed(
+            loan.loan_id,
+            loan.user_id,
+            loan.media_type.as_deref(),
+            overdue_days,
+        )
+        .await
     }
 
-    async fn accrue_computed(&self, loan_id: i64, user_id: i64, media_type: Option<&str>, overdue_days: i64) -> AppResult<AccrueLoanResult> {
+    async fn accrue_computed(
+        &self,
+        loan_id: i64,
+        user_id: i64,
+        media_type: Option<&str>,
+        overdue_days: i64,
+    ) -> AppResult<AccrueLoanResult> {
         let rules = self.repository.fines_list_rules().await?;
-        let rule = select_rule(&rules, media_type).ok_or_else(|| AppError::Internal("No fine rule configured".to_string()))?;
+        let rule = select_rule(&rules, media_type)
+            .ok_or_else(|| AppError::Internal("No fine rule configured".to_string()))?;
         let breakdown = compute_accrual(rule, overdue_days, media_type);
 
         if breakdown.amount.0 <= 0 {
@@ -330,7 +449,10 @@ impl FinesService {
         }
 
         let notes = breakdown.to_notes();
-        let (fine, outcome) = self.repository.fines_upsert_open(loan_id, user_id, breakdown.amount, Some(notes.as_str())).await?;
+        let (fine, outcome) = self
+            .repository
+            .fines_upsert_open(loan_id, user_id, breakdown.amount, Some(notes.as_str()))
+            .await?;
 
         Ok(AccrueLoanResult {
             outcome,
@@ -365,13 +487,23 @@ fn skipped(loan: &FineAccrualLoan, outcome: AccrueOutcome) -> AccrueLoanResult {
 
 /// Media-type rule first, then the default (`media_type` IS NULL).
 pub fn select_rule<'a>(rules: &'a [FineRule], media_type: Option<&str>) -> Option<&'a FineRule> {
-    rules.iter().find(|r| r.media_type.as_deref() == media_type).or_else(|| rules.iter().find(|r| r.media_type.is_none()))
+    rules
+        .iter()
+        .find(|r| r.media_type.as_deref() == media_type)
+        .or_else(|| rules.iter().find(|r| r.media_type.is_none()))
 }
 
 /// Site of truth for grace days, daily rate, and cap (used by accrue + tests).
-pub fn compute_accrual(rule: &FineRule, overdue_days: i64, media_type: Option<&str>) -> AccrualBreakdown {
+pub fn compute_accrual(
+    rule: &FineRule,
+    overdue_days: i64,
+    media_type: Option<&str>,
+) -> AccrualBreakdown {
     let billable_days = (overdue_days - i64::from(rule.grace_days)).max(0);
-    let raw = rule.daily_rate.checked_mul_i64(billable_days).unwrap_or(Cents(i64::MAX));
+    let raw = rule
+        .daily_rate
+        .checked_mul_i64(billable_days)
+        .unwrap_or(Cents(i64::MAX));
     let (amount, capped) = match rule.max_amount {
         Some(max) if raw > max => (max, true),
         _ => (raw, false),
@@ -399,7 +531,12 @@ mod tests {
         Cents::try_from_decimal(Decimal::new(units, scale)).expect("exact cents")
     }
 
-    fn rule(media_type: Option<&str>, daily_rate: Cents, max: Option<Cents>, grace: i32) -> FineRule {
+    fn rule(
+        media_type: Option<&str>,
+        daily_rate: Cents,
+        max: Option<Cents>,
+        grace: i32,
+    ) -> FineRule {
         FineRule {
             id: 1,
             media_type: media_type.map(str::to_string),
@@ -439,7 +576,10 @@ mod tests {
 
     #[test]
     fn select_rule_prefers_media_type_then_default() {
-        let rules = vec![rule(None, dec(20, 2), None, 3), rule(Some("videoDvd"), dec(100, 2), Some(dec(8, 0)), 1)];
+        let rules = vec![
+            rule(None, dec(20, 2), None, 3),
+            rule(Some("videoDvd"), dec(100, 2), Some(dec(8, 0)), 1),
+        ];
         let dvd = select_rule(&rules, Some("videoDvd")).expect("dvd");
         assert_eq!(dvd.daily_rate, dec(100, 2));
         let book = select_rule(&rules, Some("printedText")).expect("default");
@@ -491,13 +631,27 @@ mod tests {
     impl FinesRepository for FakeRepo {
         async fn fines_list_for_user(&self, user_id: i64) -> AppResult<Vec<Fine>> {
             let g = self.state.lock().unwrap_or_else(|e| e.into_inner());
-            Ok(g.fines.iter().filter(|f| f.user_id == Some(user_id)).cloned().collect())
+            Ok(g.fines
+                .iter()
+                .filter(|f| f.user_id == Some(user_id))
+                .cloned()
+                .collect())
         }
         async fn fines_get_by_id(&self, id: i64) -> AppResult<Fine> {
             let g = self.state.lock().unwrap_or_else(|e| e.into_inner());
-            g.fines.iter().find(|f| f.id == id).cloned().ok_or_else(|| AppError::NotFound("fine".into()))
+            g.fines
+                .iter()
+                .find(|f| f.id == id)
+                .cloned()
+                .ok_or_else(|| AppError::NotFound("fine".into()))
         }
-        async fn fines_create(&self, loan_id: i64, user_id: i64, amount: Cents, notes: Option<&str>) -> AppResult<Fine> {
+        async fn fines_create(
+            &self,
+            loan_id: i64,
+            user_id: i64,
+            amount: Cents,
+            notes: Option<&str>,
+        ) -> AppResult<Fine> {
             let mut g = self.state.lock().unwrap_or_else(|e| e.into_inner());
             let id = g.next_id;
             g.next_id += 1;
@@ -513,9 +667,20 @@ mod tests {
             unimplemented!()
         }
         async fn fines_list_rules(&self) -> AppResult<Vec<FineRule>> {
-            Ok(self.state.lock().unwrap_or_else(|e| e.into_inner()).rules.clone())
+            Ok(self
+                .state
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .rules
+                .clone())
         }
-        async fn fines_upsert_rule(&self, _: Option<&str>, _: Cents, _: Option<Cents>, _: i32) -> AppResult<FineRule> {
+        async fn fines_upsert_rule(
+            &self,
+            _: Option<&str>,
+            _: Cents,
+            _: Option<Cents>,
+            _: i32,
+        ) -> AppResult<FineRule> {
             unimplemented!()
         }
         async fn fines_total_unpaid(&self, _: i64) -> AppResult<Cents> {
@@ -527,13 +692,19 @@ mod tests {
         fn accrue_fines_enabled(&self) -> bool {
             true
         }
-        async fn fines_get_global_unpaid_threshold(&self) -> AppResult<crate::models::fine::StoredGlobalUnpaidThreshold> {
+        async fn fines_get_global_unpaid_threshold(
+            &self,
+        ) -> AppResult<crate::models::fine::StoredGlobalUnpaidThreshold> {
             Ok(crate::models::fine::StoredGlobalUnpaidThreshold {
                 mode: crate::models::fine::GlobalUnpaidThresholdMode::None,
                 amount: Cents::ZERO,
             })
         }
-        async fn fines_set_global_unpaid_threshold(&self, mode: crate::models::fine::GlobalUnpaidThresholdMode, amount: Option<Cents>) -> AppResult<crate::models::fine::StoredGlobalUnpaidThreshold> {
+        async fn fines_set_global_unpaid_threshold(
+            &self,
+            mode: crate::models::fine::GlobalUnpaidThresholdMode,
+            amount: Option<Cents>,
+        ) -> AppResult<crate::models::fine::StoredGlobalUnpaidThreshold> {
             Ok(crate::models::fine::StoredGlobalUnpaidThreshold {
                 mode,
                 amount: amount.unwrap_or(Cents::ZERO),
@@ -541,15 +712,32 @@ mod tests {
         }
         async fn fines_get_open_for_loan(&self, loan_id: i64) -> AppResult<Option<Fine>> {
             let g = self.state.lock().unwrap_or_else(|e| e.into_inner());
-            Ok(g.fines.iter().find(|f| f.loan_id == loan_id && f.status.is_open()).cloned())
+            Ok(g.fines
+                .iter()
+                .find(|f| f.loan_id == loan_id && f.status.is_open())
+                .cloned())
         }
-        async fn fines_upsert_open(&self, loan_id: i64, user_id: i64, amount: Cents, notes: Option<&str>) -> AppResult<(Fine, AccrueOutcome)> {
+        async fn fines_upsert_open(
+            &self,
+            loan_id: i64,
+            user_id: i64,
+            amount: Cents,
+            notes: Option<&str>,
+        ) -> AppResult<(Fine, AccrueOutcome)> {
             let mut g = self.state.lock().unwrap_or_else(|e| e.into_inner());
-            if let Some(existing) = g.fines.iter_mut().find(|f| f.loan_id == loan_id && f.status.is_open()) {
+            if let Some(existing) = g
+                .fines
+                .iter_mut()
+                .find(|f| f.loan_id == loan_id && f.status.is_open())
+            {
                 let unchanged = existing.amount == amount;
                 existing.amount = amount;
                 existing.notes = notes.map(str::to_string);
-                let outcome = if unchanged { AccrueOutcome::Unchanged } else { AccrueOutcome::Updated };
+                let outcome = if unchanged {
+                    AccrueOutcome::Unchanged
+                } else {
+                    AccrueOutcome::Updated
+                };
                 return Ok((existing.clone(), outcome));
             }
             let id = g.next_id;
@@ -567,15 +755,25 @@ mod tests {
                 .cloned()
                 .ok_or_else(|| AppError::NotFound(format!("Loan {loan_id} not found")))
         }
-        async fn fines_list_accrual_loans(&self, user_id: Option<i64>) -> AppResult<Vec<FineAccrualLoan>> {
+        async fn fines_list_accrual_loans(
+            &self,
+            user_id: Option<i64>,
+        ) -> AppResult<Vec<FineAccrualLoan>> {
             let g = self.state.lock().unwrap_or_else(|e| e.into_inner());
-            Ok(g.loans.iter().filter(|l| user_id.is_none_or(|id| l.user_id == id)).cloned().collect())
+            Ok(g.loans
+                .iter()
+                .filter(|l| user_id.is_none_or(|id| l.user_id == id))
+                .cloned()
+                .collect())
         }
     }
 
     #[tokio::test]
     async fn accrue_is_idempotent_one_open_fine_per_loan() {
-        let svc = FinesService::new(Arc::new(FakeRepo::with_default_rule()), Arc::new(crate::services::calendar::AlwaysOpenCalendar));
+        let svc = FinesService::new(
+            Arc::new(FakeRepo::with_default_rule()),
+            Arc::new(crate::services::calendar::AlwaysOpenCalendar),
+        );
         let first = svc.accrue(10, 20, None, 10).await.expect("first");
         let second = svc.accrue(10, 20, None, 10).await.expect("second");
         assert_eq!(first.id, second.id);
@@ -586,7 +784,10 @@ mod tests {
 
     #[tokio::test]
     async fn accrue_updates_amount_when_overdue_days_grow() {
-        let svc = FinesService::new(Arc::new(FakeRepo::with_default_rule()), Arc::new(crate::services::calendar::AlwaysOpenCalendar));
+        let svc = FinesService::new(
+            Arc::new(FakeRepo::with_default_rule()),
+            Arc::new(crate::services::calendar::AlwaysOpenCalendar),
+        );
         let first = svc.accrue(11, 21, None, 10).await.expect("first");
         assert_eq!(first.amount, dec(350, 2));
         let second = svc.accrue(11, 21, None, 13).await.expect("second");
@@ -598,7 +799,10 @@ mod tests {
 
     #[tokio::test]
     async fn accrue_rejects_grace_period() {
-        let svc = FinesService::new(Arc::new(FakeRepo::with_default_rule()), Arc::new(crate::services::calendar::AlwaysOpenCalendar));
+        let svc = FinesService::new(
+            Arc::new(FakeRepo::with_default_rule()),
+            Arc::new(crate::services::calendar::AlwaysOpenCalendar),
+        );
         let err = svc.accrue(12, 22, None, 2).await.expect_err("grace");
         assert!(matches!(err, AppError::BusinessRule(_)));
         let listed = svc.list_for_user(22).await.expect("list");
@@ -607,7 +811,10 @@ mod tests {
 
     #[tokio::test]
     async fn accrue_respects_cap() {
-        let svc = FinesService::new(Arc::new(FakeRepo::with_default_rule()), Arc::new(crate::services::calendar::AlwaysOpenCalendar));
+        let svc = FinesService::new(
+            Arc::new(FakeRepo::with_default_rule()),
+            Arc::new(crate::services::calendar::AlwaysOpenCalendar),
+        );
         let fine = svc.accrue(13, 23, None, 100).await.expect("capped");
         assert_eq!(fine.amount, dec(10, 0));
     }
@@ -627,7 +834,10 @@ mod tests {
                 site_id: None,
             });
         }
-        let svc = FinesService::new(Arc::new(repo), Arc::new(crate::services::calendar::AlwaysOpenCalendar));
+        let svc = FinesService::new(
+            Arc::new(repo),
+            Arc::new(crate::services::calendar::AlwaysOpenCalendar),
+        );
         let result = svc.accrue_loan(40).await.expect("skip");
         assert_eq!(result.outcome, AccrueOutcome::SkippedDeletedUser);
         assert!(result.fine.is_none());
@@ -648,7 +858,10 @@ mod tests {
                 site_id: None,
             });
         }
-        let svc = FinesService::new(Arc::new(repo), Arc::new(crate::services::calendar::AlwaysOpenCalendar));
+        let svc = FinesService::new(
+            Arc::new(repo),
+            Arc::new(crate::services::calendar::AlwaysOpenCalendar),
+        );
         let first = svc.accrue_overdue(Some(70)).await.expect("batch1");
         let second = svc.accrue_overdue(Some(70)).await.expect("batch2");
         assert_eq!(first.created, 1);

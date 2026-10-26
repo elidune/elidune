@@ -55,7 +55,11 @@ fn page_count(total: i64, per_page: i64) -> i64 {
         (status = 401, description = "Not authenticated"),
     )
 )]
-pub async fn list_collections(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Query(query): Query<CollectionQuery>) -> AppResult<Json<PaginatedCollections>> {
+pub async fn list_collections(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    Query(query): Query<CollectionQuery>,
+) -> AppResult<Json<PaginatedCollections>> {
     claims.require_read_items()?;
     let page = query.page.unwrap_or(1).max(1);
     let per_page = query.per_page.unwrap_or(50).min(200);
@@ -81,7 +85,11 @@ pub async fn list_collections(State(state): State<crate::AppState>, Authenticate
         (status = 404, description = "Not found"),
     )
 )]
-pub async fn get_collection(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Path(id): Path<i64>) -> AppResult<Json<Collection>> {
+pub async fn get_collection(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    Path(id): Path<i64>,
+) -> AppResult<Json<Collection>> {
     claims.require_read_items()?;
     let collection = state.services.catalog.get_collection(id).await?;
     Ok(Json(collection))
@@ -99,17 +107,25 @@ pub async fn get_collection(State(state): State<crate::AppState>, AuthenticatedU
         (status = 404, description = "Not found"),
     )
 )]
-pub async fn get_collection_biblios(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Path(id): Path<i64>) -> AppResult<Json<BiblioShortListResponse>> {
+pub async fn get_collection_biblios(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    Path(id): Path<i64>,
+) -> AppResult<Json<BiblioShortListResponse>> {
     claims.require_read_items()?;
     state.services.catalog.get_collection(id).await?;
     let biblios = state.services.catalog.get_biblios_by_collection(id).await?;
     let body = if sees_internal_catalog(&claims) {
-        BiblioShortListResponse::Staff(super::catalog_hold::staff_biblio_shorts(&state, &claims, biblios).await?)
+        BiblioShortListResponse::Staff(
+            super::catalog_hold::staff_biblio_shorts(&state, &claims, biblios).await?,
+        )
     } else {
         BiblioShortListResponse::Public(
             biblios
                 .into_iter()
-                .filter(|biblio| biblio.weeding_status != crate::models::item::WeedingStatus::Withdrawn)
+                .filter(|biblio| {
+                    biblio.weeding_status != crate::models::item::WeedingStatus::Withdrawn
+                })
                 .map(BiblioShortPublic::from)
                 .collect(),
         )
@@ -231,7 +247,12 @@ pub async fn update_collection(
         (status = 409, description = "Still linked to biblios"),
     )
 )]
-pub async fn delete_collection(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, ClientIp(ip): ClientIp, Path(id): Path<i64>) -> AppResult<StatusCode> {
+pub async fn delete_collection(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    ClientIp(ip): ClientIp,
+    Path(id): Path<i64>,
+) -> AppResult<StatusCode> {
     claims.require_write_items()?;
     match state.services.catalog.delete_collection(id).await {
         Ok(()) => {
@@ -263,7 +284,15 @@ pub async fn delete_collection(State(state): State<crate::AppState>, Authenticat
 
 pub fn router() -> Router<crate::AppState> {
     Router::new()
-        .route("/collections", get(list_collections).post(create_collection))
-        .route("/collections/:id", get(get_collection).put(update_collection).delete(delete_collection))
+        .route(
+            "/collections",
+            get(list_collections).post(create_collection),
+        )
+        .route(
+            "/collections/:id",
+            get(get_collection)
+                .put(update_collection)
+                .delete(delete_collection),
+        )
         .route("/collections/:id/biblios", get(get_collection_biblios))
 }

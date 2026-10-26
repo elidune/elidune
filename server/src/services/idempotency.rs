@@ -37,10 +37,17 @@ const IN_FLIGHT_POLL: Duration = Duration::from_millis(50);
 pub fn validate_key(raw: &str) -> AppResult<String> {
     let key = raw.trim();
     if key.is_empty() || key.len() > KEY_MAX_LEN {
-        return Err(AppError::Validation(format!("{HEADER_NAME} must be 1–{KEY_MAX_LEN} characters")));
+        return Err(AppError::Validation(format!(
+            "{HEADER_NAME} must be 1–{KEY_MAX_LEN} characters"
+        )));
     }
-    if !key.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~')) {
-        return Err(AppError::Validation(format!("{HEADER_NAME} may only contain A–Z, a–z, 0–9, '-', '_', '.', '~'")));
+    if !key
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~'))
+    {
+        return Err(AppError::Validation(format!(
+            "{HEADER_NAME} may only contain A–Z, a–z, 0–9, '-', '_', '.', '~'"
+        )));
     }
     Ok(key.to_string())
 }
@@ -52,11 +59,21 @@ pub fn request_hash(fingerprint: &serde_json::Value) -> String {
 
 enum Claim {
     Reserved,
-    Replay { status: StatusCode, body: serde_json::Value },
+    Replay {
+        status: StatusCode,
+        body: serde_json::Value,
+    },
 }
 
 /// Run `f` unless this actor already completed the same key+payload within TTL.
-pub async fn execute<T, F, Fut>(repo: &Repository, actor_id: i64, raw_key: Option<&str>, operation: &str, fingerprint: &serde_json::Value, f: F) -> AppResult<(StatusCode, T)>
+pub async fn execute<T, F, Fut>(
+    repo: &Repository,
+    actor_id: i64,
+    raw_key: Option<&str>,
+    operation: &str,
+    fingerprint: &serde_json::Value,
+    f: F,
+) -> AppResult<(StatusCode, T)>
 where
     T: Serialize + DeserializeOwned,
     F: FnOnce() -> Fut,
@@ -70,7 +87,9 @@ where
 
     match claim(repo, actor_id, &key, operation, &hash).await? {
         Claim::Replay { status, body } => {
-            let value = serde_json::from_value(body).map_err(|e| AppError::Internal(format!("stored idempotency response is invalid: {e}")))?;
+            let value = serde_json::from_value(body).map_err(|e| {
+                AppError::Internal(format!("stored idempotency response is invalid: {e}"))
+            })?;
             Ok((status, value))
         }
         Claim::Reserved => match f().await {
@@ -90,17 +109,35 @@ where
     }
 }
 
-async fn persist_success<T: Serialize>(repo: &Repository, actor_id: i64, key: &str, status: StatusCode, body: &T) -> AppResult<()> {
-    let json = serde_json::to_value(body).map_err(|e| AppError::Internal(format!("serialize idempotency response: {e}")))?;
-    repo.idempotency_store_success(actor_id, key, status.as_u16() as i16, &json).await
+async fn persist_success<T: Serialize>(
+    repo: &Repository,
+    actor_id: i64,
+    key: &str,
+    status: StatusCode,
+    body: &T,
+) -> AppResult<()> {
+    let json = serde_json::to_value(body)
+        .map_err(|e| AppError::Internal(format!("serialize idempotency response: {e}")))?;
+    repo.idempotency_store_success(actor_id, key, status.as_u16() as i16, &json)
+        .await
 }
 
-async fn claim(repo: &Repository, actor_id: i64, key: &str, operation: &str, request_hash: &str) -> AppResult<Claim> {
+async fn claim(
+    repo: &Repository,
+    actor_id: i64,
+    key: &str,
+    operation: &str,
+    request_hash: &str,
+) -> AppResult<Claim> {
     let deadline = tokio::time::Instant::now() + IN_FLIGHT_WAIT;
     loop {
         repo.idempotency_delete_expired(actor_id, key).await?;
 
-        if repo.idempotency_try_reserve(actor_id, key, operation, request_hash, Utc::now() + TTL).await?.is_some() {
+        if repo
+            .idempotency_try_reserve(actor_id, key, operation, request_hash, Utc::now() + TTL)
+            .await?
+            .is_some()
+        {
             return Ok(Claim::Reserved);
         }
 
@@ -110,7 +147,9 @@ async fn claim(repo: &Repository, actor_id: i64, key: &str, operation: &str, req
         };
 
         if existing.request_hash != request_hash {
-            return Err(AppError::Conflict(format!("{HEADER_NAME} already used with a different request")));
+            return Err(AppError::Conflict(format!(
+                "{HEADER_NAME} already used with a different request"
+            )));
         }
 
         if let (Some(code), Some(body)) = (existing.status_code, existing.response_body) {
@@ -119,7 +158,9 @@ async fn claim(repo: &Repository, actor_id: i64, key: &str, operation: &str, req
         }
 
         if tokio::time::Instant::now() >= deadline {
-            return Err(AppError::Conflict(format!("{HEADER_NAME} request is already in progress")));
+            return Err(AppError::Conflict(format!(
+                "{HEADER_NAME} request is already in progress"
+            )));
         }
         tokio::time::sleep(IN_FLIGHT_POLL).await;
     }

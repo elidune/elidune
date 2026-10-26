@@ -62,7 +62,12 @@ async fn amount_audience(app: &TestApp, admin_token: &str, cents: i64) -> i64 {
 }
 
 /// Custom account type. The code is never `admin`, `librarian`, or `reader`.
-async fn user_with_rights(app: &TestApp, admin_token: &str, loans_rights: &str, settings_rights: &str) -> (i64, String, String) {
+async fn user_with_rights(
+    app: &TestApp,
+    admin_token: &str,
+    loans_rights: &str,
+    settings_rights: &str,
+) -> (i64, String, String) {
     let code = format!("desk{}", fixtures::unique_token());
     assert!(!matches!(code.as_str(), "admin" | "librarian" | "reader"));
     let (status, body) = app
@@ -103,8 +108,19 @@ async fn user_with_rights(app: &TestApp, admin_token: &str, loans_rights: &str, 
         .await;
     assert_eq!(status, StatusCode::CREATED, "user: {body}");
     let user_id = fixtures::json_id(&body["id"]);
-    app.state.services.users.set_must_change_password(user_id, false).await.expect("clear must_change_password");
-    let (status, session) = app.post_json("/api/v1/auth/login", &json!({ "username": login, "password": "readerpass1234" }), None).await;
+    app.state
+        .services
+        .users
+        .set_must_change_password(user_id, false)
+        .await
+        .expect("clear must_change_password");
+    let (status, session) = app
+        .post_json(
+            "/api/v1/auth/login",
+            &json!({ "username": login, "password": "readerpass1234" }),
+            None,
+        )
+        .await;
     assert_eq!(status, StatusCode::OK, "login: {session}");
     let token = session["token"].as_str().expect("token").to_string();
     (user_id, token, code)
@@ -120,7 +136,12 @@ fn checkout_body(user_id: i64, item_id: i64, force: bool) -> Value {
 
 fn assert_fine_refusal(status: StatusCode, body: &Value, forceable: bool) {
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
-    let mut keys: Vec<_> = body.as_object().unwrap_or_else(|| panic!("object body: {body}")).keys().cloned().collect();
+    let mut keys: Vec<_> = body
+        .as_object()
+        .unwrap_or_else(|| panic!("object body: {body}"))
+        .keys()
+        .cloned()
+        .collect();
     keys.sort();
     assert_eq!(keys, ["code", "error", "forceable", "message"], "{body}");
     assert_eq!(body["code"], "fines_over_threshold", "{body}");
@@ -170,7 +191,12 @@ async fn override_payload(app: &TestApp, loan_id: i64) -> (Option<i64>, Value) {
 }
 
 fn assert_payload(payload: &Value, loan_id: i64, patron_id: i64) {
-    let mut keys: Vec<_> = payload.as_object().expect("payload").keys().cloned().collect();
+    let mut keys: Vec<_> = payload
+        .as_object()
+        .expect("payload")
+        .keys()
+        .cloned()
+        .collect();
     keys.sort();
     assert_eq!(keys, ["loanId", "patron_id", "reason"], "{payload}");
     assert_eq!(payload["reason"], "fines_over_threshold", "{payload}");
@@ -198,29 +224,56 @@ async fn loans_write_forces_one_checkout_and_audits_the_loan() {
         return;
     };
     let admin_token = fixtures::ensure_first_setup(&app).await;
-    let cents = elidune_server::models::fine::money_to_cents("1".parse().expect("threshold")).expect("cents");
+    let cents = elidune_server::models::fine::money_to_cents("1".parse().expect("threshold"))
+        .expect("cents");
     let public_type = amount_audience(&app, &admin_token, cents).await;
-    let (reader_id, _) = fixtures::create_reader_with_public_type(&app, &admin_token, "cfo", Some(public_type)).await;
+    let (reader_id, _) =
+        fixtures::create_reader_with_public_type(&app, &admin_token, "cfo", Some(public_type))
+            .await;
     let (staff_id, desk_token, account_type) = user_with_rights(&app, &admin_token, "w", "n").await;
     assert_ne!(account_type, "admin");
     let (_, blocked_token, blocked_type) = user_with_rights(&app, &admin_token, "n", "w").await;
     assert_ne!(blocked_type, "admin");
 
     let (_, seed_item, _) = create_copy(&app, &admin_token, "Fine Seed").await;
-    let (status, created) = app.post_json("/api/v1/loans", &checkout_body(reader_id, seed_item, false), Some(&admin_token)).await;
+    let (status, created) = app
+        .post_json(
+            "/api/v1/loans",
+            &checkout_body(reader_id, seed_item, false),
+            Some(&admin_token),
+        )
+        .await;
     assert_eq!(status, StatusCode::CREATED, "{created}");
     insert_fine(&app, fixtures::json_id(&created["id"]), reader_id).await;
 
     let (_, blocked_item, _) = create_copy(&app, &admin_token, "Fine Blocked").await;
-    let (status, refused) = app.post_json("/api/v1/loans", &checkout_body(reader_id, blocked_item, false), Some(&desk_token)).await;
+    let (status, refused) = app
+        .post_json(
+            "/api/v1/loans",
+            &checkout_body(reader_id, blocked_item, false),
+            Some(&desk_token),
+        )
+        .await;
     assert_fine_refusal(status, &refused, true);
 
-    let (status, denied) = app.post_json("/api/v1/loans", &checkout_body(reader_id, blocked_item, true), Some(&blocked_token)).await;
+    let (status, denied) = app
+        .post_json(
+            "/api/v1/loans",
+            &checkout_body(reader_id, blocked_item, true),
+            Some(&blocked_token),
+        )
+        .await;
     assert_eq!(status, StatusCode::FORBIDDEN, "{denied}");
     assert_eq!(denied["code"], "authorization_failed", "{denied}");
     assert!(denied.get("forceable").is_none(), "{denied}");
 
-    let (status, forced) = app.post_json("/api/v1/loans", &checkout_body(reader_id, blocked_item, true), Some(&desk_token)).await;
+    let (status, forced) = app
+        .post_json(
+            "/api/v1/loans",
+            &checkout_body(reader_id, blocked_item, true),
+            Some(&desk_token),
+        )
+        .await;
     assert_eq!(status, StatusCode::CREATED, "{forced}");
     let loan_id = fixtures::json_id(&forced["id"]);
     let (actor, payload) = override_payload(&app, loan_id).await;
@@ -228,7 +281,13 @@ async fn loans_write_forces_one_checkout_and_audits_the_loan() {
     assert_payload(&payload, loan_id, reader_id);
 
     let (_, later_item, _) = create_copy(&app, &admin_token, "Still Blocked").await;
-    let (status, still) = app.post_json("/api/v1/loans", &checkout_body(reader_id, later_item, false), Some(&desk_token)).await;
+    let (status, still) = app
+        .post_json(
+            "/api/v1/loans",
+            &checkout_body(reader_id, later_item, false),
+            Some(&desk_token),
+        )
+        .await;
     assert_fine_refusal(status, &still, true);
     assert_eq!(override_count_for_patron(&app, reader_id).await, 1);
 }
@@ -239,13 +298,22 @@ async fn batch_force_audits_each_created_loan_only() {
         return;
     };
     let admin_token = fixtures::ensure_first_setup(&app).await;
-    let cents = elidune_server::models::fine::money_to_cents("1".parse().expect("threshold")).expect("cents");
+    let cents = elidune_server::models::fine::money_to_cents("1".parse().expect("threshold"))
+        .expect("cents");
     let public_type = amount_audience(&app, &admin_token, cents).await;
-    let (reader_id, _) = fixtures::create_reader_with_public_type(&app, &admin_token, "cfobatch", Some(public_type)).await;
+    let (reader_id, _) =
+        fixtures::create_reader_with_public_type(&app, &admin_token, "cfobatch", Some(public_type))
+            .await;
     let (_, desk_token, _) = user_with_rights(&app, &admin_token, "w", "n").await;
 
     let (_, seed_item, _) = create_copy(&app, &admin_token, "Batch Seed").await;
-    let (status, created) = app.post_json("/api/v1/loans", &checkout_body(reader_id, seed_item, false), Some(&admin_token)).await;
+    let (status, created) = app
+        .post_json(
+            "/api/v1/loans",
+            &checkout_body(reader_id, seed_item, false),
+            Some(&admin_token),
+        )
+        .await;
     assert_eq!(status, StatusCode::CREATED, "{created}");
     insert_fine(&app, fixtures::json_id(&created["id"]), reader_id).await;
 
@@ -286,7 +354,10 @@ async fn batch_force_audits_each_created_loan_only() {
         .await;
     assert_eq!(status, StatusCode::OK, "{blocked}");
     assert_eq!(blocked["created"], 0, "{blocked}");
-    assert_eq!(blocked["results"][0]["code"], "fines_over_threshold", "{blocked}");
+    assert_eq!(
+        blocked["results"][0]["code"], "fines_over_threshold",
+        "{blocked}"
+    );
     assert_eq!(override_count_for_patron(&app, reader_id).await, 2);
 }
 
@@ -296,14 +367,23 @@ async fn non_forceable_copy_gate_writes_no_fine_override() {
         return;
     };
     let admin_token = fixtures::ensure_first_setup(&app).await;
-    let cents = elidune_server::models::fine::money_to_cents("1".parse().expect("threshold")).expect("cents");
+    let cents = elidune_server::models::fine::money_to_cents("1".parse().expect("threshold"))
+        .expect("cents");
     let public_type = amount_audience(&app, &admin_token, cents).await;
-    let (reader_id, _) = fixtures::create_reader_with_public_type(&app, &admin_token, "cfoheld", Some(public_type)).await;
+    let (reader_id, _) =
+        fixtures::create_reader_with_public_type(&app, &admin_token, "cfoheld", Some(public_type))
+            .await;
     let (holder_id, _) = fixtures::create_reader(&app, &admin_token, "cfoholder").await;
     let (_, desk_token, _) = user_with_rights(&app, &admin_token, "w", "n").await;
 
     let (_, seed_item, _) = create_copy(&app, &admin_token, "Held Seed").await;
-    let (status, created) = app.post_json("/api/v1/loans", &checkout_body(reader_id, seed_item, false), Some(&admin_token)).await;
+    let (status, created) = app
+        .post_json(
+            "/api/v1/loans",
+            &checkout_body(reader_id, seed_item, false),
+            Some(&admin_token),
+        )
+        .await;
     assert_eq!(status, StatusCode::CREATED, "{created}");
     insert_fine(&app, fixtures::json_id(&created["id"]), reader_id).await;
 
@@ -322,7 +402,13 @@ async fn non_forceable_copy_gate_writes_no_fine_override() {
     .await
     .expect("ready hold");
 
-    let (status, refused) = app.post_json("/api/v1/loans", &checkout_body(reader_id, held_item, true), Some(&desk_token)).await;
+    let (status, refused) = app
+        .post_json(
+            "/api/v1/loans",
+            &checkout_body(reader_id, held_item, true),
+            Some(&desk_token),
+        )
+        .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{refused}");
     assert_eq!(refused["code"], "item_held_for_other", "{refused}");
     assert_eq!(refused["forceable"], false, "{refused}");
@@ -351,15 +437,29 @@ async fn none_mode_does_not_offer_the_override() {
     assert_eq!(status, StatusCode::CREATED, "public type: {body}");
     assert_eq!(body["unpaidThresholdMode"], "none", "{body}");
     let public_type = fixtures::json_id(&body["id"]);
-    let (reader_id, _) = fixtures::create_reader_with_public_type(&app, &admin_token, "cfonone", Some(public_type)).await;
+    let (reader_id, _) =
+        fixtures::create_reader_with_public_type(&app, &admin_token, "cfonone", Some(public_type))
+            .await;
 
     let (_, seed_item, _) = create_copy(&app, &admin_token, "None Seed").await;
-    let (status, created) = app.post_json("/api/v1/loans", &checkout_body(reader_id, seed_item, false), Some(&admin_token)).await;
+    let (status, created) = app
+        .post_json(
+            "/api/v1/loans",
+            &checkout_body(reader_id, seed_item, false),
+            Some(&admin_token),
+        )
+        .await;
     assert_eq!(status, StatusCode::CREATED, "{created}");
     insert_fine(&app, fixtures::json_id(&created["id"]), reader_id).await;
 
     let (_, next_item, _) = create_copy(&app, &admin_token, "None Checkout").await;
-    let (status, checked_out) = app.post_json("/api/v1/loans", &checkout_body(reader_id, next_item, false), Some(&admin_token)).await;
+    let (status, checked_out) = app
+        .post_json(
+            "/api/v1/loans",
+            &checkout_body(reader_id, next_item, false),
+            Some(&admin_token),
+        )
+        .await;
     assert_eq!(status, StatusCode::CREATED, "{checked_out}");
     tokio::time::sleep(Duration::from_millis(400)).await;
     assert_eq!(override_count_for_patron(&app, reader_id).await, 0);

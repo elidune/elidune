@@ -49,7 +49,10 @@ pub struct CirculationApplyPending {
 
 impl Repository {
     /// Apply an item-status transition and optional loan close + charge in one transaction.
-    pub async fn circulation_apply(&self, params: CirculationApplyParams<'_>) -> AppResult<CirculationApplyResult> {
+    pub async fn circulation_apply(
+        &self,
+        params: CirculationApplyParams<'_>,
+    ) -> AppResult<CirculationApplyResult> {
         let pending = self.circulation_apply_pending(params).await?;
         pending.tx.commit().await?;
         Ok(pending.apply)
@@ -60,15 +63,20 @@ impl Repository {
     /// Callers that must record an audit row atomically with the status change
     /// insert it before commit. Dropping [`CirculationApplyPending`] rolls the
     /// apply back.
-    pub async fn circulation_apply_pending(&self, params: CirculationApplyParams<'_>) -> AppResult<CirculationApplyPending> {
+    pub async fn circulation_apply_pending(
+        &self,
+        params: CirculationApplyParams<'_>,
+    ) -> AppResult<CirculationApplyPending> {
         let now = Utc::now();
         let mut tx = self.pool.begin().await?;
 
-        let loan = sqlx::query_as::<_, Loan>("SELECT * FROM loans WHERE id = $1 AND returned_at IS NULL FOR UPDATE")
-            .bind(params.loan_id)
-            .fetch_optional(&mut *tx)
-            .await?
-            .ok_or_else(|| AppError::NotFound(format!("Active loan {} not found", params.loan_id)))?;
+        let loan = sqlx::query_as::<_, Loan>(
+            "SELECT * FROM loans WHERE id = $1 AND returned_at IS NULL FOR UPDATE",
+        )
+        .bind(params.loan_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Active loan {} not found", params.loan_id)))?;
 
         let item_row = sqlx::query(
             r#"
@@ -84,7 +92,9 @@ impl Repository {
         .ok_or_else(|| AppError::NotFound(format!("Item {} not found", loan.item_id)))?;
 
         let current = CirculationStatus::from_db(item_row.get("circulation_status"));
-        let next = current.transition(params.action).map_err(|msg| AppError::BusinessRule(msg.to_string()))?;
+        let next = current
+            .transition(params.action)
+            .map_err(|msg| AppError::BusinessRule(msg.to_string()))?;
 
         let close_loan = params.action.closes_loan(params.disposition);
         let notify_holds = params.action.notify_holds();
@@ -120,24 +130,43 @@ impl Repository {
             }
         }
 
-        let charge = if let (Some(amount), Some(charge_type)) = (params.bill_amount, params.charge_type) {
-            if amount.0 <= 0 {
-                return Err(AppError::Validation("Charge amount must be positive".to_string()));
-            }
-            Some(self.fines_create_charge_tx(&mut tx, loan.id, loan.user_id, loan.item_id, amount, charge_type, params.notes).await?)
-        } else {
-            None
-        };
+        let charge =
+            if let (Some(amount), Some(charge_type)) = (params.bill_amount, params.charge_type) {
+                if amount.0 <= 0 {
+                    return Err(AppError::Validation(
+                        "Charge amount must be positive".to_string(),
+                    ));
+                }
+                Some(
+                    self.fines_create_charge_tx(
+                        &mut tx,
+                        loan.id,
+                        loan.user_id,
+                        loan.item_id,
+                        amount,
+                        charge_type,
+                        params.notes,
+                    )
+                    .await?,
+                )
+            } else {
+                None
+            };
 
         let mut readied_hold = None;
         if close_loan {
             let closure_reason = match params.action {
-                CirculationAction::MarkLost | CirculationAction::ResolveNotFound => LoanClosureReason::Lost,
+                CirculationAction::MarkLost | CirculationAction::ResolveNotFound => {
+                    LoanClosureReason::Lost
+                }
                 _ => LoanClosureReason::Returned,
             };
-            self.loans_archive_and_delete_tx(&mut tx, &loan, now, closure_reason).await?;
+            self.loans_archive_and_delete_tx(&mut tx, &loan, now, closure_reason)
+                .await?;
             if notify_holds {
-                readied_hold = self.holds_notify_next_tx(&mut tx, loan.item_id, self.hold_ready_expiry_days()).await?;
+                readied_hold = self
+                    .holds_notify_next_tx(&mut tx, loan.item_id, self.hold_ready_expiry_days())
+                    .await?;
             }
         }
 
@@ -157,7 +186,11 @@ impl Repository {
     }
 
     /// Active loans whose item is in the claims-returned queue.
-    pub async fn circulation_list_claims_returned(&self, page: i64, per_page: i64) -> AppResult<(Vec<ClaimsReturnedQueueItem>, i64)> {
+    pub async fn circulation_list_claims_returned(
+        &self,
+        page: i64,
+        per_page: i64,
+    ) -> AppResult<(Vec<ClaimsReturnedQueueItem>, i64)> {
         let offset = (page - 1).max(0) * per_page;
         let total: i64 = sqlx::query_scalar(
             r#"
@@ -221,11 +254,12 @@ impl Repository {
 
     /// Item price used as a replacement bill when staff omit an explicit amount.
     pub async fn circulation_item_price(&self, item_id: i64) -> AppResult<Option<Cents>> {
-        let price: Option<Cents> = sqlx::query_scalar("SELECT price FROM items WHERE id = $1 AND archived_at IS NULL")
-            .bind(item_id)
-            .fetch_optional(&self.pool)
-            .await?
-            .flatten();
+        let price: Option<Cents> =
+            sqlx::query_scalar("SELECT price FROM items WHERE id = $1 AND archived_at IS NULL")
+                .bind(item_id)
+                .fetch_optional(&self.pool)
+                .await?
+                .flatten();
         Ok(price.filter(|amount| amount.0 > 0))
     }
 
@@ -236,7 +270,12 @@ impl Repository {
     ///
     /// The transaction stays open so the caller can write fine audit rows
     /// before commit. Dropping [`LostFoundPending`] rolls the resolution back.
-    pub async fn circulation_resolve_lost_found(&self, item_id: i64, disposition: LostFoundDisposition, notes: Option<&str>) -> AppResult<LostFoundPending> {
+    pub async fn circulation_resolve_lost_found(
+        &self,
+        item_id: i64,
+        disposition: LostFoundDisposition,
+        notes: Option<&str>,
+    ) -> AppResult<LostFoundPending> {
         let now = Utc::now();
         let mut tx = self.pool.begin().await?;
 
@@ -256,7 +295,9 @@ impl Repository {
 
         let current = CirculationStatus::from_db(item_row.get("circulation_status"));
         if current != CirculationStatus::Lost {
-            return Err(AppError::BusinessRule("Item is not marked lost".to_string()));
+            return Err(AppError::BusinessRule(
+                "Item is not marked lost".to_string(),
+            ));
         }
         let title: Option<String> = item_row.get("title");
         let barcode: Option<String> = item_row.get("barcode");
@@ -281,7 +322,9 @@ impl Repository {
             LostFoundDisposition::Damaged => CirculationAction::AcceptFoundDamaged,
             LostFoundDisposition::Leave => CirculationAction::AcceptFound,
         };
-        let next = current.transition(action).map_err(|msg| AppError::BusinessRule(msg.to_string()))?;
+        let next = current
+            .transition(action)
+            .map_err(|msg| AppError::BusinessRule(msg.to_string()))?;
         let borrowable = next.borrowable_after();
 
         sqlx::query(
@@ -301,19 +344,25 @@ impl Repository {
         .await?;
 
         // Finding the copy does not reopen the loan. It stays closed as lost.
-        if matches!(disposition, LostFoundDisposition::Circulate | LostFoundDisposition::Damaged) {
-            self.loans_mark_lost_copy_found_tx(&mut tx, item_id, now).await?;
+        if matches!(
+            disposition,
+            LostFoundDisposition::Circulate | LostFoundDisposition::Damaged
+        ) {
+            self.loans_mark_lost_copy_found_tx(&mut tx, item_id, now)
+                .await?;
         }
 
         // `damaged` must not cancel, refund, or waive. Relief is an explicit waive.
         let settlement = if disposition == LostFoundDisposition::Damaged {
             None
         } else {
-            self.fines_settle_replacement_tx(&mut tx, item_id, notes).await?
+            self.fines_settle_replacement_tx(&mut tx, item_id, notes)
+                .await?
         };
 
         let readied_hold = if action.notify_holds() {
-            self.holds_notify_next_tx(&mut tx, item_id, self.hold_ready_expiry_days()).await?
+            self.holds_notify_next_tx(&mut tx, item_id, self.hold_ready_expiry_days())
+                .await?
         } else {
             None
         };

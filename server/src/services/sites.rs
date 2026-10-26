@@ -32,7 +32,9 @@ impl SitesService {
     pub async fn create(&self, data: &CreateSite) -> AppResult<Site> {
         let name = data.name.trim();
         if name.is_empty() {
-            return Err(AppError::Validation("Site name cannot be empty".to_string()));
+            return Err(AppError::Validation(
+                "Site name cannot be empty".to_string(),
+            ));
         }
         self.repository.sites_create(name, data.default).await
     }
@@ -40,7 +42,9 @@ impl SitesService {
     /// Rename a source
     pub async fn rename(&self, id: i64, name: &str) -> AppResult<Site> {
         if name.trim().is_empty() {
-            return Err(AppError::Validation("Site name cannot be empty".to_string()));
+            return Err(AppError::Validation(
+                "Site name cannot be empty".to_string(),
+            ));
         }
         self.repository.sites_rename(id, name.trim()).await
     }
@@ -50,11 +54,15 @@ impl SitesService {
         // Validate name if provided
         if let Some(ref name) = data.name {
             if name.trim().is_empty() {
-                return Err(AppError::Validation("Site name cannot be empty".to_string()));
+                return Err(AppError::Validation(
+                    "Site name cannot be empty".to_string(),
+                ));
             }
         }
 
-        self.repository.sites_update(id, data.name.as_deref(), data.default).await
+        self.repository
+            .sites_update(id, data.name.as_deref(), data.default)
+            .await
     }
 
     /// Archive a source (fails if non-archived items are linked)
@@ -64,13 +72,18 @@ impl SitesService {
 
         // Check if already archived
         if source.is_archive == Some(1) {
-            return Err(AppError::BusinessRule("Site is already archived".to_string()));
+            return Err(AppError::BusinessRule(
+                "Site is already archived".to_string(),
+            ));
         }
 
         // Check for non-archived items
         let active_count = self.repository.sites_count_active_items(id).await?;
         if active_count > 0 {
-            return Err(AppError::BusinessRule(format!("Cannot archive site: {} non-archived item(s) still linked", active_count)));
+            return Err(AppError::BusinessRule(format!(
+                "Cannot archive site: {} non-archived item(s) still linked",
+                active_count
+            )));
         }
 
         self.repository.sites_archive(id).await
@@ -82,10 +95,14 @@ impl SitesService {
     /// a failure cannot leave items pointing at a non-existent or wrong source.
     pub async fn merge(&self, data: &MergeSites) -> AppResult<Site> {
         if data.name.trim().is_empty() {
-            return Err(AppError::Validation("Merged site name cannot be empty".to_string()));
+            return Err(AppError::Validation(
+                "Merged site name cannot be empty".to_string(),
+            ));
         }
         if data.site_ids.len() < 2 {
-            return Err(AppError::Validation("At least 2 site IDs are required for merge".to_string()));
+            return Err(AppError::Validation(
+                "At least 2 site IDs are required for merge".to_string(),
+            ));
         }
 
         // Verify all source IDs exist before opening the transaction.

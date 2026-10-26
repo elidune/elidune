@@ -11,7 +11,12 @@ use common::TestApp;
 use elidune_server::models::user::{AccountTypeSlug, Rights, UserClaims, UserRights};
 use serde_json::{json, Value};
 
-fn retarget(token: &str, secret: &str, account_type: AccountTypeSlug, rights: UserRights) -> String {
+fn retarget(
+    token: &str,
+    secret: &str,
+    account_type: AccountTypeSlug,
+    rights: UserRights,
+) -> String {
     let mut claims = UserClaims::from_token(token, secret).expect("parse test token");
     claims.account_type = account_type;
     claims.rights = rights;
@@ -89,7 +94,9 @@ async fn seed(app: &TestApp, admin_token: &str) -> Notice {
         .await;
     assert_eq!(status, StatusCode::CREATED, "{created}");
     let biblio_id = fixtures::json_id(&created["biblio"]["id"]);
-    let copies = created["biblio"]["items"].as_array().expect("created copies");
+    let copies = created["biblio"]["items"]
+        .as_array()
+        .expect("created copies");
     let item_id = |barcode: &str| {
         copies
             .iter()
@@ -133,13 +140,21 @@ async fn seed(app: &TestApp, admin_token: &str) -> Notice {
 }
 
 fn copy_by_id(body: &Value, item_id: i64) -> Option<&Value> {
-    body["items"].as_array().and_then(|items| items.iter().find(|item| fixtures::json_id(&item["id"]) == item_id))
+    body["items"].as_array().and_then(|items| {
+        items
+            .iter()
+            .find(|item| fixtures::json_id(&item["id"]) == item_id)
+    })
 }
 
 fn assert_public_notice(body: &Value, notice: &Notice) {
     assert!(body.get("notes").is_none(), "notes leaked: {body}");
-    assert!(copy_by_id(body, notice.lost_id).is_none(), "lost copy leaked: {body}");
-    let held = copy_by_id(body, notice.held_id).unwrap_or_else(|| panic!("held copy missing: {body}"));
+    assert!(
+        copy_by_id(body, notice.lost_id).is_none(),
+        "lost copy leaked: {body}"
+    );
+    let held =
+        copy_by_id(body, notice.held_id).unwrap_or_else(|| panic!("held copy missing: {body}"));
     assert!(held.get("circulationStatus").is_none(), "{held}");
     assert!(held.get("weedingStatus").is_none(), "{held}");
     assert!(held.get("holdFor").is_none(), "{held}");
@@ -152,7 +167,8 @@ fn assert_public_notice(body: &Value, notice: &Notice) {
 
 fn assert_staff_copies(body: &Value, notice: &Notice) {
     assert_eq!(body["notes"], notice.notes, "{body}");
-    let lost = copy_by_id(body, notice.lost_id).unwrap_or_else(|| panic!("lost copy missing: {body}"));
+    let lost =
+        copy_by_id(body, notice.lost_id).unwrap_or_else(|| panic!("lost copy missing: {body}"));
     assert_eq!(lost["circulationStatus"], 1, "{lost}");
     assert!(lost.get("weedingStatus").is_some(), "{lost}");
     let held = copy_by_id(body, notice.held_id).expect("held copy");
@@ -206,24 +222,52 @@ async fn staff_patron_opac_and_intermediate_catalog_views_follow_rights() {
     let notice = seed(&app, &admin_token).await;
     let secret = app.state.config.users.jwt_secret.clone();
 
-    let (status, staff) = get(&app, &format!("/api/v1/biblios/{}", notice.biblio_id), Some(&admin_token)).await;
+    let (status, staff) = get(
+        &app,
+        &format!("/api/v1/biblios/{}", notice.biblio_id),
+        Some(&admin_token),
+    )
+    .await;
     assert_eq!(status, StatusCode::OK, "{staff}");
     assert_staff_copies(&staff, &notice);
     assert_full_hold_for(&staff, &notice);
 
-    let (status, patron) = get(&app, &format!("/api/v1/biblios/{}", notice.biblio_id), Some(&notice.holder_token)).await;
+    let (status, patron) = get(
+        &app,
+        &format!("/api/v1/biblios/{}", notice.biblio_id),
+        Some(&notice.holder_token),
+    )
+    .await;
     assert_eq!(status, StatusCode::OK, "{patron}");
     assert_public_notice(&patron, &notice);
 
-    let (status, opac) = get(&app, &format!("/api/v1/opac/biblios/{}", notice.biblio_id), None).await;
+    let (status, opac) = get(
+        &app,
+        &format!("/api/v1/opac/biblios/{}", notice.biblio_id),
+        None,
+    )
+    .await;
     assert_eq!(status, StatusCode::OK, "{opac}");
     assert_public_notice(&opac, &notice);
 
-    let (status, lost_public) = get(&app, &format!("/api/v1/items/{}", notice.lost_id), Some(&notice.holder_token)).await;
+    let (status, lost_public) = get(
+        &app,
+        &format!("/api/v1/items/{}", notice.lost_id),
+        Some(&notice.holder_token),
+    )
+    .await;
     assert_eq!(status, StatusCode::NOT_FOUND, "{lost_public}");
-    let (status, lost_staff) = get(&app, &format!("/api/v1/items/barcode/{}", notice.lost_barcode), Some(&admin_token)).await;
+    let (status, lost_staff) = get(
+        &app,
+        &format!("/api/v1/items/barcode/{}", notice.lost_barcode),
+        Some(&admin_token),
+    )
+    .await;
     assert_eq!(status, StatusCode::OK, "{lost_staff}");
-    assert_eq!(lost_staff["items"][0]["circulationStatus"], 1, "{lost_staff}");
+    assert_eq!(
+        lost_staff["items"][0]["circulationStatus"], 1,
+        "{lost_staff}"
+    );
 
     let cataloger = retarget(
         &notice.holder_token,
@@ -237,32 +281,68 @@ async fn staff_patron_opac_and_intermediate_catalog_views_follow_rights() {
             ..UserRights::default()
         },
     );
-    let (status, intermediate) = get(&app, &format!("/api/v1/biblios/{}", notice.biblio_id), Some(&cataloger)).await;
+    let (status, intermediate) = get(
+        &app,
+        &format!("/api/v1/biblios/{}", notice.biblio_id),
+        Some(&cataloger),
+    )
+    .await;
     assert_eq!(status, StatusCode::OK, "{intermediate}");
     assert_staff_copies(&intermediate, &notice);
     assert!(
-        copy_by_id(&intermediate, notice.held_id).expect("held").get("holdFor").is_none(),
+        copy_by_id(&intermediate, notice.held_id)
+            .expect("held")
+            .get("holdFor")
+            .is_none(),
         "catalog write without holds rights omits holdFor: {intermediate}"
     );
 
-    let (status, cataloger_items) = get(&app, &format!("/api/v1/biblios/{}/items", notice.biblio_id), Some(&cataloger)).await;
+    let (status, cataloger_items) = get(
+        &app,
+        &format!("/api/v1/biblios/{}/items", notice.biblio_id),
+        Some(&cataloger),
+    )
+    .await;
     assert_eq!(status, StatusCode::OK, "{cataloger_items}");
     assert!(
-        cataloger_items.as_array().expect("item list").iter().any(|item| fixtures::json_id(&item["id"]) == notice.lost_id),
+        cataloger_items
+            .as_array()
+            .expect("item list")
+            .iter()
+            .any(|item| fixtures::json_id(&item["id"]) == notice.lost_id),
         "catalog write keeps the lost copy: {cataloger_items}"
     );
 
-    let librarian_public = retarget(&admin_token, &secret, AccountTypeSlug::Librarian, patron_rights());
-    let (status, demoted) = get(&app, &format!("/api/v1/biblios/{}", notice.biblio_id), Some(&librarian_public)).await;
+    let librarian_public = retarget(
+        &admin_token,
+        &secret,
+        AccountTypeSlug::Librarian,
+        patron_rights(),
+    );
+    let (status, demoted) = get(
+        &app,
+        &format!("/api/v1/biblios/{}", notice.biblio_id),
+        Some(&librarian_public),
+    )
+    .await;
     assert_eq!(status, StatusCode::OK, "{demoted}");
     assert_public_notice(&demoted, &notice);
 
-    let (status, search) = get(&app, &format!("/api/v1/biblios?title={}", notice.title), Some(&librarian_public)).await;
+    let (status, search) = get(
+        &app,
+        &format!("/api/v1/biblios?title={}", notice.title),
+        Some(&librarian_public),
+    )
+    .await;
     assert_eq!(status, StatusCode::OK, "{search}");
     let row = list_row(&search, notice.biblio_id);
     assert!(row.get("weedingStatus").is_none(), "{row}");
     assert!(
-        row["items"].as_array().expect("copies").iter().all(|item| fixtures::json_id(&item["id"]) != notice.lost_id),
+        row["items"]
+            .as_array()
+            .expect("copies")
+            .iter()
+            .all(|item| fixtures::json_id(&item["id"]) != notice.lost_id),
         "public search omits the lost copy: {row}"
     );
 
@@ -278,11 +358,19 @@ async fn staff_patron_opac_and_intermediate_catalog_views_follow_rights() {
             ..UserRights::default()
         },
     );
-    let (status, loans_view) = get(&app, &format!("/api/v1/biblios/{}", notice.biblio_id), Some(&loans_only)).await;
+    let (status, loans_view) = get(
+        &app,
+        &format!("/api/v1/biblios/{}", notice.biblio_id),
+        Some(&loans_only),
+    )
+    .await;
     assert_eq!(status, StatusCode::OK, "{loans_view}");
     assert_staff_copies(&loans_view, &notice);
     assert!(
-        copy_by_id(&loans_view, notice.held_id).expect("held").get("holdFor").is_none(),
+        copy_by_id(&loans_view, notice.held_id)
+            .expect("held")
+            .get("holdFor")
+            .is_none(),
         "loans read without holds rights omits holdFor: {loans_view}"
     );
 
@@ -298,10 +386,18 @@ async fn staff_patron_opac_and_intermediate_catalog_views_follow_rights() {
             ..UserRights::default()
         },
     );
-    let (status, users_view) = get(&app, &format!("/api/v1/biblios/{}", notice.biblio_id), Some(&users_read)).await;
+    let (status, users_view) = get(
+        &app,
+        &format!("/api/v1/biblios/{}", notice.biblio_id),
+        Some(&users_read),
+    )
+    .await;
     assert_eq!(status, StatusCode::OK, "{users_view}");
     assert!(
-        copy_by_id(&users_view, notice.held_id).expect("held").get("holdFor").is_none(),
+        copy_by_id(&users_view, notice.held_id)
+            .expect("held")
+            .get("holdFor")
+            .is_none(),
         "users read without holds rights omits holdFor: {users_view}"
     );
 
@@ -317,7 +413,12 @@ async fn staff_patron_opac_and_intermediate_catalog_views_follow_rights() {
             ..UserRights::default()
         },
     );
-    let (status, holds_view) = get(&app, &format!("/api/v1/biblios/{}", notice.biblio_id), Some(&holds_only)).await;
+    let (status, holds_view) = get(
+        &app,
+        &format!("/api/v1/biblios/{}", notice.biblio_id),
+        Some(&holds_only),
+    )
+    .await;
     assert_eq!(status, StatusCode::OK, "{holds_view}");
     assert_minimized_hold_for(&holds_view, &notice);
 
@@ -333,7 +434,12 @@ async fn staff_patron_opac_and_intermediate_catalog_views_follow_rights() {
             ..UserRights::default()
         },
     );
-    let (status, full_view) = get(&app, &format!("/api/v1/biblios/{}", notice.biblio_id), Some(&holds_and_users)).await;
+    let (status, full_view) = get(
+        &app,
+        &format!("/api/v1/biblios/{}", notice.biblio_id),
+        Some(&holds_and_users),
+    )
+    .await;
     assert_eq!(status, StatusCode::OK, "{full_view}");
     assert_full_hold_for(&full_view, &notice);
 
@@ -345,7 +451,10 @@ async fn staff_patron_opac_and_intermediate_catalog_views_follow_rights() {
         .iter()
         .find(|row| fixtures::json_id(&row["id"]) == notice.hold_id)
         .expect("patron hold");
-    assert!(patron_row["biblio"].get("weedingStatus").is_none(), "{patron_row}");
+    assert!(
+        patron_row["biblio"].get("weedingStatus").is_none(),
+        "{patron_row}"
+    );
     assert!(patron_row["user"].get("login").is_none(), "{patron_row}");
 
     let holds_desk = retarget(
@@ -368,7 +477,10 @@ async fn staff_patron_opac_and_intermediate_catalog_views_follow_rights() {
         .iter()
         .find(|row| fixtures::json_id(&row["id"]) == notice.hold_id)
         .expect("desk hold");
-    assert!(desk_row["biblio"].get("weedingStatus").is_some(), "{desk_row}");
+    assert!(
+        desk_row["biblio"].get("weedingStatus").is_some(),
+        "{desk_row}"
+    );
     assert_eq!(desk_row["user"]["cardNumber"], notice.card, "{desk_row}");
     assert_eq!(desk_row["user"]["initials"], "HH", "{desk_row}");
     assert!(desk_row["user"].get("firstname").is_none(), "{desk_row}");

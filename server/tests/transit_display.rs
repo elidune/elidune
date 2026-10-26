@@ -38,8 +38,19 @@ async fn login_as(app: &TestApp, admin_token: &str, account_type: &str) -> Strin
         .await;
     assert_eq!(status, StatusCode::CREATED, "create {account_type}: {body}");
     let user_id = fixtures::json_id(&body["id"]);
-    app.state.services.users.set_must_change_password(user_id, false).await.expect("clear must_change_password");
-    let (status, body) = app.post_json("/api/v1/auth/login", &json!({ "username": login, "password": "readerpass1234" }), None).await;
+    app.state
+        .services
+        .users
+        .set_must_change_password(user_id, false)
+        .await
+        .expect("clear must_change_password");
+    let (status, body) = app
+        .post_json(
+            "/api/v1/auth/login",
+            &json!({ "username": login, "password": "readerpass1234" }),
+            None,
+        )
+        .await;
     assert_eq!(status, StatusCode::OK, "login {account_type}: {body}");
     body["token"].as_str().expect("token").to_string()
 }
@@ -66,7 +77,12 @@ async fn create_agentguichet(app: &TestApp, admin_token: &str) -> String {
 fn assert_minimal_patron(patron: &Value, card: &str) {
     assert_eq!(patron["cardNumber"], card, "{patron}");
     assert_eq!(patron["initials"], "HH", "{patron}");
-    let mut keys: Vec<&str> = patron.as_object().expect("patron object").keys().map(String::as_str).collect();
+    let mut keys: Vec<&str> = patron
+        .as_object()
+        .expect("patron object")
+        .keys()
+        .map(String::as_str)
+        .collect();
     keys.sort_unstable();
     assert_eq!(keys, ["cardNumber", "initials"], "{patron}");
 }
@@ -75,12 +91,17 @@ fn assert_copy_fields(row: &Value, barcode: &str, title: &str, site_id: i64) {
     assert!(row.get("barcode").is_some(), "barcode key: {row}");
     assert!(row.get("title").is_some(), "title key: {row}");
     assert!(row.get("siteId").is_some(), "sourceId key: {row}");
-    assert!(row.get("sourceName").is_some(), "sourceName key: {row}");
+    assert!(row.get("siteName").is_some(), "siteName key: {row}");
     assert!(row.get("patron").is_some(), "patron key: {row}");
     assert_eq!(row["barcode"], barcode, "{row}");
     assert_eq!(row["title"], title, "{row}");
     assert_eq!(fixtures::json_id(&row["siteId"]), site_id, "{row}");
-    assert!(row["sourceName"].as_str().is_some_and(|name| !name.is_empty()), "sourceName: {row}");
+    assert!(
+        row["siteName"]
+            .as_str()
+            .is_some_and(|name| !name.is_empty()),
+        "siteName: {row}"
+    );
 }
 
 fn assert_no_identity(body: &Value, login: &str) {
@@ -164,7 +185,11 @@ async fn ship_cross_site(app: &TestApp, admin_token: &str, label: &str) -> Shipp
     let hold_id = fixtures::json_id(&hold["id"]);
 
     let (status, shipped) = app
-        .post_json(&format!("/api/v1/holds/{hold_id}/transits"), &json!({ "itemId": item_id.to_string(), "ship": true }), Some(admin_token))
+        .post_json(
+            &format!("/api/v1/holds/{hold_id}/transits"),
+            &json!({ "itemId": item_id.to_string(), "ship": true }),
+            Some(admin_token),
+        )
         .await;
     assert_eq!(status, StatusCode::CREATED, "ship: {shipped}");
     let transit = &shipped["transit"];
@@ -186,14 +211,20 @@ async fn ship_cross_site(app: &TestApp, admin_token: &str, label: &str) -> Shipp
 
 async fn create_site(app: &TestApp, admin_token: &str, name: &str) -> i64 {
     let (status, body) = app
-        .post_json("/api/v1/sites", &json!({ "name": format!("{name}-{}", fixtures::unique_suffix()) }), Some(admin_token))
+        .post_json(
+            "/api/v1/sites",
+            &json!({ "name": format!("{name}-{}", fixtures::unique_suffix()) }),
+            Some(admin_token),
+        )
         .await;
     assert_eq!(status, StatusCode::CREATED, "create site: {body}");
     fixtures::json_id(&body["id"])
 }
 
 async fn transit_row(app: &TestApp, token: &str, transit_id: i64) -> Value {
-    let (status, body) = app.get_json_with_auth(&format!("/api/v1/transits/{transit_id}"), token).await;
+    let (status, body) = app
+        .get_json_with_auth(&format!("/api/v1/transits/{transit_id}"), token)
+        .await;
     assert_eq!(status, StatusCode::OK, "get transit: {body}");
     body["transit"].clone()
 }
@@ -210,7 +241,12 @@ async fn list_and_active_routes_include_copy_fields_and_minimal_patron() {
     assert_copy_fields(&listed, &shipped.barcode, &shipped.title, shipped.origin);
     assert_minimal_patron(&listed["patron"], &shipped.card);
 
-    let (status, list) = app.get_json_with_auth(&format!("/api/v1/transits?itemId={}&perPage=20", shipped.item_id), &admin_token).await;
+    let (status, list) = app
+        .get_json_with_auth(
+            &format!("/api/v1/transits?itemId={}&perPage=20", shipped.item_id),
+            &admin_token,
+        )
+        .await;
     assert_eq!(status, StatusCode::OK, "list: {list}");
     let row = list["items"]
         .as_array()
@@ -222,23 +258,39 @@ async fn list_and_active_routes_include_copy_fields_and_minimal_patron() {
     assert_minimal_patron(&row["patron"], &shipped.card);
     assert_no_identity(&list, &shipped.login);
 
-    let (status, by_hold) = app.get_json_with_auth(&format!("/api/v1/holds/{}/transits", shipped.hold_id), &admin_token).await;
+    let (status, by_hold) = app
+        .get_json_with_auth(
+            &format!("/api/v1/holds/{}/transits", shipped.hold_id),
+            &admin_token,
+        )
+        .await;
     assert_eq!(status, StatusCode::OK, "hold transit: {by_hold}");
     assert_copy_fields(&by_hold, &shipped.barcode, &shipped.title, shipped.origin);
     assert_minimal_patron(&by_hold["patron"], &shipped.card);
 
-    let (status, by_item) = app.get_json_with_auth(&format!("/api/v1/items/{}/transit", shipped.item_id), &admin_token).await;
+    let (status, by_item) = app
+        .get_json_with_auth(
+            &format!("/api/v1/items/{}/transit", shipped.item_id),
+            &admin_token,
+        )
+        .await;
     assert_eq!(status, StatusCode::OK, "item transit: {by_item}");
     assert_copy_fields(&by_item, &shipped.barcode, &shipped.title, shipped.origin);
     assert_minimal_patron(&by_item["patron"], &shipped.card);
 
-    let (status, received) = app.post_json(&format!("/api/v1/transits/{}/receive", shipped.transit_id), &json!({}), Some(&admin_token)).await;
+    let (status, received) = app
+        .post_json(
+            &format!("/api/v1/transits/{}/receive", shipped.transit_id),
+            &json!({}),
+            Some(&admin_token),
+        )
+        .await;
     assert_eq!(status, StatusCode::OK, "receive: {received}");
     assert_eq!(received["hold"]["status"], "ready");
     assert_minimal_patron(&received["transit"]["patron"], &shipped.card);
     assert_eq!(
         fixtures::json_id(&received["transit"]["siteId"]),
-        fixtures::json_id(&received["transit"]["toSourceId"]),
+        fixtures::json_id(&received["transit"]["toSiteId"]),
         "sourceId follows the copy after arrival: {received}"
     );
 }
@@ -290,7 +342,10 @@ async fn patron_stays_minimal_for_librarian_and_agentguichet() {
     let desk_code = create_agentguichet(&app, &admin_token).await;
     let desk = login_as(&app, &admin_token, &desk_code).await;
     let desk_claims = UserClaims::from_token(&desk, &secret).expect("agentguichet token");
-    assert!(desk_claims.account_type.as_str().starts_with("agentguichet"));
+    assert!(desk_claims
+        .account_type
+        .as_str()
+        .starts_with("agentguichet"));
     assert!(desk_claims.rights.holds_rights.rank() >= Rights::Read.rank());
     assert!(desk_claims.rights.users_rights.rank() < Rights::Read.rank());
     let row = transit_row(&app, &desk, shipped.transit_id).await;
@@ -302,7 +357,9 @@ async fn patron_stays_minimal_for_librarian_and_agentguichet() {
     assert!(hidden["patron"].is_null(), "no holds rights: {hidden}");
     assert_no_identity(&hidden, &shipped.login);
 
-    let (status, cancelled) = app.delete_with_auth(&format!("/api/v1/holds/{}", shipped.hold_id), &admin_token).await;
+    let (status, cancelled) = app
+        .delete_with_auth(&format!("/api/v1/holds/{}", shipped.hold_id), &admin_token)
+        .await;
     assert_eq!(status, StatusCode::OK, "cancel hold: {cancelled}");
     let row = transit_row(&app, &librarian, shipped.transit_id).await;
     assert!(row["patron"].is_null(), "cancelled hold, librarian: {row}");
@@ -329,11 +386,20 @@ async fn patron_is_null_for_a_return_without_a_hold() {
     let shipped = ship_cross_site(&app, &admin_token, "trnhome").await;
 
     let (status, cancelled) = app
-        .post_json(&format!("/api/v1/transits/{}/cancel", shipped.transit_id), &json!({ "reverse": true }), Some(&admin_token))
+        .post_json(
+            &format!("/api/v1/transits/{}/cancel", shipped.transit_id),
+            &json!({ "reverse": true }),
+            Some(&admin_token),
+        )
         .await;
     assert_eq!(status, StatusCode::OK, "cancel transit: {cancelled}");
 
-    let (status, list) = app.get_json_with_auth(&format!("/api/v1/transits?itemId={}&perPage=20", shipped.item_id), &admin_token).await;
+    let (status, list) = app
+        .get_json_with_auth(
+            &format!("/api/v1/transits?itemId={}&perPage=20", shipped.item_id),
+            &admin_token,
+        )
+        .await;
     assert_eq!(status, StatusCode::OK, "list: {list}");
     let reverse = list["items"]
         .as_array()
@@ -353,7 +419,9 @@ async fn patron_is_null_when_the_linked_hold_is_cancelled() {
     let admin_token = fixtures::ensure_first_setup(&app).await;
     let shipped = ship_cross_site(&app, &admin_token, "trncan").await;
 
-    let (status, _) = app.delete_with_auth(&format!("/api/v1/holds/{}", shipped.hold_id), &admin_token).await;
+    let (status, _) = app
+        .delete_with_auth(&format!("/api/v1/holds/{}", shipped.hold_id), &admin_token)
+        .await;
     assert_eq!(status, StatusCode::OK);
 
     let row = transit_row(&app, &admin_token, shipped.transit_id).await;
@@ -429,65 +497,81 @@ async fn same_site_transit_is_422_and_writes_nothing() {
     assert_eq!(hold["status"], "to_pick", "{hold}");
     let hold_id = fixtures::json_id(&hold["id"]);
 
-    let before_hold: (String, Option<i64>, Option<i64>) = sqlx::query_as("SELECT status, item_id, pickup_site_id FROM holds WHERE id = $1")
-        .bind(hold_id)
-        .fetch_one(app.state.services.repository.pool())
-        .await
-        .expect("hold snapshot");
+    let before_hold: (String, Option<i64>, Option<i64>) =
+        sqlx::query_as("SELECT status, item_id, pickup_site_id FROM holds WHERE id = $1")
+            .bind(hold_id)
+            .fetch_one(app.state.services.repository.pool())
+            .await
+            .expect("hold snapshot");
     let before_source: Option<i64> = sqlx::query_scalar("SELECT site_id FROM items WHERE id = $1")
         .bind(item_id)
         .fetch_one(app.state.services.repository.pool())
         .await
         .expect("item site");
-    let before_transits: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM item_transits WHERE item_id = $1 OR hold_id = $2")
-        .bind(item_id)
-        .bind(hold_id)
-        .fetch_one(app.state.services.repository.pool())
-        .await
-        .expect("transit count");
+    let before_transits: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM item_transits WHERE item_id = $1 OR hold_id = $2")
+            .bind(item_id)
+            .bind(hold_id)
+            .fetch_one(app.state.services.repository.pool())
+            .await
+            .expect("transit count");
 
     let (status, body) = app
         .post_json(
             &format!("/api/v1/holds/{hold_id}/transits"),
             &json!({
                 "itemId": item_id.to_string(),
-                "fromSourceId": site.to_string(),
-                "toSourceId": site.to_string(),
+                "fromSiteId": site.to_string(),
+                "toSiteId": site.to_string(),
                 "ship": true
             }),
             Some(&admin_token),
         )
         .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
-    let mut keys: Vec<&str> = body.as_object().expect("error object").keys().map(String::as_str).collect();
+    let mut keys: Vec<&str> = body
+        .as_object()
+        .expect("error object")
+        .keys()
+        .map(String::as_str)
+        .collect();
     keys.sort_unstable();
     assert_eq!(keys, ["code", "error", "message"], "{body}");
     assert_eq!(body["code"], "transit_same_site", "{body}");
     assert_eq!(body["error"], "Business Rule Violation", "{body}");
-    assert!(body["message"].as_str().is_some_and(|message| !message.is_empty()), "{body}");
+    assert!(
+        body["message"]
+            .as_str()
+            .is_some_and(|message| !message.is_empty()),
+        "{body}"
+    );
 
-    let after_hold: (String, Option<i64>, Option<i64>) = sqlx::query_as("SELECT status, item_id, pickup_site_id FROM holds WHERE id = $1")
-        .bind(hold_id)
-        .fetch_one(app.state.services.repository.pool())
-        .await
-        .expect("hold after");
+    let after_hold: (String, Option<i64>, Option<i64>) =
+        sqlx::query_as("SELECT status, item_id, pickup_site_id FROM holds WHERE id = $1")
+            .bind(hold_id)
+            .fetch_one(app.state.services.repository.pool())
+            .await
+            .expect("hold after");
     let after_source: Option<i64> = sqlx::query_scalar("SELECT site_id FROM items WHERE id = $1")
         .bind(item_id)
         .fetch_one(app.state.services.repository.pool())
         .await
         .expect("item site after");
-    let after_transits: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM item_transits WHERE item_id = $1 OR hold_id = $2")
-        .bind(item_id)
-        .bind(hold_id)
-        .fetch_one(app.state.services.repository.pool())
-        .await
-        .expect("transit count after");
+    let after_transits: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM item_transits WHERE item_id = $1 OR hold_id = $2")
+            .bind(item_id)
+            .bind(hold_id)
+            .fetch_one(app.state.services.repository.pool())
+            .await
+            .expect("transit count after");
     assert_eq!(after_hold, before_hold, "hold was written");
     assert_eq!(after_source, before_source, "item site was written");
     assert_eq!(after_transits, before_transits, "a transit row was written");
     assert_eq!(before_transits, 0);
 
-    let (status, active) = app.get_json_with_auth(&format!("/api/v1/holds/{hold_id}/transits"), &admin_token).await;
+    let (status, active) = app
+        .get_json_with_auth(&format!("/api/v1/holds/{hold_id}/transits"), &admin_token)
+        .await;
     assert_eq!(status, StatusCode::OK, "{active}");
     assert!(active.is_null(), "active transit: {active}");
 }

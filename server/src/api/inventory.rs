@@ -13,8 +13,9 @@ use crate::{
     error::{AppError, AppResult},
     models::{
         inventory::{
-            BatchScanBarcodes, ConsolidateInventorySession, CreateInventorySession, CreateInventorySessionResponse, InventoryConsolidationPreview, InventoryMissingRow, InventoryReport, InventoryScan,
-            InventorySession, InventoryStatus, ScanBarcode,
+            BatchScanBarcodes, ConsolidateInventorySession, CreateInventorySession,
+            CreateInventorySessionResponse, InventoryConsolidationPreview, InventoryMissingRow,
+            InventoryReport, InventoryScan, InventorySession, InventoryStatus, ScanBarcode,
         },
         task::TaskKind,
     },
@@ -26,7 +27,10 @@ use super::{biblios::PaginatedResponse, tasks::TaskAcceptedResponse, StaffUser};
 pub fn router() -> axum::Router<crate::AppState> {
     use axum::routing::{get, post};
     axum::Router::new()
-        .route("/inventory/sessions", get(list_sessions).post(create_session))
+        .route(
+            "/inventory/sessions",
+            get(list_sessions).post(create_session),
+        )
         .route("/inventory/sessions/:id", get(get_session))
         .route("/inventory/sessions/:id/close", post(close_session))
         .route("/inventory/sessions/:id/scan", post(scan_barcode))
@@ -34,8 +38,14 @@ pub fn router() -> axum::Router<crate::AppState> {
         .route("/inventory/sessions/:id/scans", get(list_scans))
         .route("/inventory/sessions/:id/missing", get(list_missing))
         .route("/inventory/sessions/:id/report", get(get_report))
-        .route("/inventory/sessions/:id/consolidate/preview", get(consolidation_preview))
-        .route("/inventory/sessions/:id/consolidate", post(consolidate_session))
+        .route(
+            "/inventory/sessions/:id/consolidate/preview",
+            get(consolidation_preview),
+        )
+        .route(
+            "/inventory/sessions/:id/consolidate",
+            post(consolidate_session),
+        )
 }
 
 /// Query for `GET /inventory/sessions`.
@@ -78,7 +88,11 @@ pub async fn list_sessions(
 ) -> AppResult<Json<PaginatedResponse<InventorySession>>> {
     let page = query.page.unwrap_or(1).max(1);
     let per_page = query.per_page.unwrap_or(50).clamp(1, 200);
-    let (items, total) = state.services.inventory.list_sessions_page(page, per_page, query.status).await?;
+    let (items, total) = state
+        .services
+        .inventory
+        .list_sessions_page(page, per_page, query.status)
+        .await?;
     Ok(Json(PaginatedResponse::new(items, total, page, per_page)))
 }
 
@@ -166,7 +180,11 @@ pub async fn create_session(
         (status = 404, description = "Session not found", body = crate::error::ErrorResponse)
     )
 )]
-pub async fn get_session(State(state): State<crate::AppState>, StaffUser(_staff): StaffUser, Path(id): Path<i64>) -> AppResult<Json<InventorySession>> {
+pub async fn get_session(
+    State(state): State<crate::AppState>,
+    StaffUser(_staff): StaffUser,
+    Path(id): Path<i64>,
+) -> AppResult<Json<InventorySession>> {
     Ok(Json(state.services.inventory.get_session(id).await?))
 }
 
@@ -184,7 +202,11 @@ pub async fn get_session(State(state): State<crate::AppState>, StaffUser(_staff)
         (status = 404, description = "Open session not found", body = crate::error::ErrorResponse)
     )
 )]
-pub async fn close_session(State(state): State<crate::AppState>, StaffUser(claims): StaffUser, Path(id): Path<i64>) -> AppResult<Json<InventorySession>> {
+pub async fn close_session(
+    State(state): State<crate::AppState>,
+    StaffUser(claims): StaffUser,
+    Path(id): Path<i64>,
+) -> AppResult<Json<InventorySession>> {
     match state.services.inventory.close_session(id).await {
         Ok(session) => {
             state.services.audit.log(
@@ -228,12 +250,23 @@ pub async fn close_session(State(state): State<crate::AppState>, StaffUser(claim
         (status = 404, description = "Session not found", body = crate::error::ErrorResponse)
     )
 )]
-pub async fn scan_barcode(State(state): State<crate::AppState>, StaffUser(claims): StaffUser, Path(id): Path<i64>, Json(req): Json<ScanBarcode>) -> AppResult<(StatusCode, Json<InventoryScan>)> {
+pub async fn scan_barcode(
+    State(state): State<crate::AppState>,
+    StaffUser(claims): StaffUser,
+    Path(id): Path<i64>,
+    Json(req): Json<ScanBarcode>,
+) -> AppResult<(StatusCode, Json<InventoryScan>)> {
     let session = state.services.inventory.get_session(id).await?;
     if session.status != InventoryStatus::Open {
-        return Err(crate::error::AppError::BadRequest("Session is closed — cannot scan".to_string()));
+        return Err(crate::error::AppError::BadRequest(
+            "Session is closed — cannot scan".to_string(),
+        ));
     }
-    let scan = state.services.inventory.scan_barcode(id, &req.barcode, Some(claims.user_id)).await?;
+    let scan = state
+        .services
+        .inventory
+        .scan_barcode(id, &req.barcode, Some(claims.user_id))
+        .await?;
     Ok((StatusCode::CREATED, Json(scan)))
 }
 
@@ -263,10 +296,15 @@ pub async fn batch_scan(
 ) -> AppResult<(StatusCode, Json<TaskAcceptedResponse>)> {
     let session = state.services.inventory.get_session(id).await?;
     if session.status != InventoryStatus::Open {
-        return Err(AppError::BadRequest("Session is closed — cannot scan".to_string()));
+        return Err(AppError::BadRequest(
+            "Session is closed — cannot scan".to_string(),
+        ));
     }
     if req.barcodes.len() > INVENTORY_BATCH_MAX_BARCODES {
-        return Err(AppError::Validation(format!("At most {} barcodes per batch", INVENTORY_BATCH_MAX_BARCODES)));
+        return Err(AppError::Validation(format!(
+            "At most {} barcodes per batch",
+            INVENTORY_BATCH_MAX_BARCODES
+        )));
     }
 
     let inventory = state.services.inventory.clone();
@@ -278,54 +316,61 @@ pub async fn batch_scan(
     let user_id = claims.user_id;
 
     let task_id = tasks
-        .spawn_task(TaskKind::InventoryBatchScan, user_id, move |handle| async move {
-            let total = barcodes.len();
-            let mut scans: Vec<InventoryScan> = Vec::with_capacity(total);
-            for (i, b) in barcodes.iter().enumerate() {
-                match inventory.scan_barcode(session_id, b, scanned_by).await {
-                    Ok(scan) => {
-                        scans.push(scan);
-                        handle.set_progress(i + 1, total, None).await;
-                    }
-                    Err(e) => {
-                        audit.log(
-                            audit::event::SYSTEM_TASK_FAILED,
-                            Some(user_id),
-                            None,
-                            None,
-                            None,
-                            Some(serde_json::json!({
-                                "task_id": handle.id,
-                                "task_kind": "inventory_batch_scan",
-                                "session_id": session_id,
-                                "barcode": b,
-                                "error": e.to_string(),
-                            })),
-                            audit::AuditLogMeta::failure_background("task_failed", e.to_string()),
-                        );
-                        handle.fail(e.to_string()).await;
-                        return;
+        .spawn_task(
+            TaskKind::InventoryBatchScan,
+            user_id,
+            move |handle| async move {
+                let total = barcodes.len();
+                let mut scans: Vec<InventoryScan> = Vec::with_capacity(total);
+                for (i, b) in barcodes.iter().enumerate() {
+                    match inventory.scan_barcode(session_id, b, scanned_by).await {
+                        Ok(scan) => {
+                            scans.push(scan);
+                            handle.set_progress(i + 1, total, None).await;
+                        }
+                        Err(e) => {
+                            audit.log(
+                                audit::event::SYSTEM_TASK_FAILED,
+                                Some(user_id),
+                                None,
+                                None,
+                                None,
+                                Some(serde_json::json!({
+                                    "task_id": handle.id,
+                                    "task_kind": "inventory_batch_scan",
+                                    "session_id": session_id,
+                                    "barcode": b,
+                                    "error": e.to_string(),
+                                })),
+                                audit::AuditLogMeta::failure_background(
+                                    "task_failed",
+                                    e.to_string(),
+                                ),
+                            );
+                            handle.fail(e.to_string()).await;
+                            return;
+                        }
                     }
                 }
-            }
-            audit.log(
-                audit::event::SYSTEM_TASK_COMPLETED,
-                Some(user_id),
-                None,
-                None,
-                None,
-                Some(serde_json::json!({
-                    "task_id": handle.id,
-                    "task_kind": "inventory_batch_scan",
-                    "session_id": session_id,
-                    "barcode_count": total,
-                    "scanned_count": scans.len(),
-                })),
-                audit::AuditLogMeta::success(),
-            );
-            let result = serde_json::to_value(&scans).unwrap_or_default();
-            handle.complete(result).await;
-        })
+                audit.log(
+                    audit::event::SYSTEM_TASK_COMPLETED,
+                    Some(user_id),
+                    None,
+                    None,
+                    None,
+                    Some(serde_json::json!({
+                        "task_id": handle.id,
+                        "task_kind": "inventory_batch_scan",
+                        "session_id": session_id,
+                        "barcode_count": total,
+                        "scanned_count": scans.len(),
+                    })),
+                    audit::AuditLogMeta::success(),
+                );
+                let result = serde_json::to_value(&scans).unwrap_or_default();
+                handle.complete(result).await;
+            },
+        )
         .await;
 
     Ok((StatusCode::ACCEPTED, Json(TaskAcceptedResponse { task_id })))
@@ -355,7 +400,11 @@ pub async fn list_scans(
 ) -> AppResult<Json<PaginatedResponse<InventoryScan>>> {
     let page = query.page.unwrap_or(1).max(1);
     let per_page = query.per_page.unwrap_or(50).clamp(1, 200);
-    let (items, total) = state.services.inventory.list_scans_page(id, page, per_page).await?;
+    let (items, total) = state
+        .services
+        .inventory
+        .list_scans_page(id, page, per_page)
+        .await?;
     Ok(Json(PaginatedResponse::new(items, total, page, per_page)))
 }
 
@@ -383,7 +432,11 @@ pub async fn list_missing(
 ) -> AppResult<Json<PaginatedResponse<InventoryMissingRow>>> {
     let page = query.page.unwrap_or(1).max(1);
     let per_page = query.per_page.unwrap_or(50).clamp(1, 200);
-    let (items, total) = state.services.inventory.list_missing_page(id, page, per_page).await?;
+    let (items, total) = state
+        .services
+        .inventory
+        .list_missing_page(id, page, per_page)
+        .await?;
     Ok(Json(PaginatedResponse::new(items, total, page, per_page)))
 }
 
@@ -400,7 +453,11 @@ pub async fn list_missing(
         (status = 404, description = "Session not found", body = crate::error::ErrorResponse)
     )
 )]
-pub async fn get_report(State(state): State<crate::AppState>, StaffUser(_staff): StaffUser, Path(id): Path<i64>) -> AppResult<Json<InventoryReport>> {
+pub async fn get_report(
+    State(state): State<crate::AppState>,
+    StaffUser(_staff): StaffUser,
+    Path(id): Path<i64>,
+) -> AppResult<Json<InventoryReport>> {
     Ok(Json(state.services.inventory.report(id).await?))
 }
 
@@ -431,7 +488,13 @@ pub async fn consolidation_preview(
 ) -> AppResult<Json<InventoryConsolidationPreview>> {
     let page = query.page.unwrap_or(1).max(1);
     let per_page = query.per_page.unwrap_or(50).clamp(1, 200);
-    Ok(Json(state.services.inventory.consolidation_preview(id, page, per_page).await?))
+    Ok(Json(
+        state
+            .services
+            .inventory
+            .consolidation_preview(id, page, per_page)
+            .await?,
+    ))
 }
 
 /// Consolidate a closed session: archive all missing copies from the catalog.
@@ -465,10 +528,14 @@ pub async fn consolidate_session(
 ) -> AppResult<(StatusCode, Json<TaskAcceptedResponse>)> {
     let session = state.services.inventory.get_session(id).await?;
     if session.status != InventoryStatus::Closed {
-        return Err(AppError::BadRequest("Session must be closed before consolidation".to_string()));
+        return Err(AppError::BadRequest(
+            "Session must be closed before consolidation".to_string(),
+        ));
     }
     if session.consolidated_at.is_some() {
-        return Err(AppError::Conflict("Session has already been consolidated".to_string()));
+        return Err(AppError::Conflict(
+            "Session has already been consolidated".to_string(),
+        ));
     }
 
     let inventory = state.services.inventory.clone();
@@ -479,65 +546,72 @@ pub async fn consolidate_session(
     let user_id = claims.user_id;
 
     let task_id = tasks
-        .spawn_task(TaskKind::InventoryConsolidation, user_id, move |handle| async move {
-            match inventory.consolidate_session(session_id, Some(user_id), force, Some(handle.clone())).await {
-                Ok(result) => {
-                    audit.log(
-                        audit::event::INVENTORY_SESSION_CONSOLIDATED,
-                        Some(user_id),
-                        Some("inventory_session"),
-                        Some(session_id),
-                        None,
-                        Some(&result),
-                        audit::AuditLogMeta::success(),
-                    );
-                    audit.log(
-                        audit::event::SYSTEM_TASK_COMPLETED,
-                        Some(user_id),
-                        None,
-                        None,
-                        None,
-                        Some(serde_json::json!({
-                            "task_id": handle.id,
-                            "task_kind": "inventory_consolidation",
-                            "session_id": session_id,
-                        })),
-                        audit::AuditLogMeta::success(),
-                    );
-                    let value = serde_json::to_value(&result).unwrap_or_default();
-                    handle.complete(value).await;
+        .spawn_task(
+            TaskKind::InventoryConsolidation,
+            user_id,
+            move |handle| async move {
+                match inventory
+                    .consolidate_session(session_id, Some(user_id), force, Some(handle.clone()))
+                    .await
+                {
+                    Ok(result) => {
+                        audit.log(
+                            audit::event::INVENTORY_SESSION_CONSOLIDATED,
+                            Some(user_id),
+                            Some("inventory_session"),
+                            Some(session_id),
+                            None,
+                            Some(&result),
+                            audit::AuditLogMeta::success(),
+                        );
+                        audit.log(
+                            audit::event::SYSTEM_TASK_COMPLETED,
+                            Some(user_id),
+                            None,
+                            None,
+                            None,
+                            Some(serde_json::json!({
+                                "task_id": handle.id,
+                                "task_kind": "inventory_consolidation",
+                                "session_id": session_id,
+                            })),
+                            audit::AuditLogMeta::success(),
+                        );
+                        let value = serde_json::to_value(&result).unwrap_or_default();
+                        handle.complete(value).await;
+                    }
+                    Err(e) => {
+                        audit.log(
+                            audit::event::INVENTORY_SESSION_CONSOLIDATED,
+                            Some(user_id),
+                            Some("inventory_session"),
+                            Some(session_id),
+                            None,
+                            Some(serde_json::json!({
+                                "force": force,
+                                "error": e.to_string(),
+                            })),
+                            audit::AuditLogMeta::from_app_error(&e),
+                        );
+                        audit.log(
+                            audit::event::SYSTEM_TASK_FAILED,
+                            Some(user_id),
+                            None,
+                            None,
+                            None,
+                            Some(serde_json::json!({
+                                "task_id": handle.id,
+                                "task_kind": "inventory_consolidation",
+                                "session_id": session_id,
+                                "error": e.to_string(),
+                            })),
+                            audit::AuditLogMeta::failure_background("task_failed", e.to_string()),
+                        );
+                        handle.fail(e.to_string()).await;
+                    }
                 }
-                Err(e) => {
-                    audit.log(
-                        audit::event::INVENTORY_SESSION_CONSOLIDATED,
-                        Some(user_id),
-                        Some("inventory_session"),
-                        Some(session_id),
-                        None,
-                        Some(serde_json::json!({
-                            "force": force,
-                            "error": e.to_string(),
-                        })),
-                        audit::AuditLogMeta::from_app_error(&e),
-                    );
-                    audit.log(
-                        audit::event::SYSTEM_TASK_FAILED,
-                        Some(user_id),
-                        None,
-                        None,
-                        None,
-                        Some(serde_json::json!({
-                            "task_id": handle.id,
-                            "task_kind": "inventory_consolidation",
-                            "session_id": session_id,
-                            "error": e.to_string(),
-                        })),
-                        audit::AuditLogMeta::failure_background("task_failed", e.to_string()),
-                    );
-                    handle.fail(e.to_string()).await;
-                }
-            }
-        })
+            },
+        )
         .await;
 
     Ok((StatusCode::ACCEPTED, Json(TaskAcceptedResponse { task_id })))

@@ -243,6 +243,12 @@ function installDom(): () => void {
   if (!had.localStorage || typeof (g.localStorage as typeof storage | undefined)?.getItem !== 'function') {
     g.localStorage = storage;
   }
+  class ResizeObserverStub {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+  g.ResizeObserver = ResizeObserverStub;
   g.matchMedia = (query: string) => ({
     matches: false,
     media: query,

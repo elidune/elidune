@@ -10,16 +10,22 @@ use super::Repository;
 use crate::{
     error::{AppError, AppResult},
     models::acquisition::{
-        AcquisitionFund, CreateFund, CreateOrderLine, CreatePurchaseOrder, CreatePurchaseSuggestion, CreateVendor, FundQuery, PurchaseOrder, PurchaseOrderLine, PurchaseOrderQuery,
-        PurchaseOrderStatus, PurchaseSuggestion, PurchaseSuggestionQuery, PurchaseSuggestionStatus, Receipt, ReceiveOrderLine, ReviewPurchaseSuggestion, UpdateFund, UpdateOrderLine,
-        UpdatePurchaseOrder, UpdateVendor, Vendor, VendorQuery,
+        AcquisitionFund, CreateFund, CreateOrderLine, CreatePurchaseOrder,
+        CreatePurchaseSuggestion, CreateVendor, FundQuery, PurchaseOrder, PurchaseOrderLine,
+        PurchaseOrderQuery, PurchaseOrderStatus, PurchaseSuggestion, PurchaseSuggestionQuery,
+        PurchaseSuggestionStatus, Receipt, ReceiveOrderLine, ReviewPurchaseSuggestion, UpdateFund,
+        UpdateOrderLine, UpdatePurchaseOrder, UpdateVendor, Vendor, VendorQuery,
     },
 };
 
-static SNOWFLAKE: std::sync::LazyLock<std::sync::Mutex<Generator>> = std::sync::LazyLock::new(|| std::sync::Mutex::new(Generator::new(9)));
+static SNOWFLAKE: std::sync::LazyLock<std::sync::Mutex<Generator>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(Generator::new(9)));
 
 fn next_id() -> i64 {
-    SNOWFLAKE.lock().unwrap_or_else(|e| e.into_inner()).generate::<i64>()
+    SNOWFLAKE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .generate::<i64>()
 }
 
 fn page_offset(page: Option<i64>, per_page: Option<i64>) -> (i64, i64) {
@@ -107,26 +113,65 @@ pub trait AcquisitionsRepository: Send + Sync {
     async fn funds_create(&self, data: &CreateFund) -> AppResult<AcquisitionFund>;
     async fn funds_update(&self, id: i64, data: &UpdateFund) -> AppResult<AcquisitionFund>;
 
-    async fn orders_list(&self, query: &PurchaseOrderQuery) -> AppResult<(Vec<PurchaseOrder>, i64)>;
+    async fn orders_list(&self, query: &PurchaseOrderQuery)
+        -> AppResult<(Vec<PurchaseOrder>, i64)>;
     async fn orders_get(&self, id: i64) -> AppResult<PurchaseOrder>;
     async fn orders_list_lines(&self, order_id: i64) -> AppResult<Vec<PurchaseOrderLine>>;
-    async fn orders_create(&self, data: &CreatePurchaseOrder, created_by: i64) -> AppResult<PurchaseOrder>;
+    async fn orders_create(
+        &self,
+        data: &CreatePurchaseOrder,
+        created_by: i64,
+    ) -> AppResult<PurchaseOrder>;
     async fn orders_update(&self, id: i64, data: &UpdatePurchaseOrder) -> AppResult<PurchaseOrder>;
-    async fn orders_add_line(&self, order_id: i64, data: &CreateOrderLine) -> AppResult<PurchaseOrderLine>;
-    async fn orders_update_line(&self, order_id: i64, line_id: i64, data: &UpdateOrderLine) -> AppResult<PurchaseOrderLine>;
+    async fn orders_add_line(
+        &self,
+        order_id: i64,
+        data: &CreateOrderLine,
+    ) -> AppResult<PurchaseOrderLine>;
+    async fn orders_update_line(
+        &self,
+        order_id: i64,
+        line_id: i64,
+        data: &UpdateOrderLine,
+    ) -> AppResult<PurchaseOrderLine>;
     async fn orders_delete_line(&self, order_id: i64, line_id: i64) -> AppResult<()>;
     async fn orders_submit(&self, id: i64) -> AppResult<PurchaseOrder>;
     async fn orders_cancel(&self, id: i64) -> AppResult<PurchaseOrder>;
-    async fn orders_receive(&self, order_id: i64, received_by: i64, notes: Option<String>, lines: &[ReceiveOrderLine], created_items: &[(i64, Vec<i64>, Option<Decimal>)]) -> AppResult<Receipt>;
+    async fn orders_receive(
+        &self,
+        order_id: i64,
+        received_by: i64,
+        notes: Option<String>,
+        lines: &[ReceiveOrderLine],
+        created_items: &[(i64, Vec<i64>, Option<Decimal>)],
+    ) -> AppResult<Receipt>;
     async fn orders_set_line_biblio(&self, line_id: i64, biblio_id: i64) -> AppResult<()>;
     async fn orders_items_missing_price_for_closure(&self, order_id: i64) -> AppResult<i64>;
     async fn receipt_line_results(&self, receipt_id: i64) -> AppResult<Vec<ReceiptLinePersist>>;
 
-    async fn suggestions_list(&self, query: &PurchaseSuggestionQuery, proposed_by: Option<i64>) -> AppResult<(Vec<PurchaseSuggestion>, i64)>;
+    async fn suggestions_list(
+        &self,
+        query: &PurchaseSuggestionQuery,
+        proposed_by: Option<i64>,
+    ) -> AppResult<(Vec<PurchaseSuggestion>, i64)>;
     async fn suggestions_get(&self, id: i64) -> AppResult<PurchaseSuggestion>;
-    async fn suggestions_create(&self, proposed_by: i64, data: &CreatePurchaseSuggestion) -> AppResult<PurchaseSuggestion>;
-    async fn suggestions_accept(&self, id: i64, reviewed_by: i64, data: &ReviewPurchaseSuggestion) -> AppResult<PurchaseSuggestion>;
-    async fn suggestions_refuse(&self, id: i64, reviewed_by: i64, data: &ReviewPurchaseSuggestion) -> AppResult<PurchaseSuggestion>;
+    async fn suggestions_create(
+        &self,
+        proposed_by: i64,
+        data: &CreatePurchaseSuggestion,
+    ) -> AppResult<PurchaseSuggestion>;
+    async fn suggestions_accept(
+        &self,
+        id: i64,
+        reviewed_by: i64,
+        data: &ReviewPurchaseSuggestion,
+    ) -> AppResult<PurchaseSuggestion>;
+    async fn suggestions_refuse(
+        &self,
+        id: i64,
+        reviewed_by: i64,
+        data: &ReviewPurchaseSuggestion,
+    ) -> AppResult<PurchaseSuggestion>;
 }
 
 #[async_trait]
@@ -158,7 +203,10 @@ impl AcquisitionsRepository for Repository {
     async fn funds_update(&self, id: i64, data: &UpdateFund) -> AppResult<AcquisitionFund> {
         Repository::funds_update(self, id, data).await
     }
-    async fn orders_list(&self, query: &PurchaseOrderQuery) -> AppResult<(Vec<PurchaseOrder>, i64)> {
+    async fn orders_list(
+        &self,
+        query: &PurchaseOrderQuery,
+    ) -> AppResult<(Vec<PurchaseOrder>, i64)> {
         Repository::orders_list(self, query).await
     }
     async fn orders_get(&self, id: i64) -> AppResult<PurchaseOrder> {
@@ -167,16 +215,29 @@ impl AcquisitionsRepository for Repository {
     async fn orders_list_lines(&self, order_id: i64) -> AppResult<Vec<PurchaseOrderLine>> {
         Repository::orders_list_lines(self, order_id).await
     }
-    async fn orders_create(&self, data: &CreatePurchaseOrder, created_by: i64) -> AppResult<PurchaseOrder> {
+    async fn orders_create(
+        &self,
+        data: &CreatePurchaseOrder,
+        created_by: i64,
+    ) -> AppResult<PurchaseOrder> {
         Repository::orders_create(self, data, created_by).await
     }
     async fn orders_update(&self, id: i64, data: &UpdatePurchaseOrder) -> AppResult<PurchaseOrder> {
         Repository::orders_update(self, id, data).await
     }
-    async fn orders_add_line(&self, order_id: i64, data: &CreateOrderLine) -> AppResult<PurchaseOrderLine> {
+    async fn orders_add_line(
+        &self,
+        order_id: i64,
+        data: &CreateOrderLine,
+    ) -> AppResult<PurchaseOrderLine> {
         Repository::orders_add_line(self, order_id, data).await
     }
-    async fn orders_update_line(&self, order_id: i64, line_id: i64, data: &UpdateOrderLine) -> AppResult<PurchaseOrderLine> {
+    async fn orders_update_line(
+        &self,
+        order_id: i64,
+        line_id: i64,
+        data: &UpdateOrderLine,
+    ) -> AppResult<PurchaseOrderLine> {
         Repository::orders_update_line(self, order_id, line_id, data).await
     }
     async fn orders_delete_line(&self, order_id: i64, line_id: i64) -> AppResult<()> {
@@ -188,8 +249,23 @@ impl AcquisitionsRepository for Repository {
     async fn orders_cancel(&self, id: i64) -> AppResult<PurchaseOrder> {
         Repository::orders_cancel(self, id).await
     }
-    async fn orders_receive(&self, order_id: i64, received_by: i64, notes: Option<String>, lines: &[ReceiveOrderLine], created_items: &[(i64, Vec<i64>, Option<Decimal>)]) -> AppResult<Receipt> {
-        Repository::orders_receive(self, order_id, received_by, notes.as_deref(), lines, created_items).await
+    async fn orders_receive(
+        &self,
+        order_id: i64,
+        received_by: i64,
+        notes: Option<String>,
+        lines: &[ReceiveOrderLine],
+        created_items: &[(i64, Vec<i64>, Option<Decimal>)],
+    ) -> AppResult<Receipt> {
+        Repository::orders_receive(
+            self,
+            order_id,
+            received_by,
+            notes.as_deref(),
+            lines,
+            created_items,
+        )
+        .await
     }
     async fn orders_set_line_biblio(&self, line_id: i64, biblio_id: i64) -> AppResult<()> {
         Repository::orders_set_line_biblio(self, line_id, biblio_id).await
@@ -200,19 +276,37 @@ impl AcquisitionsRepository for Repository {
     async fn receipt_line_results(&self, receipt_id: i64) -> AppResult<Vec<ReceiptLinePersist>> {
         Repository::receipt_line_ids_for_receipt(self, receipt_id).await
     }
-    async fn suggestions_list(&self, query: &PurchaseSuggestionQuery, proposed_by: Option<i64>) -> AppResult<(Vec<PurchaseSuggestion>, i64)> {
+    async fn suggestions_list(
+        &self,
+        query: &PurchaseSuggestionQuery,
+        proposed_by: Option<i64>,
+    ) -> AppResult<(Vec<PurchaseSuggestion>, i64)> {
         Repository::suggestions_list(self, query, proposed_by).await
     }
     async fn suggestions_get(&self, id: i64) -> AppResult<PurchaseSuggestion> {
         Repository::suggestions_get(self, id).await
     }
-    async fn suggestions_create(&self, proposed_by: i64, data: &CreatePurchaseSuggestion) -> AppResult<PurchaseSuggestion> {
+    async fn suggestions_create(
+        &self,
+        proposed_by: i64,
+        data: &CreatePurchaseSuggestion,
+    ) -> AppResult<PurchaseSuggestion> {
         Repository::suggestions_create(self, proposed_by, data).await
     }
-    async fn suggestions_accept(&self, id: i64, reviewed_by: i64, data: &ReviewPurchaseSuggestion) -> AppResult<PurchaseSuggestion> {
+    async fn suggestions_accept(
+        &self,
+        id: i64,
+        reviewed_by: i64,
+        data: &ReviewPurchaseSuggestion,
+    ) -> AppResult<PurchaseSuggestion> {
         Repository::suggestions_accept(self, id, reviewed_by, data).await
     }
-    async fn suggestions_refuse(&self, id: i64, reviewed_by: i64, data: &ReviewPurchaseSuggestion) -> AppResult<PurchaseSuggestion> {
+    async fn suggestions_refuse(
+        &self,
+        id: i64,
+        reviewed_by: i64,
+        data: &ReviewPurchaseSuggestion,
+    ) -> AppResult<PurchaseSuggestion> {
         Repository::suggestions_refuse(self, id, reviewed_by, data).await
     }
 }
@@ -221,7 +315,12 @@ impl Repository {
     pub async fn vendors_list(&self, query: &VendorQuery) -> AppResult<(Vec<Vendor>, i64)> {
         let (limit, offset) = page_offset(query.page, query.per_page);
         let include_archived = query.include_archived.unwrap_or(false);
-        let search = query.q.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(|s| format!("%{s}%"));
+        let search = query
+            .q
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(|s| format!("%{s}%"));
 
         let total = sqlx::query_scalar::<_, i64>(
             r#"
@@ -290,7 +389,9 @@ impl Repository {
     pub async fn vendors_update(&self, id: i64, data: &UpdateVendor) -> AppResult<Vendor> {
         let existing = self.vendors_get(id).await?;
         if existing.archived_at.is_some() {
-            return Err(AppError::BusinessRule("Cannot update an archived vendor".into()));
+            return Err(AppError::BusinessRule(
+                "Cannot update an archived vendor".into(),
+            ));
         }
         let now = Utc::now();
         sqlx::query_as::<_, Vendor>(
@@ -348,7 +449,12 @@ impl Repository {
 
     pub async fn funds_list(&self, query: &FundQuery) -> AppResult<(Vec<AcquisitionFund>, i64)> {
         let (limit, offset) = page_offset(query.page, query.per_page);
-        let search = query.q.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(|s| format!("%{s}%"));
+        let search = query
+            .q
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(|s| format!("%{s}%"));
 
         let total = sqlx::query_scalar::<_, i64>(
             r#"
@@ -394,7 +500,9 @@ impl Repository {
         let currency = normalize_currency(data.currency.as_deref())?;
         let allocated = data.allocated_amount.unwrap_or(Decimal::ZERO);
         if allocated < Decimal::ZERO {
-            return Err(AppError::Validation("allocatedAmount must be greater than or equal to 0".into()));
+            return Err(AppError::Validation(
+                "allocatedAmount must be greater than or equal to 0".into(),
+            ));
         }
         sqlx::query(
             r#"
@@ -421,7 +529,9 @@ impl Repository {
         let _ = self.funds_get(id).await?;
         if let Some(amount) = data.allocated_amount {
             if amount < Decimal::ZERO {
-                return Err(AppError::Validation("allocatedAmount must be greater than or equal to 0".into()));
+                return Err(AppError::Validation(
+                    "allocatedAmount must be greater than or equal to 0".into(),
+                ));
             }
         }
         let currency = match data.currency.as_deref() {
@@ -457,9 +567,17 @@ impl Repository {
         self.funds_get(id).await
     }
 
-    pub async fn orders_list(&self, query: &PurchaseOrderQuery) -> AppResult<(Vec<PurchaseOrder>, i64)> {
+    pub async fn orders_list(
+        &self,
+        query: &PurchaseOrderQuery,
+    ) -> AppResult<(Vec<PurchaseOrder>, i64)> {
         let (limit, offset) = page_offset(query.page, query.per_page);
-        let search = query.q.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(|s| format!("%{s}%"));
+        let search = query
+            .q
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(|s| format!("%{s}%"));
         let status = query.status.map(|s| s.as_str().to_string());
         let vendor_id = query.vendor_id_parsed();
         let fund_id = query.fund_id_parsed();
@@ -525,7 +643,11 @@ impl Repository {
         .map_err(Into::into)
     }
 
-    pub async fn orders_create(&self, data: &CreatePurchaseOrder, created_by: i64) -> AppResult<PurchaseOrder> {
+    pub async fn orders_create(
+        &self,
+        data: &CreatePurchaseOrder,
+        created_by: i64,
+    ) -> AppResult<PurchaseOrder> {
         self.vendors_get(data.vendor_id).await?;
         if let Some(fund_id) = data.fund_id {
             let _ = self.funds_get(fund_id).await?;
@@ -534,7 +656,12 @@ impl Repository {
         let id = next_id();
         let now = Utc::now();
         let year = now.year();
-        let order_number = match data.order_number.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        let order_number = match data
+            .order_number
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
             Some(n) => n.to_string(),
             None => format!("PO-{year}-{id}"),
         };
@@ -567,10 +694,16 @@ impl Repository {
         self.orders_get(id).await
     }
 
-    pub async fn orders_update(&self, id: i64, data: &UpdatePurchaseOrder) -> AppResult<PurchaseOrder> {
+    pub async fn orders_update(
+        &self,
+        id: i64,
+        data: &UpdatePurchaseOrder,
+    ) -> AppResult<PurchaseOrder> {
         let order = self.orders_get(id).await?;
         if !order.status.is_editable() {
-            return Err(AppError::BusinessRule("Only draft purchase orders can be updated".into()));
+            return Err(AppError::BusinessRule(
+                "Only draft purchase orders can be updated".into(),
+            ));
         }
         if let Some(vendor_id) = data.vendor_id {
             self.vendors_get(vendor_id).await?;
@@ -594,7 +727,12 @@ impl Repository {
         .bind(data.vendor_id)
         .bind(data.fund_id.is_some())
         .bind(data.fund_id)
-        .bind(data.order_number.as_deref().map(str::trim).filter(|s| !s.is_empty()))
+        .bind(
+            data.order_number
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty()),
+        )
         .bind(data.notes.is_some())
         .bind(empty_to_none(data.notes.as_deref()))
         .bind(now)
@@ -604,10 +742,16 @@ impl Repository {
         self.orders_get(id).await
     }
 
-    pub async fn orders_add_line(&self, order_id: i64, data: &CreateOrderLine) -> AppResult<PurchaseOrderLine> {
+    pub async fn orders_add_line(
+        &self,
+        order_id: i64,
+        data: &CreateOrderLine,
+    ) -> AppResult<PurchaseOrderLine> {
         let order = self.orders_get(order_id).await?;
         if !order.status.is_editable() {
-            return Err(AppError::BusinessRule("Lines can only be added to draft purchase orders".into()));
+            return Err(AppError::BusinessRule(
+                "Lines can only be added to draft purchase orders".into(),
+            ));
         }
         if let Some(fund_id) = data.fund_id {
             let _ = self.funds_get(fund_id).await?;
@@ -618,10 +762,17 @@ impl Repository {
         Ok(line)
     }
 
-    pub async fn orders_update_line(&self, order_id: i64, line_id: i64, data: &UpdateOrderLine) -> AppResult<PurchaseOrderLine> {
+    pub async fn orders_update_line(
+        &self,
+        order_id: i64,
+        line_id: i64,
+        data: &UpdateOrderLine,
+    ) -> AppResult<PurchaseOrderLine> {
         let order = self.orders_get(order_id).await?;
         if !order.status.is_editable() {
-            return Err(AppError::BusinessRule("Lines can only be updated on draft purchase orders".into()));
+            return Err(AppError::BusinessRule(
+                "Lines can only be updated on draft purchase orders".into(),
+            ));
         }
         if let Some(fund_id) = data.fund_id {
             let _ = self.funds_get(fund_id).await?;
@@ -668,16 +819,22 @@ impl Repository {
     pub async fn orders_delete_line(&self, order_id: i64, line_id: i64) -> AppResult<()> {
         let order = self.orders_get(order_id).await?;
         if !order.status.is_editable() {
-            return Err(AppError::BusinessRule("Lines can only be removed from draft purchase orders".into()));
+            return Err(AppError::BusinessRule(
+                "Lines can only be removed from draft purchase orders".into(),
+            ));
         }
-        let rows = sqlx::query("DELETE FROM purchase_order_lines WHERE id = $1 AND purchase_order_id = $2")
-            .bind(line_id)
-            .bind(order_id)
-            .execute(&self.pool)
-            .await?
-            .rows_affected();
+        let rows = sqlx::query(
+            "DELETE FROM purchase_order_lines WHERE id = $1 AND purchase_order_id = $2",
+        )
+        .bind(line_id)
+        .bind(order_id)
+        .execute(&self.pool)
+        .await?
+        .rows_affected();
         if rows == 0 {
-            return Err(AppError::NotFound(format!("Order line {line_id} not found")));
+            return Err(AppError::NotFound(format!(
+                "Order line {line_id} not found"
+            )));
         }
         Ok(())
     }
@@ -685,14 +842,20 @@ impl Repository {
     pub async fn orders_submit(&self, id: i64) -> AppResult<PurchaseOrder> {
         let order = self.orders_get(id).await?;
         if !order.status.can_submit() {
-            return Err(AppError::BusinessRule("Only draft purchase orders can be submitted".into()));
+            return Err(AppError::BusinessRule(
+                "Only draft purchase orders can be submitted".into(),
+            ));
         }
         let lines = self.orders_list_lines(id).await?;
         if order.vendor_id.is_none() {
-            return Err(AppError::BusinessRule("Assign a vendor before submitting this purchase order".into()));
+            return Err(AppError::BusinessRule(
+                "Assign a vendor before submitting this purchase order".into(),
+            ));
         }
         if lines.is_empty() {
-            return Err(AppError::Validation("A purchase order must have at least one line before it is submitted".into()));
+            return Err(AppError::Validation(
+                "A purchase order must have at least one line before it is submitted".into(),
+            ));
         }
         for line in &lines {
             validate_line_intent(line.biblio_id, line.isbn.as_deref(), line.title.as_deref())?;
@@ -715,29 +878,44 @@ impl Repository {
     pub async fn orders_cancel(&self, id: i64) -> AppResult<PurchaseOrder> {
         let order = self.orders_get(id).await?;
         if !order.status.can_cancel() {
-            return Err(AppError::BusinessRule("Only draft or fully unreceived ordered purchase orders can be cancelled".into()));
+            return Err(AppError::BusinessRule(
+                "Only draft or fully unreceived ordered purchase orders can be cancelled".into(),
+            ));
         }
         if order.status == PurchaseOrderStatus::Ordered {
             let lines = self.orders_list_lines(id).await?;
             if lines.iter().any(|l| l.quantity_received > 0) {
-                return Err(AppError::BusinessRule("Cannot cancel a purchase order that already has receipts".into()));
+                return Err(AppError::BusinessRule(
+                    "Cannot cancel a purchase order that already has receipts".into(),
+                ));
             }
         }
         let now = Utc::now();
-        sqlx::query("UPDATE purchase_orders SET status = 'cancelled', updated_at = $2 WHERE id = $1")
-            .bind(id)
-            .bind(now)
-            .execute(&self.pool)
-            .await?;
+        sqlx::query(
+            "UPDATE purchase_orders SET status = 'cancelled', updated_at = $2 WHERE id = $1",
+        )
+        .bind(id)
+        .bind(now)
+        .execute(&self.pool)
+        .await?;
         self.orders_get(id).await
     }
 
     /// Persist a receipt after catalog items have already been created.
     ///
     /// `created_items` is `(po_line_id, item_ids, unit_price)` in the same order as `lines`.
-    pub async fn orders_receive(&self, order_id: i64, received_by: i64, notes: Option<&str>, lines: &[ReceiveOrderLine], created_items: &[(i64, Vec<i64>, Option<Decimal>)]) -> AppResult<Receipt> {
+    pub async fn orders_receive(
+        &self,
+        order_id: i64,
+        received_by: i64,
+        notes: Option<&str>,
+        lines: &[ReceiveOrderLine],
+        created_items: &[(i64, Vec<i64>, Option<Decimal>)],
+    ) -> AppResult<Receipt> {
         if lines.len() != created_items.len() {
-            return Err(AppError::Internal("Receipt line count does not match created items".into()));
+            return Err(AppError::Internal(
+                "Receipt line count does not match created items".into(),
+            ));
         }
 
         let mut tx = self.pool.begin().await?;
@@ -760,7 +938,9 @@ impl Repository {
 
         for (req, (po_line_id, item_ids, unit_price)) in lines.iter().zip(created_items.iter()) {
             if req.line_id != *po_line_id {
-                return Err(AppError::Internal("Receipt line id mismatch while persisting".into()));
+                return Err(AppError::Internal(
+                    "Receipt line id mismatch while persisting".into(),
+                ));
             }
             let receipt_line_id = next_id();
             sqlx::query(
@@ -811,7 +991,11 @@ impl Repository {
         .fetch_one(&mut *tx)
         .await?;
 
-        let new_status = if remaining == 0 { PurchaseOrderStatus::Received } else { PurchaseOrderStatus::Partial };
+        let new_status = if remaining == 0 {
+            PurchaseOrderStatus::Received
+        } else {
+            PurchaseOrderStatus::Partial
+        };
 
         sqlx::query("UPDATE purchase_orders SET status = $2, updated_at = $3 WHERE id = $1")
             .bind(order_id)
@@ -864,7 +1048,10 @@ impl Repository {
         Ok(())
     }
 
-    pub async fn receipt_line_ids_for_receipt(&self, receipt_id: i64) -> AppResult<Vec<ReceiptLinePersist>> {
+    pub async fn receipt_line_ids_for_receipt(
+        &self,
+        receipt_id: i64,
+    ) -> AppResult<Vec<ReceiptLinePersist>> {
         let rows = sqlx::query_as::<_, (i64, i64, i32, Option<Decimal>)>(
             r#"
             SELECT id, purchase_order_line_id, quantity, unit_price
@@ -879,16 +1066,22 @@ impl Repository {
 
         let mut out = Vec::with_capacity(rows.len());
         for (id, po_line_id, qty, price) in rows {
-            let item_ids = sqlx::query_scalar::<_, i64>("SELECT item_id FROM receipt_items WHERE receipt_line_id = $1 ORDER BY item_id")
-                .bind(id)
-                .fetch_all(&self.pool)
-                .await?;
+            let item_ids = sqlx::query_scalar::<_, i64>(
+                "SELECT item_id FROM receipt_items WHERE receipt_line_id = $1 ORDER BY item_id",
+            )
+            .bind(id)
+            .fetch_all(&self.pool)
+            .await?;
             out.push((id, po_line_id, qty, price, item_ids));
         }
         Ok(out)
     }
 
-    pub async fn suggestions_list(&self, query: &PurchaseSuggestionQuery, proposed_by: Option<i64>) -> AppResult<(Vec<PurchaseSuggestion>, i64)> {
+    pub async fn suggestions_list(
+        &self,
+        query: &PurchaseSuggestionQuery,
+        proposed_by: Option<i64>,
+    ) -> AppResult<(Vec<PurchaseSuggestion>, i64)> {
         let (limit, offset) = page_offset(query.page, query.per_page);
         let status = query.status.map(|s| s.as_str().to_string());
 
@@ -930,7 +1123,11 @@ impl Repository {
             .ok_or_else(|| AppError::NotFound(format!("Purchase suggestion {id} not found")))
     }
 
-    pub async fn suggestions_create(&self, proposed_by: i64, data: &CreatePurchaseSuggestion) -> AppResult<PurchaseSuggestion> {
+    pub async fn suggestions_create(
+        &self,
+        proposed_by: i64,
+        data: &CreatePurchaseSuggestion,
+    ) -> AppResult<PurchaseSuggestion> {
         let title = data.title.trim();
         let author = data.author.trim();
         if title.is_empty() {
@@ -959,7 +1156,12 @@ impl Repository {
         self.suggestions_get(id).await
     }
 
-    pub async fn suggestions_accept(&self, id: i64, reviewed_by: i64, data: &ReviewPurchaseSuggestion) -> AppResult<PurchaseSuggestion> {
+    pub async fn suggestions_accept(
+        &self,
+        id: i64,
+        reviewed_by: i64,
+        data: &ReviewPurchaseSuggestion,
+    ) -> AppResult<PurchaseSuggestion> {
         let mut tx = self.pool.begin().await?;
         let current = sqlx::query_as::<_, PurchaseSuggestion>("SELECT s.*, NULL::text AS proposed_by_name FROM purchase_suggestions s WHERE s.id = $1 FOR UPDATE")
             .bind(id)
@@ -969,10 +1171,14 @@ impl Repository {
 
         match current.status {
             PurchaseSuggestionStatus::Accepted => {
-                return Err(AppError::Conflict("This suggestion has already been accepted".into()));
+                return Err(AppError::Conflict(
+                    "This suggestion has already been accepted".into(),
+                ));
             }
             PurchaseSuggestionStatus::Refused => {
-                return Err(AppError::BusinessRule("Refused suggestions stay refused".into()));
+                return Err(AppError::BusinessRule(
+                    "Refused suggestions stay refused".into(),
+                ));
             }
             PurchaseSuggestionStatus::Proposed => {}
         }
@@ -999,7 +1205,12 @@ impl Repository {
         .map_err(map_unique_order)?;
 
         let mut line_notes = format!("Author: {}", current.author);
-        if let Some(comment) = current.comment.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        if let Some(comment) = current
+            .comment
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
             line_notes.push_str("\nPatron comment: ");
             line_notes.push_str(comment);
         }
@@ -1045,7 +1256,12 @@ impl Repository {
         self.suggestions_get(id).await
     }
 
-    pub async fn suggestions_refuse(&self, id: i64, reviewed_by: i64, data: &ReviewPurchaseSuggestion) -> AppResult<PurchaseSuggestion> {
+    pub async fn suggestions_refuse(
+        &self,
+        id: i64,
+        reviewed_by: i64,
+        data: &ReviewPurchaseSuggestion,
+    ) -> AppResult<PurchaseSuggestion> {
         let mut tx = self.pool.begin().await?;
         let current = sqlx::query_as::<_, PurchaseSuggestion>("SELECT s.*, NULL::text AS proposed_by_name FROM purchase_suggestions s WHERE s.id = $1 FOR UPDATE")
             .bind(id)
@@ -1055,10 +1271,14 @@ impl Repository {
 
         match current.status {
             PurchaseSuggestionStatus::Accepted => {
-                return Err(AppError::BusinessRule("Accepted suggestions cannot be refused".into()));
+                return Err(AppError::BusinessRule(
+                    "Accepted suggestions cannot be refused".into(),
+                ));
             }
             PurchaseSuggestionStatus::Refused => {
-                return Err(AppError::Conflict("This suggestion has already been refused".into()));
+                return Err(AppError::Conflict(
+                    "This suggestion has already been refused".into(),
+                ));
             }
             PurchaseSuggestionStatus::Proposed => {}
         }
@@ -1086,14 +1306,20 @@ impl Repository {
     }
 }
 
-async fn insert_order_line_tx(tx: &mut Transaction<'_, Postgres>, order_id: i64, data: &CreateOrderLine) -> AppResult<PurchaseOrderLine> {
+async fn insert_order_line_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    order_id: i64,
+    data: &CreateOrderLine,
+) -> AppResult<PurchaseOrderLine> {
     validate_line_intent(data.biblio_id, data.isbn.as_deref(), data.title.as_deref())?;
     if data.quantity < 1 {
         return Err(AppError::Validation("quantity must be at least 1".into()));
     }
     if let Some(price) = data.unit_price {
         if price < Decimal::ZERO {
-            return Err(AppError::Validation("unitPrice must be greater than or equal to 0".into()));
+            return Err(AppError::Validation(
+                "unitPrice must be greater than or equal to 0".into(),
+            ));
         }
     }
     let currency = normalize_currency(data.currency.as_deref())?;
@@ -1124,18 +1350,26 @@ async fn insert_order_line_tx(tx: &mut Transaction<'_, Postgres>, order_id: i64,
     .map_err(Into::into)
 }
 
-pub fn validate_line_intent(biblio_id: Option<i64>, isbn: Option<&str>, title: Option<&str>) -> AppResult<()> {
+pub fn validate_line_intent(
+    biblio_id: Option<i64>,
+    isbn: Option<&str>,
+    title: Option<&str>,
+) -> AppResult<()> {
     let has_biblio = biblio_id.is_some();
     let has_isbn = isbn.map(str::trim).is_some_and(|s| !s.is_empty());
     let has_title = title.map(str::trim).is_some_and(|s| !s.is_empty());
     if has_biblio || has_isbn || has_title {
         return Ok(());
     }
-    Err(AppError::Validation("Each order line must reference a biblio, an ISBN, or a title".into()))
+    Err(AppError::Validation(
+        "Each order line must reference a biblio, an ISBN, or a title".into(),
+    ))
 }
 
 fn empty_to_none(s: Option<&str>) -> Option<String> {
-    s.map(str::trim).filter(|s| !s.is_empty()).map(str::to_string)
+    s.map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
 }
 
 fn normalize_opt_code(s: Option<&str>) -> Option<String> {
@@ -1143,14 +1377,21 @@ fn normalize_opt_code(s: Option<&str>) -> Option<String> {
 }
 
 fn normalize_isbn(s: Option<&str>) -> Option<String> {
-    s.map(|raw| raw.chars().filter(|c| c.is_ascii_alphanumeric()).map(|c| c.to_ascii_uppercase()).collect::<String>())
-        .filter(|s| !s.is_empty())
+    s.map(|raw| {
+        raw.chars()
+            .filter(|c| c.is_ascii_alphanumeric())
+            .map(|c| c.to_ascii_uppercase())
+            .collect::<String>()
+    })
+    .filter(|s| !s.is_empty())
 }
 
 fn normalize_currency(raw: Option<&str>) -> AppResult<String> {
     let value = raw.unwrap_or("EUR").trim().to_ascii_uppercase();
     if value.len() != 3 || !value.chars().all(|c| c.is_ascii_alphabetic()) {
-        return Err(AppError::Validation("currency must be a 3-letter ISO code".into()));
+        return Err(AppError::Validation(
+            "currency must be a 3-letter ISO code".into(),
+        ));
     }
     Ok(value)
 }
@@ -1164,7 +1405,9 @@ fn map_unique_vendor(err: sqlx::Error) -> AppError {
 
 fn map_unique_fund(err: sqlx::Error) -> AppError {
     if is_unique_violation(&err) {
-        return AppError::Conflict("A fund with this code already exists for that fiscal year".into());
+        return AppError::Conflict(
+            "A fund with this code already exists for that fiscal year".into(),
+        );
     }
     err.into()
 }

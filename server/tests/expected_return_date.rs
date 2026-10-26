@@ -16,7 +16,8 @@ fn copies_of(body: &Value) -> &[Value] {
     if let Some(items) = body.get("items").and_then(Value::as_array) {
         return items;
     }
-    body.as_array().unwrap_or_else(|| panic!("no copies in {body}"))
+    body.as_array()
+        .unwrap_or_else(|| panic!("no copies in {body}"))
 }
 
 fn copy_by_id(body: &Value, item_id: i64) -> &Value {
@@ -27,7 +28,9 @@ fn copy_by_id(body: &Value, item_id: i64) -> &Value {
 }
 
 fn assert_date_only(value: &Value, expected: &str) {
-    let rendered = value.as_str().unwrap_or_else(|| panic!("expected YYYY-MM-DD, got {value}"));
+    let rendered = value
+        .as_str()
+        .unwrap_or_else(|| panic!("expected YYYY-MM-DD, got {value}"));
     assert_eq!(rendered, expected, "{value}");
     assert_eq!(rendered.len(), 10, "{rendered}");
     assert!(!rendered.contains('T'), "{rendered}");
@@ -82,7 +85,10 @@ fn public_copy_paths(biblio_id: i64, item_id: i64, barcode: &str) -> Vec<String>
 }
 
 fn assert_public_due_date_absent(copy: &Value) {
-    assert!(copy.get("dueDate").is_none(), "public ItemPublicView must omit dueDate: {copy}");
+    assert!(
+        copy.get("dueDate").is_none(),
+        "public ItemPublicView must omit dueDate: {copy}"
+    );
 }
 
 #[tokio::test]
@@ -91,7 +97,8 @@ async fn reader_and_opac_expected_return_date_is_local_date_only_on_loan() {
         return;
     };
     let admin_token = fixtures::ensure_first_setup(&app).await;
-    let (borrower_id, reader_token) = fixtures::create_reader(&app, &admin_token, "due_reader").await;
+    let (borrower_id, reader_token) =
+        fixtures::create_reader(&app, &admin_token, "due_reader").await;
 
     let email = format!("isolde.due.{borrower_id}@secret.test");
     let card = format!("CARD-DUE-{borrower_id}");
@@ -118,7 +125,14 @@ async fn reader_and_opac_expected_return_date_is_local_date_only_on_loan() {
         .fetch_one(app.state.services.repository.pool())
         .await
         .expect("reader login");
-    let secrets = ["Isolde", "Moreau", email.as_str(), "0611223344", card.as_str(), login.as_str()];
+    let secrets = [
+        "Isolde",
+        "Moreau",
+        email.as_str(),
+        "0611223344",
+        card.as_str(),
+        login.as_str(),
+    ];
 
     let suffix = fixtures::unique_suffix();
     let loaned_barcode = format!("DUE-A-{suffix}");
@@ -168,15 +182,21 @@ async fn reader_and_opac_expected_return_date_is_local_date_only_on_loan() {
         .await;
     assert_eq!(status, StatusCode::CREATED, "{loan}");
     let loan_id = fixtures::json_id(&loan["id"]);
-    let zone_name_for_due: String = sqlx::query_scalar("SELECT timezone FROM library_info WHERE id = 1")
-        .fetch_one(app.state.services.repository.pool())
-        .await
-        .expect("library timezone");
+    let zone_name_for_due: String =
+        sqlx::query_scalar("SELECT timezone FROM library_info WHERE id = 1")
+            .fetch_one(app.state.services.repository.pool())
+            .await
+            .expect("library timezone");
     let today = local_date(library_zone(&zone_name_for_due), Utc::now());
-    let anchor = today.checked_add_days(chrono::Days::new(30)).expect("future day");
+    let anchor = today
+        .checked_add_days(chrono::Days::new(30))
+        .expect("future day");
     // 23:30 UTC is the next civil day in Europe/Paris, so the local date can
     // differ from the UTC date while staying after today.
-    let expiry = Utc.with_ymd_and_hms(anchor.year(), anchor.month(), anchor.day(), 23, 30, 0).single().expect("due instant");
+    let expiry = Utc
+        .with_ymd_and_hms(anchor.year(), anchor.month(), anchor.day(), 23, 30, 0)
+        .single()
+        .expect("due instant");
     sqlx::query("UPDATE loans SET expiry_at = $2 WHERE id = $1")
         .bind(loan_id)
         .bind(expiry)
@@ -201,11 +221,18 @@ async fn reader_and_opac_expected_return_date_is_local_date_only_on_loan() {
         assert_date_only(&loaned["expectedReturnDate"], &expected);
         assert_public_due_date_absent(loaned);
         if expected != utc_date {
-            assert_ne!(loaned["expectedReturnDate"], utc_date, "{path} used the UTC date instead of the library date ({zone_name_for_due})");
+            assert_ne!(
+                loaned["expectedReturnDate"], utc_date,
+                "{path} used the UTC date instead of the library date ({zone_name_for_due})"
+            );
         }
         if path.contains("/items/") {
             assert_eq!(copies_of(&body).len(), 1, "{path}");
-            assert_eq!(fixtures::json_id(&copies_of(&body)[0]["id"]), loaned_id, "{path}");
+            assert_eq!(
+                fixtures::json_id(&copies_of(&body)[0]["id"]),
+                loaned_id,
+                "{path}"
+            );
             continue;
         }
         let free = copy_by_id(&body, free_id);
@@ -214,31 +241,60 @@ async fn reader_and_opac_expected_return_date_is_local_date_only_on_loan() {
         assert_public_due_date_absent(free);
         let on_site = copy_by_id(&body, on_site_id);
         assert_eq!(on_site["availability"], "onSiteOnly", "{path} {on_site}");
-        assert!(on_site.get("expectedReturnDate").is_none(), "{path} {on_site}");
+        assert!(
+            on_site.get("expectedReturnDate").is_none(),
+            "{path} {on_site}"
+        );
         assert_public_due_date_absent(on_site);
     }
 
-    let (status, staff) = app.get_json_with_auth(&format!("/api/v1/biblios/{biblio_id}"), &admin_token).await;
+    let (status, staff) = app
+        .get_json_with_auth(&format!("/api/v1/biblios/{biblio_id}"), &admin_token)
+        .await;
     assert_eq!(status, StatusCode::OK, "{staff}");
     let staff_loaned = copy_by_id(&staff, loaned_id);
     assert_eq!(staff_loaned["availability"], "onLoan", "{staff_loaned}");
-    assert!(staff_loaned.get("expectedReturnDate").is_none(), "staff view keeps dueDate only: {staff_loaned}");
-    assert!(staff_loaned["dueDate"].as_str().unwrap_or_default().contains('T'), "{staff_loaned}");
+    assert!(
+        staff_loaned.get("expectedReturnDate").is_none(),
+        "staff view keeps dueDate only: {staff_loaned}"
+    );
+    assert!(
+        staff_loaned["dueDate"]
+            .as_str()
+            .unwrap_or_default()
+            .contains('T'),
+        "{staff_loaned}"
+    );
 
-    let (status, returned) = app.post_empty(&format!("/api/v1/loans/{loan_id}/return"), Some(&admin_token)).await;
+    let (status, returned) = app
+        .post_empty(
+            &format!("/api/v1/loans/{loan_id}/return"),
+            Some(&admin_token),
+        )
+        .await;
     assert_eq!(status, StatusCode::OK, "{returned}");
 
-    let (status, after) = app.get_json(&format!("/api/v1/opac/biblios/{biblio_id}")).await;
+    let (status, after) = app
+        .get_json(&format!("/api/v1/opac/biblios/{biblio_id}"))
+        .await;
     assert_eq!(status, StatusCode::OK, "{after}");
     let returned_copy = copy_by_id(&after, loaned_id);
-    assert_eq!(returned_copy["availability"], "available", "{returned_copy}");
-    assert!(returned_copy.get("expectedReturnDate").is_none(), "{returned_copy}");
+    assert_eq!(
+        returned_copy["availability"], "available",
+        "{returned_copy}"
+    );
+    assert!(
+        returned_copy.get("expectedReturnDate").is_none(),
+        "{returned_copy}"
+    );
     assert_no_patron(&after, &secrets);
 }
 
 fn assert_staff_due_date_present(copy: &Value) {
     assert!(
-        copy.get("dueDate").and_then(Value::as_str).is_some_and(|value| value.contains('T')),
+        copy.get("dueDate")
+            .and_then(Value::as_str)
+            .is_some_and(|value| value.contains('T')),
         "staff ItemStaffView keeps dueDate: {copy}"
     );
 }
@@ -259,7 +315,8 @@ async fn opac_expected_return_date_stops_the_local_day_after_it_is_due() {
         return;
     };
     let admin_token = fixtures::ensure_first_setup(&app).await;
-    let (borrower_id, reader_token) = fixtures::create_reader(&app, &admin_token, "due_boundary").await;
+    let (borrower_id, reader_token) =
+        fixtures::create_reader(&app, &admin_token, "due_boundary").await;
 
     let suffix = fixtures::unique_suffix();
     let barcode = format!("DUE-Y-{suffix}");
@@ -299,7 +356,9 @@ async fn opac_expected_return_date_stops_the_local_day_after_it_is_due() {
         .expect("library timezone");
     let zone = library_zone(&zone_name);
     let today = local_date(zone, Utc::now());
-    let yesterday = today.checked_sub_days(chrono::Days::new(1)).expect("yesterday");
+    let yesterday = today
+        .checked_sub_days(chrono::Days::new(1))
+        .expect("yesterday");
     let paths = public_copy_paths(biblio_id, item_id, &barcode);
 
     sqlx::query("UPDATE loans SET expiry_at = $2 WHERE id = $1")
@@ -315,7 +374,9 @@ async fn opac_expected_return_date_stops_the_local_day_after_it_is_due() {
         assert_date_only(&today_copy["expectedReturnDate"], &today.to_string());
         assert_public_due_date_absent(&today_copy);
     }
-    let (status, staff_today) = app.get_json_with_auth(&format!("/api/v1/biblios/{biblio_id}"), &admin_token).await;
+    let (status, staff_today) = app
+        .get_json_with_auth(&format!("/api/v1/biblios/{biblio_id}"), &admin_token)
+        .await;
     assert_eq!(status, StatusCode::OK, "{staff_today}");
     assert_staff_due_date_present(copy_by_id(&staff_today, item_id));
 
@@ -328,18 +389,25 @@ async fn opac_expected_return_date_stops_the_local_day_after_it_is_due() {
 
     for path in &paths {
         let overdue_copy = fetch_public_copy(&app, &reader_token, path, item_id).await;
-        assert_eq!(overdue_copy["availability"], "onLoan", "{path} {overdue_copy}");
+        assert_eq!(
+            overdue_copy["availability"], "onLoan",
+            "{path} {overdue_copy}"
+        );
         assert!(
             overdue_copy.get("expectedReturnDate").is_none(),
             "overdue local due date must omit expectedReturnDate: {path} {overdue_copy}"
         );
         assert_public_due_date_absent(&overdue_copy);
     }
-    let (status, staff_overdue) = app.get_json_with_auth(&format!("/api/v1/biblios/{biblio_id}"), &admin_token).await;
+    let (status, staff_overdue) = app
+        .get_json_with_auth(&format!("/api/v1/biblios/{biblio_id}"), &admin_token)
+        .await;
     assert_eq!(status, StatusCode::OK, "{staff_overdue}");
     assert_staff_due_date_present(copy_by_id(&staff_overdue, item_id));
 
-    let (status, mine) = app.get_json_with_auth("/api/v1/me/loans?perPage=50", &reader_token).await;
+    let (status, mine) = app
+        .get_json_with_auth("/api/v1/me/loans?perPage=50", &reader_token)
+        .await;
     assert_eq!(status, StatusCode::OK, "{mine}");
     let row = mine["items"]
         .as_array()
@@ -347,6 +415,11 @@ async fn opac_expected_return_date_stops_the_local_day_after_it_is_due() {
         .iter()
         .find(|row| fixtures::json_id(&row["id"]) == loan_id)
         .unwrap_or_else(|| panic!("loan {loan_id} missing from {mine}"));
-    assert!(row["dueDate"].as_str().is_some_and(|value| value.contains('T')), "own overdue loan keeps dueDate: {row}");
+    assert!(
+        row["dueDate"]
+            .as_str()
+            .is_some_and(|value| value.contains('T')),
+        "own overdue loan keeps dueDate: {row}"
+    );
     assert_eq!(row["isOverdue"], true, "{row}");
 }
