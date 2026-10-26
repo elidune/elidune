@@ -261,6 +261,10 @@ pub mod event {
     pub const SERIAL_NUMBERING_PATTERN_CREATED: &str = "serial_numbering_pattern.created";
     pub const SERIAL_NUMBERING_PATTERN_UPDATED: &str = "serial_numbering_pattern.updated";
     pub const SERIAL_NUMBERING_PATTERN_DELETED: &str = "serial_numbering_pattern.deleted";
+    pub const SERIAL_SUBSCRIPTION_CREATED: &str = "serial_subscription.created";
+    pub const SERIAL_SUBSCRIPTION_UPDATED: &str = "serial_subscription.updated";
+    pub const SERIAL_SUBSCRIPTION_DELETED: &str = "serial_subscription.deleted";
+    pub const SERIAL_SUBSCRIPTION_ISSUES_GENERATED: &str = "serial_subscription.issues_generated";
 
     // Collections
     pub const COLLECTION_CREATED: &str = "collection.created";
@@ -579,6 +583,14 @@ mod tests {
         assert_eq!(event::PURCHASE_ORDER_RECEIVED, "purchase_order.received");
         assert_eq!(event::VENDOR_CREATED, "vendor.created");
         assert_eq!(event::SERIAL_FREQUENCY_CREATED, "serial_frequency.created");
+        assert_eq!(
+            event::SERIAL_SUBSCRIPTION_CREATED,
+            "serial_subscription.created"
+        );
+        assert_eq!(
+            event::SERIAL_SUBSCRIPTION_ISSUES_GENERATED,
+            "serial_subscription.issues_generated"
+        );
         assert_eq!(event::FINE_RULE_UPDATED, "fine_rule.updated");
         assert_eq!(
             event::LOAN_FINE_THRESHOLD_OVERRIDDEN,

@@ -27,6 +27,7 @@ pub mod maintenance;
 pub mod my_account;
 pub mod public_types;
 pub mod schedules;
+pub mod serial_subscriptions;
 pub mod serials;
 pub mod settings;
 pub mod sites;

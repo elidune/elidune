@@ -29,6 +29,7 @@ pub mod opac;
 pub mod openapi;
 pub mod public_types;
 pub mod schedules;
+pub mod serial_subscriptions;
 pub mod serials;
 pub mod series;
 pub mod sites;

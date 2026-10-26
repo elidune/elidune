@@ -8,8 +8,9 @@ use utoipa_swagger_ui::SwaggerUi;
 use crate::api::{
     account_types, acquisitions, admin_config, audit, auth, batch, biblios, collections, deposits,
     email_templates, equipment, events, fines, first_setup, genres, health, holds, inventory,
-    items, library_info, loans, maintenance, metrics, opac, public_types, schedules, serials,
-    series, sites, stats, suggestions, tasks, transits, users, visitor_counts, withdrawals, z3950,
+    items, library_info, loans, maintenance, metrics, opac, public_types, schedules,
+    serial_subscriptions, serials, series, sites, stats, suggestions, tasks, transits, users,
+    visitor_counts, withdrawals, z3950,
 };
 
 #[derive(OpenApi)]
@@ -270,6 +271,13 @@ use crate::api::{
         serials::update_numbering_pattern,
         serials::delete_numbering_pattern,
         serials::test_prediction,
+        serial_subscriptions::list_subscriptions,
+        serial_subscriptions::get_subscription,
+        serial_subscriptions::list_subscription_issues,
+        serial_subscriptions::create_subscription,
+        serial_subscriptions::update_subscription,
+        serial_subscriptions::delete_subscription,
+        serial_subscriptions::generate_subscription,
         suggestions::create_suggestion,
         suggestions::list_suggestions,
         suggestions::get_suggestion,
@@ -822,6 +830,11 @@ mod tests {
         assert!(doc.paths.paths.contains_key("/serials/frequencies"));
         assert!(doc.paths.paths.contains_key("/serials/numbering-patterns"));
         assert!(doc.paths.paths.contains_key("/serials/predictions"));
+        assert!(doc.paths.paths.contains_key("/serials/subscriptions"));
+        assert!(doc
+            .paths
+            .paths
+            .contains_key("/serials/subscriptions/{id}/generate"));
     }
 
     #[test]

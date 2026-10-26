@@ -280,7 +280,7 @@ Loan checkout, return, renew, exceptions, and batch loan operations require **`l
 
 ## Serials
 
-`serials_rights` (`n` / `r` / `w`, `NOT NULL DEFAULT 'n'`, same shape as `weeding_rights`) gates `/serials`. Read lists frequencies and numbering patterns and runs the prediction preview. Write creates, updates, and deletes those rows. The preview does not store issues.
+`serials_rights` (`n` / `r` / `w`, `NOT NULL DEFAULT 'n'`, same shape as `weeding_rights`) gates `/serials`. Read lists frequencies, numbering patterns, and serial subscriptions, lists stored issues, and runs the prediction preview. Write creates, updates, and deletes those rows and generates the next issue horizon. The preview does not store issues. Generating a horizon does.
 
 Seeded `librarian` and `admin` are `w`. Seeded `guest`, `reader`, and `group` are `n`.
 
@@ -297,6 +297,13 @@ Seeded `librarian` and `admin` are `w`. Seeded `guest`, `reader`, and `group` ar
 | `PUT /serials/numbering-patterns/:id` | JWT + `require_write_serials()` |
 | `DELETE /serials/numbering-patterns/:id` | JWT + `require_write_serials()` |
 | `POST /serials/predictions` | JWT + `require_read_serials()` |
+| `GET /serials/subscriptions` | JWT + `require_read_serials()` |
+| `GET /serials/subscriptions/:id` | JWT + `require_read_serials()` |
+| `GET /serials/subscriptions/:id/issues` | JWT + `require_read_serials()` |
+| `POST /serials/subscriptions` | JWT + `require_write_serials()` |
+| `PUT /serials/subscriptions/:id` | JWT + `require_write_serials()` |
+| `DELETE /serials/subscriptions/:id` | JWT + `require_write_serials()` |
+| `POST /serials/subscriptions/:id/generate` | JWT + `require_write_serials()` |
 
 ## Account types
 

@@ -9,15 +9,17 @@ use super::Repository;
 use crate::{
     error::{AppError, AppResult},
     models::serial::{
-        CounterFormat, CounterRule, FrequencyUnit, FrequencyWrite, NumberingPatternWrite,
-        SerialFrequency, SerialListQuery, SerialLocale, SerialNumberingPattern,
+        CounterFormat, CounterRule, FrequencyUnit, FrequencyWrite, NewSerialIssue,
+        NumberingPatternWrite, PredictionState, SerialFrequency, SerialIssue, SerialListQuery,
+        SerialLocale, SerialNumberingPattern, SerialSubscription, SerialSubscriptionQuery,
+        SerialSubscriptionWrite,
     },
 };
 
 static SNOWFLAKE: std::sync::LazyLock<std::sync::Mutex<Generator>> =
     std::sync::LazyLock::new(|| std::sync::Mutex::new(Generator::new(13)));
 
-fn next_id() -> i64 {
+pub(super) fn next_id() -> i64 {
     SNOWFLAKE
         .lock()
         .unwrap_or_else(|err| err.into_inner())
@@ -232,6 +234,35 @@ pub trait SerialsRepository: Send + Sync {
         data: &NumberingPatternWrite,
     ) -> AppResult<SerialNumberingPattern>;
     async fn patterns_delete(&self, id: i64) -> AppResult<SerialNumberingPattern>;
+
+    async fn periodical_biblio(&self, biblio_id: i64) -> AppResult<()>;
+    async fn subscriptions_list(
+        &self,
+        query: &SerialSubscriptionQuery,
+    ) -> AppResult<(Vec<SerialSubscription>, i64)>;
+    async fn subscriptions_get(&self, id: i64) -> AppResult<SerialSubscription>;
+    async fn subscriptions_issues(&self, subscription_id: i64) -> AppResult<Vec<SerialIssue>>;
+    async fn subscriptions_insert(
+        &self,
+        data: &SerialSubscriptionWrite,
+        cursor: &PredictionState,
+        issues: &[NewSerialIssue],
+    ) -> AppResult<i64>;
+    async fn subscriptions_update(
+        &self,
+        id: i64,
+        data: &SerialSubscriptionWrite,
+        cursor: &PredictionState,
+        new_issues: &[NewSerialIssue],
+    ) -> AppResult<()>;
+    async fn subscriptions_append(
+        &self,
+        id: i64,
+        expected_next_slot: i32,
+        cursor: &PredictionState,
+        issues: &[NewSerialIssue],
+    ) -> AppResult<()>;
+    async fn subscriptions_delete(&self, id: i64) -> AppResult<()>;
 }
 
 #[async_trait]
@@ -282,6 +313,50 @@ impl SerialsRepository for Repository {
     }
     async fn patterns_delete(&self, id: i64) -> AppResult<SerialNumberingPattern> {
         Repository::patterns_delete(self, id).await
+    }
+    async fn periodical_biblio(&self, biblio_id: i64) -> AppResult<()> {
+        Repository::periodical_biblio(self, biblio_id).await
+    }
+    async fn subscriptions_list(
+        &self,
+        query: &SerialSubscriptionQuery,
+    ) -> AppResult<(Vec<SerialSubscription>, i64)> {
+        Repository::subscriptions_list(self, query).await
+    }
+    async fn subscriptions_get(&self, id: i64) -> AppResult<SerialSubscription> {
+        Repository::subscriptions_get(self, id).await
+    }
+    async fn subscriptions_issues(&self, subscription_id: i64) -> AppResult<Vec<SerialIssue>> {
+        Repository::subscriptions_issues(self, subscription_id).await
+    }
+    async fn subscriptions_insert(
+        &self,
+        data: &SerialSubscriptionWrite,
+        cursor: &PredictionState,
+        issues: &[NewSerialIssue],
+    ) -> AppResult<i64> {
+        Repository::subscriptions_insert(self, data, cursor, issues).await
+    }
+    async fn subscriptions_update(
+        &self,
+        id: i64,
+        data: &SerialSubscriptionWrite,
+        cursor: &PredictionState,
+        new_issues: &[NewSerialIssue],
+    ) -> AppResult<()> {
+        Repository::subscriptions_update(self, id, data, cursor, new_issues).await
+    }
+    async fn subscriptions_append(
+        &self,
+        id: i64,
+        expected_next_slot: i32,
+        cursor: &PredictionState,
+        issues: &[NewSerialIssue],
+    ) -> AppResult<()> {
+        Repository::subscriptions_append(self, id, expected_next_slot, cursor, issues).await
+    }
+    async fn subscriptions_delete(&self, id: i64) -> AppResult<()> {
+        Repository::subscriptions_delete(self, id).await
     }
 }
 

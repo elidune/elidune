@@ -213,7 +213,7 @@ Mutations are audited (`serial_frequency.*`, `serial_numbering_pattern.*`). The 
 
 ## Later data model
 
-Not created in migration `004`.
+Migration `004` does not create these tables. Migration `005` creates `serial_subscriptions` and `serial_issues`.
 
 ### `serial_subscriptions` (MVP 2)
 
@@ -241,13 +241,15 @@ Approximate interval: `units_per_issue` times 1, 7, 30, or 365 (day, week, month
 | 1/3 weeks, 1/month | 15 |
 | 1/2 months, 1/3 months | 30 |
 | 1/6 months, 1/year, 1/2 years | 45 |
-- `status`: `active`, `expired`, `closed`.
+- `status`: `active`, `expired`, `closed`. `active` is the open subscription. Only one `active` row per (`biblio_id`, `site_id`).
 - `create_items` boolean not null default true. The subscription form shows it as a checkbox beside the frequency, checked by default. One click clears it. Daily press is usually not itemised.
 - `latest_issue_library_use_only` boolean not null default true.
 - `holdings_statement` text null. Free text. Existing copies are not rewritten.
-- `notes`, timestamps.
+- Optional `start_date`. Prediction does not use it. `first_issue_date` stays the anchor. Optional `end_date` is inclusive: a planned date after it is not generated.
+- `call_number` (varchar 100), `location` (varchar 200), `public_note`, `internal_note`, and `notes`. Receipt (MVP 3) copies the call number, location, and notes onto the item. They are not prediction inputs.
+- timestamps.
 
-Creating or editing the prediction inputs generates the first horizon of `serial_issues` (status `expected`) and stores `nextState`. Horizon: issues whose planned date falls in the next 12 months, and not past the serial subscription length, capped at 500. `POST /serials/subscriptions/{id}/generate` appends the next horizon from the cursor. It does not recompute existing rows.
+Creating a serial subscription predicts the first horizon of `serial_issues` (status `expected`) and stores `nextState` in the cursor columns. Horizon: issues whose planned date falls in the next 12 months, and not past the serial subscription length or `end_date`, capped at 500. `POST /serials/subscriptions/{id}/generate` appends the next horizon from `next_slot` and the same anchor. It does not recompute existing rows. Changing prediction inputs after issues exist is refused. Closing sets `status` to `closed` and keeps the issue rows. Search is `GET /serials/subscriptions` with `q` (title or an ISSN on a linked series or collection; `biblios.issn` is still out of scope), `siteId`, `vendorId`, and `status`.
 
 ### `serial_issues` (MVP 2 schema, written by prediction; MVP 3 fills receipt)
 
@@ -317,7 +319,7 @@ Phase 3 shows the latest arrived issues and the free-text holdings statement. It
 
 - **Phase 0.** This spec.
 - **MVP 1 (this change).** Migration `004`: `serials_rights` (`NOT NULL DEFAULT 'n'`, like `weeding_rights`), `serial_frequencies` with the seed, `serial_numbering_patterns` with three seeded patterns. Pure prediction engine and its unit tests. Read/CRUD for frequencies and patterns, `POST /serials/predictions`, OpenAPI, rights, integration tests. No serial subscription rows. Frequency translation keys are in the UI locales; no frequency screen yet.
-- **MVP 2.** `serial_subscriptions` per site, optional vendor, fund, annual cost, and `issue_price_cents`, `grace_days`, anchor date, and `next_slot`. Horizon generation into `serial_issues` continues from that cursor.
+- **MVP 2.** Migration `005`: `serial_subscriptions` per site, optional vendor, fund, annual cost, and `issue_price_cents`, `grace_days`, anchor date, and `next_slot`. Horizon generation into `serial_issues` continues from that cursor. No subscription UI (MVP 4).
 - **MVP 3.** Receive issues onto persisted rows, create items through `CatalogService::create_item`, statuses, irregular skips, supplements.
 - **MVP 4.** UI: serial subscription form with the prediction preview, the `create_items` checkbox beside the frequency, serial collection, receive screen, search. Frequency labels use `serials.frequencies.*`. Account-type settings already expose `serialsRights` from MVP 1.
 - **Phase 2.** Late-issue scheduler job and vendor claims (email + CSV). Expiration, renewal, close/reopen. Circulation: previous issue lendable, issue-level holds. Retention rule via weeding.
