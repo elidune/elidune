@@ -722,7 +722,7 @@ impl Repository {
             r#"
             SELECT items_rights, users_rights, loans_rights,
                    holds_rights, settings_rights, events_rights, acquisitions_rights,
-                   weeding_rights, weeding_cancel_rights, items_archive_rights,
+                   serials_rights, weeding_rights, weeding_cancel_rights, items_archive_rights,
                    circulation_override_rights
             FROM account_types
             WHERE code = $1
@@ -746,6 +746,7 @@ impl Repository {
             settings_rights: Rights::from(row.get::<Option<String>, _>("settings_rights")),
             events_rights: Rights::from(row.get::<Option<String>, _>("events_rights")),
             acquisitions_rights: Rights::from(row.get::<Option<String>, _>("acquisitions_rights")),
+            serials_rights: Rights::from(row.get::<Option<String>, _>("serials_rights")),
             weeding_rights: Rights::from(row.get::<Option<String>, _>("weeding_rights")),
             weeding_cancel_rights: Rights::from(
                 row.get::<Option<String>, _>("weeding_cancel_rights"),

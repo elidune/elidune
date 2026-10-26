@@ -18,6 +18,8 @@ pub struct AccountTypeDefinition {
     pub settings_rights: Option<String>,
     pub events_rights: Option<String>,
     pub acquisitions_rights: Option<String>,
+    /// Serials (`n`/`r`/`w`): frequencies, numbering patterns, serial subscriptions.
+    pub serials_rights: Option<String>,
     pub weeding_rights: Option<String>,
     pub weeding_cancel_rights: Option<String>,
     /// Write may force a held copy and an expired subscription. Distinct from settings.
@@ -40,6 +42,8 @@ pub struct CreateAccountType {
     pub settings_rights: Option<String>,
     pub events_rights: Option<String>,
     pub acquisitions_rights: Option<String>,
+    /// Serials (`n`/`r`/`w`): frequencies, numbering patterns, serial subscriptions.
+    pub serials_rights: Option<String>,
     pub weeding_rights: Option<String>,
     pub weeding_cancel_rights: Option<String>,
     pub circulation_override_rights: Option<String>,
@@ -59,6 +63,8 @@ pub struct UpdateAccountTypeDefinition {
     pub settings_rights: Option<String>,
     pub events_rights: Option<String>,
     pub acquisitions_rights: Option<String>,
+    /// Serials (`n`/`r`/`w`): frequencies, numbering patterns, serial subscriptions.
+    pub serials_rights: Option<String>,
     pub weeding_rights: Option<String>,
     pub weeding_cancel_rights: Option<String>,
     pub circulation_override_rights: Option<String>,

@@ -43,6 +43,7 @@ impl AccountTypesCatalogService {
             settings_rights: Some(right_or_none(&mut data.settings_rights, false)?),
             events_rights: Some(right_or_none(&mut data.events_rights, false)?),
             acquisitions_rights: Some(right_or_none(&mut data.acquisitions_rights, false)?),
+            serials_rights: Some(right_or_none(&mut data.serials_rights, false)?),
             weeding_rights: Some(right_or_none(&mut data.weeding_rights, false)?),
             weeding_cancel_rights: Some(right_or_none(&mut data.weeding_cancel_rights, false)?),
             circulation_override_rights: Some(right_or_none(
@@ -80,6 +81,7 @@ impl AccountTypesCatalogService {
         normalize_right_field(&mut data.settings_rights)?;
         normalize_right_field(&mut data.events_rights)?;
         normalize_right_field(&mut data.acquisitions_rights)?;
+        normalize_right_field(&mut data.serials_rights)?;
         normalize_right_field(&mut data.weeding_rights)?;
         normalize_right_field(&mut data.weeding_cancel_rights)?;
         normalize_right_field(&mut data.circulation_override_rights)?;
@@ -242,6 +244,7 @@ fn removes_any_right(before: &AccountTypeDefinition, patch: &UpdateAccountTypeDe
         || patch_removes_right(&before.settings_rights, &patch.settings_rights)
         || patch_removes_right(&before.events_rights, &patch.events_rights)
         || patch_removes_right(&before.acquisitions_rights, &patch.acquisitions_rights)
+        || patch_removes_right(&before.serials_rights, &patch.serials_rights)
         || patch_removes_right(&before.weeding_rights, &patch.weeding_rights)
         || patch_removes_right(&before.weeding_cancel_rights, &patch.weeding_cancel_rights)
         || patch_removes_right(

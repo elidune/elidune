@@ -254,6 +254,14 @@ pub mod event {
     pub const PURCHASE_SUGGESTION_ACCEPTED: &str = "purchase_suggestion.accepted";
     pub const PURCHASE_SUGGESTION_REFUSED: &str = "purchase_suggestion.refused";
 
+    // Serials
+    pub const SERIAL_FREQUENCY_CREATED: &str = "serial_frequency.created";
+    pub const SERIAL_FREQUENCY_UPDATED: &str = "serial_frequency.updated";
+    pub const SERIAL_FREQUENCY_DELETED: &str = "serial_frequency.deleted";
+    pub const SERIAL_NUMBERING_PATTERN_CREATED: &str = "serial_numbering_pattern.created";
+    pub const SERIAL_NUMBERING_PATTERN_UPDATED: &str = "serial_numbering_pattern.updated";
+    pub const SERIAL_NUMBERING_PATTERN_DELETED: &str = "serial_numbering_pattern.deleted";
+
     // Collections
     pub const COLLECTION_CREATED: &str = "collection.created";
     pub const COLLECTION_UPDATED: &str = "collection.updated";
@@ -570,6 +578,7 @@ mod tests {
         assert_eq!(event::COLLECTION_CREATED, "collection.created");
         assert_eq!(event::PURCHASE_ORDER_RECEIVED, "purchase_order.received");
         assert_eq!(event::VENDOR_CREATED, "vendor.created");
+        assert_eq!(event::SERIAL_FREQUENCY_CREATED, "serial_frequency.created");
         assert_eq!(event::FINE_RULE_UPDATED, "fine_rule.updated");
         assert_eq!(
             event::LOAN_FINE_THRESHOLD_OVERRIDDEN,

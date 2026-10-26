@@ -25,6 +25,7 @@ pub mod public_type;
 pub mod schedule;
 pub mod secret;
 pub mod serde_util;
+pub mod serial;
 pub mod site;
 pub mod stats_builder;
 pub mod task;

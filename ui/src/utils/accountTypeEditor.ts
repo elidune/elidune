@@ -24,6 +24,7 @@ export const ACCOUNT_TYPE_RIGHT_FIELDS = [
   'settingsRights',
   'eventsRights',
   'acquisitionsRights',
+  'serialsRights',
   'weedingRights',
   'weedingCancelRights',
 ] as const satisfies readonly AccountTypeRightField[];
@@ -41,7 +42,7 @@ export const ACCOUNT_TYPE_RIGHT_GROUPS = [
   { key: 'patrons', fields: ['usersRights'] },
   {
     key: 'administration',
-    fields: ['settingsRights', 'eventsRights', 'acquisitionsRights'],
+    fields: ['settingsRights', 'eventsRights', 'acquisitionsRights', 'serialsRights'],
   },
 ] as const satisfies ReadonlyArray<{
   key: string;

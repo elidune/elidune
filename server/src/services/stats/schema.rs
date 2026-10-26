@@ -319,6 +319,10 @@ pub static SCHEMA: Lazy<HashMap<&'static str, EntityDef>> = Lazy::new(|| {
                     "acquisitions_rights",
                     f("acquisitions_rights", "text", "Acquisitions (n/r/w)"),
                 ),
+                (
+                    "serials_rights",
+                    f("serials_rights", "text", "Serials (n/r/w)"),
+                ),
             ]),
             relations: HashMap::new(),
         },

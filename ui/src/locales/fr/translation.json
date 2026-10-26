@@ -2067,6 +2067,7 @@
         "settingsRights": "Paramètres",
         "eventsRights": "Événements",
         "acquisitionsRights": "Acquisitions",
+        "serialsRights": "Périodiques",
         "weedingRights": "Désherbage",
         "weedingCancelRights": "Annuler un désherbage"
       },
@@ -3079,6 +3080,24 @@
       "proposed": "Proposée",
       "accepted": "Acceptée",
       "refused": "Refusée"
+    }
+  },
+  "serials": {
+    "frequencies": {
+      "twiceDaily": "deux fois par jour",
+      "daily": "quotidien",
+      "threePerWeek": "trois fois par semaine",
+      "weekly": "hebdomadaire",
+      "fortnightly": "tous les quinze jours",
+      "everyThreeWeeks": "toutes les trois semaines",
+      "monthly": "mensuel",
+      "everyTwoMonths": "bimestriel",
+      "quarterly": "trimestriel",
+      "twiceMonthly": "bimensuel",
+      "semiannual": "semestriel",
+      "annual": "annuel",
+      "everyTwoYears": "tous les deux ans",
+      "irregular": "irrégulier"
     }
   }
 }
