@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 
 use chrono::Utc;
+use sqlx::Postgres;
 
 use super::super::Repository;
 use crate::models::item::ItemShort;
@@ -142,6 +143,53 @@ fn item_short_sql(where_and_order: &str) -> String {
     )
 }
 
+/// Insert one copy. [`Repository::biblios_create_item`] and serials receipt both use this
+/// statement so a received copy does not grow a second insert.
+pub(crate) async fn insert_item_row<'e, E>(
+    executor: E,
+    biblio_id: i64,
+    item: &Item,
+    site_id: Option<i64>,
+) -> AppResult<Item>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let now = Utc::now();
+    let mut new_item = item.clone();
+    new_item.site_id = site_id;
+    let public_note = note_stored_value(item.public_note.clone());
+    let internal_note = note_stored_value(item.internal_note.clone());
+    let id = sqlx::query_scalar::<_, i64>(
+        r#"
+        INSERT INTO items (
+            biblio_id, barcode, lender_barcode, call_number, volume_designation, place, borrowable,
+            public_note, internal_note, price, site_id, deposit_batch_id, created_at, updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, NULLIF(btrim($8), ''), NULLIF(btrim($9), ''), $10, $11, $12, $13, $13)
+        RETURNING id
+        "#,
+    )
+    .bind(biblio_id)
+    .bind(&item.barcode)
+    .bind(&item.lender_barcode)
+    .bind(&item.call_number)
+    .bind(&item.volume_designation)
+    .bind(item.place)
+    .bind(item.borrowable)
+    .bind(&public_note)
+    .bind(&internal_note)
+    .bind(item.price)
+    .bind(site_id)
+    .bind(item.deposit_batch_id)
+    .bind(now)
+    .fetch_one(executor)
+    .await?;
+
+    new_item.id = Some(id);
+    new_item.public_note = public_note;
+    new_item.internal_note = internal_note;
+    Ok(new_item)
+}
+
 impl Repository {
     /// Library-local calendar date of an open loan, for the public catalog only.
     async fn fill_expected_return_dates(&self, items: &mut [Item]) -> AppResult<()> {
@@ -238,8 +286,6 @@ impl Repository {
     /// Create an item (physical copy) for a biblio
     #[tracing::instrument(skip(self), err)]
     pub async fn biblios_create_item(&self, biblio_id: i64, item: &Item) -> AppResult<Item> {
-        let now = Utc::now();
-        let mut new_item = item.clone();
         let site_id = if let Some(id) = item.site_id {
             Some(id)
         } else if let Some(ref name) = item.site_name {
@@ -253,39 +299,7 @@ impl Repository {
         } else {
             None
         };
-        new_item.site_id = site_id;
-
-        let public_note = note_stored_value(item.public_note.clone());
-        let internal_note = note_stored_value(item.internal_note.clone());
-        let id = sqlx::query_scalar::<_, i64>(
-            r#"
-            INSERT INTO items (
-                biblio_id, barcode, lender_barcode, call_number, volume_designation, place, borrowable,
-                public_note, internal_note, price, site_id, deposit_batch_id, created_at, updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, NULLIF(btrim($8), ''), NULLIF(btrim($9), ''), $10, $11, $12, $13, $13)
-            RETURNING id
-            "#,
-        )
-        .bind(biblio_id)
-        .bind(&item.barcode)
-        .bind(&item.lender_barcode)
-        .bind(&item.call_number)
-        .bind(&item.volume_designation)
-        .bind(item.place)
-        .bind(item.borrowable)
-        .bind(&public_note)
-        .bind(&internal_note)
-        .bind(item.price)
-        .bind(site_id)
-        .bind(item.deposit_batch_id)
-        .bind(now)
-        .fetch_one(&self.pool)
-        .await?;
-
-        new_item.id = Some(id);
-        new_item.public_note = public_note;
-        new_item.internal_note = internal_note;
-        Ok(new_item)
+        insert_item_row(&self.pool, biblio_id, item, site_id).await
     }
 
     /// Upsert an item (physical copy)

@@ -470,7 +470,7 @@ pub async fn create_supplement(
     security(("bearer_auth" = [])),
     params(("id" = i64, Path, description = "Serial subscription id")),
     responses(
-        (status = 200, description = "Expected issues past planned date plus effective grace are now late. Receiving an issue does not mark another issue late.", body = SerialIssuesMarkedLate),
+        (status = 200, description = "Expected issues are marked late when the library's local date is after the planned date plus the effective grace. Receiving an issue does not mark another issue late.", body = SerialIssuesMarkedLate),
         (status = 401, description = "Not authenticated", body = ErrorResponse),
         (status = 403, description = "Insufficient serials rights", body = ErrorResponse),
         (status = 404, description = "Serial subscription not found", body = ErrorResponse),

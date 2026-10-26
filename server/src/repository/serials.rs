@@ -8,11 +8,14 @@ use sqlx::FromRow;
 use super::Repository;
 use crate::{
     error::{AppError, AppResult},
-    models::serial::{
-        CounterFormat, CounterRule, FrequencyUnit, FrequencyWrite, NewSerialIssue,
-        NumberingPatternWrite, PredictionState, SerialFrequency, SerialIssue, SerialIssueStatus,
-        SerialListQuery, SerialLocale, SerialNumberingPattern, SerialSubscription,
-        SerialSubscriptionQuery, SerialSubscriptionWrite,
+    models::{
+        item::Item,
+        serial::{
+            CounterFormat, CounterRule, FrequencyUnit, FrequencyWrite, NewSerialIssue,
+            NumberingPatternWrite, PredictionState, SerialFrequency, SerialIssue,
+            SerialIssueStatus, SerialListQuery, SerialLocale, SerialNumberingPattern,
+            SerialSubscription, SerialSubscriptionQuery, SerialSubscriptionWrite,
+        },
     },
 };
 
@@ -279,6 +282,17 @@ pub trait SerialsRepository: Send + Sync {
         received_at: DateTime<Utc>,
         item_id: Option<i64>,
     ) -> AppResult<Option<SerialIssue>>;
+    /// Lock the issue, then insert its copy and mark it arrived in that same transaction.
+    async fn receive_serial_issue(
+        &self,
+        subscription_id: i64,
+        issue_id: i64,
+        received_at: DateTime<Utc>,
+        biblio_id: i64,
+        item: Option<Item>,
+        hold_latest_in_library: bool,
+    ) -> AppResult<SerialIssue>;
+    async fn library_zone(&self) -> AppResult<chrono_tz::Tz>;
     async fn issues_set_status(
         &self,
         subscription_id: i64,
@@ -416,6 +430,29 @@ impl SerialsRepository for Repository {
         item_id: Option<i64>,
     ) -> AppResult<Option<SerialIssue>> {
         Repository::issues_mark_arrived(self, subscription_id, issue_id, received_at, item_id).await
+    }
+    async fn receive_serial_issue(
+        &self,
+        subscription_id: i64,
+        issue_id: i64,
+        received_at: DateTime<Utc>,
+        biblio_id: i64,
+        item: Option<Item>,
+        hold_latest_in_library: bool,
+    ) -> AppResult<SerialIssue> {
+        Repository::receive_serial_issue(
+            self,
+            subscription_id,
+            issue_id,
+            received_at,
+            biblio_id,
+            item,
+            hold_latest_in_library,
+        )
+        .await
+    }
+    async fn library_zone(&self) -> AppResult<chrono_tz::Tz> {
+        Repository::library_zone(self).await
     }
     async fn issues_set_status(
         &self,

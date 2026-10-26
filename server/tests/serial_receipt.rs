@@ -2,10 +2,17 @@
 
 mod common;
 
+use std::sync::Arc;
+use std::time::Duration;
+
 use axum::http::StatusCode;
+use chrono::Utc;
+use chrono_tz::Tz;
 use common::fixtures;
 use common::TestApp;
+use elidune_server::services::calendar::local_date;
 use serde_json::{json, Value};
+use sqlx::Connection;
 
 fn by_field<'a>(rows: &'a [Value], field: &str, expected: &str) -> &'a Value {
     rows.iter()
@@ -604,4 +611,217 @@ async fn manual_not_borrowable_survives_a_later_receipt() {
         !copy_row(&app, item_413).await.borrowable,
         "the previous latest was non-borrowable before the rule, so it stays that way"
     );
+}
+
+#[tokio::test]
+async fn concurrent_receipt_of_the_same_issue_keeps_one_item() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin = fixtures::ensure_first_setup(&app).await;
+    let monthly = frequency_id(&app, &admin, "1/month").await;
+    let pattern = pattern_id(&app, &admin, "n° {X}").await;
+    let site_id = create_site_id(&app, &admin).await;
+    let suffix = fixtures::unique_suffix();
+    let biblio_id = create_periodical(&app, &admin, &format!("Revue course {suffix}")).await;
+    let biblio_num: i64 = biblio_id.parse().unwrap();
+
+    let (status, created) = app
+        .post_json(
+            "/api/v1/serials/subscriptions",
+            &json!({
+                "biblioId": biblio_id,
+                "siteId": site_id,
+                "frequencyId": monthly,
+                "numberingPatternId": pattern,
+                "firstIssueDate": "2026-12-01",
+                "x": 1,
+                "y": 0,
+                "z": 0,
+                "length": { "kind": "issues", "count": 1 },
+                "createItems": true
+            }),
+            Some(&admin),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let subscription_id = created["id"].as_str().expect("id").to_string();
+    let issue_id = created["issues"][0]["id"]
+        .as_str()
+        .expect("issue")
+        .to_string();
+    let issue_num: i64 = issue_id.parse().unwrap();
+
+    let app = Arc::new(app);
+    let pool = app.state.services.repository.pool().clone();
+    let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL");
+    let mut lock_conn = sqlx::postgres::PgConnection::connect(&database_url)
+        .await
+        .expect("lock connection");
+    let mut tx = lock_conn.begin().await.expect("lock transaction");
+    sqlx::query("SELECT id FROM serial_issues WHERE id = $1 FOR UPDATE")
+        .bind(issue_num)
+        .execute(&mut *tx)
+        .await
+        .expect("lock issue");
+
+    let receive =
+        format!("/api/v1/serials/subscriptions/{subscription_id}/issues/{issue_id}/receive");
+    let first = {
+        let app = Arc::clone(&app);
+        let admin = admin.clone();
+        let receive = receive.clone();
+        tokio::spawn(async move { app.post_json(&receive, &json!({}), Some(&admin)).await })
+    };
+    let second = {
+        let app = Arc::clone(&app);
+        let admin = admin.clone();
+        tokio::spawn(async move { app.post_json(&receive, &json!({}), Some(&admin)).await })
+    };
+
+    // Both receipts must reach the row lock before it is released. Polling
+    // pg_stat_activity from the lock holder can stall behind those waiters.
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    tx.rollback().await.expect("release issue lock");
+
+    let (status_a, body_a) = first.await.expect("first receipt");
+    let (status_b, body_b) = second.await.expect("second receipt");
+    assert!(
+        (status_a == StatusCode::OK && status_b == StatusCode::CONFLICT)
+            || (status_a == StatusCode::CONFLICT && status_b == StatusCode::OK),
+        "one receipt wins and the other conflicts: {status_a} {body_a} {status_b} {body_b}"
+    );
+
+    let copies: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*)::bigint FROM items WHERE biblio_id = $1 AND archived_at IS NULL",
+    )
+    .bind(biblio_num)
+    .fetch_one(&pool)
+    .await
+    .expect("count items");
+    assert_eq!(
+        copies, 1,
+        "a conflicting receipt must not leave an orphan copy"
+    );
+
+    let linked: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*)::bigint FROM serial_issues \
+         WHERE id = $1 AND status = 'arrived' AND item_id IS NOT NULL",
+    )
+    .bind(issue_num)
+    .fetch_one(&pool)
+    .await
+    .expect("linked issue");
+    assert_eq!(linked, 1);
+}
+
+#[tokio::test]
+async fn mark_late_uses_the_library_local_date() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin = fixtures::ensure_first_setup(&app).await;
+    let pool = app.state.services.repository.pool().clone();
+    let previous: Option<String> =
+        sqlx::query_scalar("SELECT timezone FROM library_info WHERE id = 1")
+            .fetch_one(&pool)
+            .await
+            .expect("library timezone");
+
+    let now = Utc::now();
+    let utc_today = now.date_naive();
+    let ahead: Tz = "Pacific/Kiritimati".parse().expect("kiritimati");
+    let behind: Tz = "Pacific/Pago_Pago".parse().expect("pago pago");
+    let ahead_today = local_date(ahead, now);
+    let behind_today = local_date(behind, now);
+    let (zone, planned, expect_late) = if ahead_today > utc_today {
+        ("Pacific/Kiritimati", utc_today, true)
+    } else {
+        assert!(
+            behind_today < utc_today,
+            "Kiritimati and Pago Pago cannot both share the UTC date"
+        );
+        ("Pacific/Pago_Pago", behind_today, false)
+    };
+
+    let outcome = async {
+        sqlx::query("UPDATE library_info SET timezone = $1 WHERE id = 1")
+            .bind(zone)
+            .execute(&pool)
+            .await
+            .expect("set timezone");
+
+        let monthly = frequency_id(&app, &admin, "1/month").await;
+        let pattern = pattern_id(&app, &admin, "n° {X}").await;
+        let site_id = create_site_id(&app, &admin).await;
+        let suffix = fixtures::unique_suffix();
+        let biblio_id = create_periodical(&app, &admin, &format!("Revue fuseau {suffix}")).await;
+        let (status, created) = app
+            .post_json(
+                "/api/v1/serials/subscriptions",
+                &json!({
+                    "biblioId": biblio_id,
+                    "siteId": site_id,
+                    "frequencyId": monthly,
+                    "numberingPatternId": pattern,
+                    "firstIssueDate": "2026-12-01",
+                    "x": 1,
+                    "y": 0,
+                    "z": 0,
+                    "length": { "kind": "issues", "count": 1 },
+                    "createItems": false,
+                    "graceDays": 0
+                }),
+                Some(&admin),
+            )
+            .await;
+        assert_eq!(status, StatusCode::CREATED, "{created}");
+        let subscription_id = created["id"].as_str().expect("id");
+        let issue_num: i64 = created["issues"][0]["id"]
+            .as_str()
+            .expect("issue")
+            .parse()
+            .unwrap();
+        sqlx::query("UPDATE serial_issues SET planned_date = $2 WHERE id = $1")
+            .bind(issue_num)
+            .bind(planned)
+            .execute(&pool)
+            .await
+            .expect("planned date");
+
+        let (status, marked) = app
+            .post_json(
+                &format!("/api/v1/serials/subscriptions/{subscription_id}/mark-late"),
+                &json!({}),
+                Some(&admin),
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK, "{marked}");
+        let late_count = marked["issues"].as_array().expect("issues").len();
+        let stored: String = sqlx::query_scalar("SELECT status FROM serial_issues WHERE id = $1")
+            .bind(issue_num)
+            .fetch_one(&pool)
+            .await
+            .expect("status");
+        (late_count, stored)
+    }
+    .await;
+
+    sqlx::query("UPDATE library_info SET timezone = $1 WHERE id = 1")
+        .bind(&previous)
+        .execute(&pool)
+        .await
+        .expect("restore timezone");
+
+    let (late_count, stored) = outcome;
+    if expect_late {
+        assert_eq!(late_count, 1, "local date is after the planned date");
+        assert_eq!(stored, "late");
+    } else {
+        assert_eq!(
+            late_count, 0,
+            "UTC is already the next day, but the library date is not"
+        );
+        assert_eq!(stored, "expected");
+    }
 }

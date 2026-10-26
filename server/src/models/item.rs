@@ -484,8 +484,10 @@ impl Item {
     /// A copy created when stock is received.
     ///
     /// Acquisitions receipt and serials receipt both use this so weeding, the
-    /// availability pair, and the borrowable default stay one path. The insert
-    /// is still [`crate::services::catalog::CatalogService::create_item`].
+    /// availability pair, and the borrowable default stay one path. Both inserts
+    /// go through [`crate::repository::biblios::insert_item_row`]. Acquisitions
+    /// calls it from [`crate::services::catalog::CatalogService::create_item`].
+    /// Serials receipt calls it in the transaction that reserves the issue.
     #[must_use]
     pub fn received_copy(copy: ReceivedCopy) -> Self {
         let borrowable = copy.borrowable.unwrap_or_else(|| {

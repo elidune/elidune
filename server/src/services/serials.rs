@@ -283,8 +283,10 @@ impl SerialsService {
     /// Receive an expected or late issue. Other issues keep their status.
     ///
     /// When `create_items` is set, the copy is built with [`Item::received_copy`] and
-    /// inserted by [`CatalogService::create_item`]. `issue_price_cents` is the item
-    /// price. `cost_cents` is not copied. A missing barcode uses
+    /// inserted with the same statement as [`CatalogService::create_item`]. The issue
+    /// row is locked first, and the copy insert commits with the status change, so a
+    /// conflicting receipt leaves no copy. `issue_price_cents` is the item price.
+    /// `cost_cents` is not copied. A missing barcode uses
     /// [`crate::services::item_barcode::allocate_local_item_barcode`].
     pub async fn receive_issue(
         &self,
@@ -311,54 +313,44 @@ impl SerialsService {
                 "This serial subscription does not create copies".into(),
             ));
         }
-        let item_id = if subscription.create_items {
+        let item = if subscription.create_items {
             let barcode = match barcode {
                 Some(barcode) => barcode,
                 None => self.repository.allocate_item_barcode().await?,
             };
-            let created = self
-                .catalog
-                .create_item(
-                    subscription.biblio_id,
-                    Item::received_copy(ReceivedCopy {
-                        biblio_id: subscription.biblio_id,
-                        barcode: Some(barcode),
-                        site_id: Some(subscription.site_id),
-                        site_name: None,
-                        call_number: trimmed(&subscription.call_number),
-                        volume_designation: Some(issue.display_label.clone()),
-                        public_note: trimmed(&subscription.public_note),
-                        internal_note: item_internal_note(&subscription),
-                        price: subscription
-                            .issue_price_cents
-                            .map(|cents| Cents(i64::from(cents))),
-                        price_deferred: false,
-                        borrowable: None,
-                    }),
-                )
-                .await?;
-            Some(
-                created
-                    .id
-                    .ok_or_else(|| AppError::Internal("Created item is missing id".into()))?,
-            )
+            let item = Item::received_copy(ReceivedCopy {
+                biblio_id: subscription.biblio_id,
+                barcode: Some(barcode),
+                site_id: Some(subscription.site_id),
+                site_name: None,
+                call_number: trimmed(&subscription.call_number),
+                volume_designation: Some(issue.display_label.clone()),
+                public_note: trimmed(&subscription.public_note),
+                internal_note: item_internal_note(&subscription),
+                price: subscription
+                    .issue_price_cents
+                    .map(|cents| Cents(i64::from(cents))),
+                price_deferred: false,
+                borrowable: None,
+            });
+            item.validate_copy_notes().map_err(AppError::Validation)?;
+            Some(item)
         } else {
             None
         };
-        let received_at = received_at(data.received_on);
         let arrived = self
             .repository
-            .issues_mark_arrived(subscription_id, issue_id, received_at, item_id)
-            .await?
-            .ok_or_else(|| {
-                AppError::Conflict(
-                    "This issue was updated and can no longer be received".to_string(),
-                )
-            })?;
-        if subscription.create_items && subscription.latest_issue_library_use_only {
-            self.repository
-                .apply_latest_issue_borrowable(subscription_id)
-                .await?;
+            .receive_serial_issue(
+                subscription_id,
+                issue_id,
+                received_at(data.received_on),
+                subscription.biblio_id,
+                item,
+                subscription.create_items && subscription.latest_issue_library_use_only,
+            )
+            .await?;
+        if subscription.create_items {
+            self.catalog.sync_index(subscription.biblio_id).await;
         }
         Ok(arrived)
     }
@@ -421,11 +413,13 @@ impl SerialsService {
             .await
     }
 
-    /// Mark expected issues late when today is after `planned_date` plus the effective grace.
+    /// Mark expected issues late when the library's local date is after `planned_date`
+    /// plus the effective grace.
     ///
     /// A stored `grace_days`, including 0, wins. Otherwise the frequency default applies.
     /// An irregular subscription with no grace is left unchanged. Receiving another issue
-    /// does not call this.
+    /// does not call this. The date is the library timezone (`library_info.timezone`),
+    /// the same civil date circulation uses.
     pub async fn mark_late_issues(
         &self,
         subscription_id: i64,
@@ -434,9 +428,11 @@ impl SerialsService {
         let Some(grace_days) = subscription.effective_grace_days else {
             return Ok(SerialIssuesMarkedLate { issues: Vec::new() });
         };
+        let zone = self.repository.library_zone().await?;
+        let today = crate::services::calendar::local_date(zone, Utc::now());
         let issues = self
             .repository
-            .issues_mark_late(subscription_id, grace_days, Utc::now().date_naive())
+            .issues_mark_late(subscription_id, grace_days, today)
             .await?;
         Ok(SerialIssuesMarkedLate { issues })
     }
