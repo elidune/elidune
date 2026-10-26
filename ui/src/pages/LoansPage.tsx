@@ -16,6 +16,7 @@ import {
   ChevronDown,
   ClipboardList,
   ArrowLeftRight,
+  Icon,
 } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useDeskPatronLoansQuery } from '@/hooks/loans/useDeskPatronLoansQuery';
@@ -1555,12 +1556,6 @@ export default function LoansPage() {
               <Card padding="none" className="flex flex-col min-h-0">
                 <div className="p-4 sm:p-6 border-b border-gray-200 dark:border-gray-800 flex-shrink-0">
                   <div className="flex gap-4">
-                    <div
-                      className="hidden sm:flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gray-200 text-base font-bold text-gray-700 dark:bg-gray-700 dark:text-gray-200"
-                      aria-hidden
-                    >
-                      3
-                    </div>
                     <div className="min-w-0 flex-1 pt-0.5">
                       <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
                         {t('loans.activeLoans')}
