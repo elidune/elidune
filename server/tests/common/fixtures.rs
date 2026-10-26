@@ -5,6 +5,15 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use chrono::NaiveDate;
+use elidune_server::{
+    error::AppError,
+    models::{
+        dto::library_info::UpdateLibraryInfoRequest,
+        secret::plaintext_password,
+        user::{AccountTypeSlug, EventsConsentSource, UserPayload},
+        Sex,
+    },
+};
 use serde_json::json;
 
 /// Parse a snowflake ID from JSON (string or number).
@@ -40,7 +49,10 @@ pub fn first_setup_payload() -> serde_json::Value {
 /// Run first setup when the database is empty; returns JWT token.
 ///
 /// Parallel integration tests share one database, so first-setup can race.
-/// If another test already completed bootstrap, fall through to admin login.
+/// A test that inserts a user directly makes `needFirstSetup` false before
+/// `POST /first_setup` can run, and that route then refuses because `users`
+/// is no longer empty. In that case create `testadmin` through the user
+/// service so later binaries can log in.
 /// Login waits until `must_change_password` is cleared: a login in that window
 /// returns a password-change token that cannot create patrons.
 pub async fn ensure_first_setup(app: &super::TestApp) -> String {
@@ -55,6 +67,10 @@ pub async fn ensure_first_setup(app: &super::TestApp) -> String {
                 .expect("token in first_setup response")
                 .to_string();
         }
+    }
+
+    if admin_password_flag(app).await.is_none() {
+        bootstrap_testadmin(app).await;
     }
 
     wait_until_admin_can_authenticate(app).await;
@@ -73,14 +89,90 @@ pub async fn ensure_first_setup(app: &super::TestApp) -> String {
         .to_string()
 }
 
+async fn admin_password_flag(app: &super::TestApp) -> Option<bool> {
+    sqlx::query_scalar("SELECT must_change_password FROM users WHERE login = 'testadmin'")
+        .fetch_optional(app.state.services.repository.pool())
+        .await
+        .expect("read admin password flag")
+}
+
+/// Insert the shared admin when another test already wrote a user row.
+async fn bootstrap_testadmin(app: &super::TestApp) {
+    let repo = &app.state.services.repository;
+    let public_type = match repo.public_types_find_id_by_name("adult").await {
+        Ok(Some(id)) => id,
+        Ok(None) => repo
+            .public_types_first_id()
+            .await
+            .expect("public types")
+            .expect("seeded public type"),
+        Err(error) => panic!("public types: {error}"),
+    };
+
+    let payload = UserPayload {
+        login: Some("testadmin".into()),
+        password: Some(plaintext_password("testadmin1234")),
+        firstname: Some("Test".into()),
+        lastname: Some("Admin".into()),
+        email: Some("admin@test.local".into()),
+        account_type: Some(AccountTypeSlug::Admin),
+        sex: Some(Sex::M),
+        birthdate: Some(NaiveDate::from_ymd_opt(1980, 1, 15).expect("date")),
+        public_type: Some(public_type),
+        addr_city: Some("Paris".into()),
+        language: Some("french".into()),
+        ..Default::default()
+    };
+
+    match app
+        .state
+        .services
+        .users
+        .create_user(payload, EventsConsentSource::Desk)
+        .await
+    {
+        Ok(user) => app
+            .state
+            .services
+            .users
+            .set_must_change_password(user.id, false)
+            .await
+            .expect("clear must_change_password"),
+        Err(AppError::Conflict(_)) => {}
+        Err(error) => panic!("bootstrap testadmin: {error}"),
+    }
+
+    let library = app
+        .state
+        .services
+        .library_info
+        .get()
+        .await
+        .expect("library info");
+    if library.name.as_deref().unwrap_or("").trim().is_empty() {
+        app.state
+            .services
+            .library_info
+            .update(UpdateLibraryInfoRequest {
+                name: Some("Test Library".into()),
+                addr_line1: None,
+                addr_line2: None,
+                addr_postcode: None,
+                addr_city: Some("Paris".into()),
+                addr_country: Some("FR".into()),
+                phones: None,
+                email: None,
+                timezone: None,
+                language: None,
+            })
+            .await
+            .expect("library info");
+    }
+}
+
 async fn wait_until_admin_can_authenticate(app: &super::TestApp) {
     for _ in 0..50 {
-        let pending: Option<bool> =
-            sqlx::query_scalar("SELECT must_change_password FROM users WHERE login = 'testadmin'")
-                .fetch_optional(app.state.services.repository.pool())
-                .await
-                .expect("read admin password flag");
-        if pending == Some(false) {
+        if admin_password_flag(app).await == Some(false) {
             return;
         }
         tokio::time::sleep(std::time::Duration::from_millis(20)).await;
