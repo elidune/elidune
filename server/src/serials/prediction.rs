@@ -39,6 +39,8 @@ pub enum PredictionError {
     InvalidStartSlot,
     /// A recurring skip or combined-issue rule is not usable.
     InvalidSkip,
+    /// A weeks or months window contained no issue.
+    EmptyHorizon,
 }
 
 impl PredictionError {
@@ -66,15 +68,21 @@ impl PredictionError {
             Self::InvalidStartSlot => "startSlot is 1-based".into(),
             Self::InvalidSkip => {
                 "A recurring skip needs a month from 1 to 12 and a day from 1 to 31 when set. A combined issue lists at least two distinct months and a month name; its first month is the one that is published".into()
+            },
+            Self::EmptyHorizon => {
+                "This horizon produced no issues: every planned date in the window is skipped, or the window ends before the next issue".into()
             }
         }
     }
 
-    /// Irregular frequency and the safety cap are well-formed requests the
-    /// engine refuses. Everything else is a bad input.
+    /// Irregular frequency, the safety cap, and an empty horizon are
+    /// well-formed requests the engine refuses. Everything else is a bad input.
     #[must_use]
     pub fn is_business_rule(&self) -> bool {
-        matches!(self, Self::IrregularFrequency | Self::LimitExceeded)
+        matches!(
+            self,
+            Self::IrregularFrequency | Self::LimitExceeded | Self::EmptyHorizon
+        )
     }
 }
 
@@ -139,7 +147,14 @@ pub fn predict(input: &PredictionInput) -> Result<PredictionOutput, PredictionEr
     }
     validate_skips(&input.recurring_skips, &input.combined_issues)?;
 
-    let horizon_end = horizon_end(input.first_issue_date, input.length)?;
+    // The window opens on this horizon's first slot, not on the original anchor.
+    // A "12 more months" renewal at slot 13 must not inherit the first year's end.
+    let horizon_start = date_for_slot(
+        input.first_issue_date,
+        &input.frequency,
+        input.start_slot - 1,
+    )?;
+    let horizon_end = horizon_end(horizon_start, input.length)?;
     let skipped: std::collections::HashSet<u32> = input.irregularities.iter().copied().collect();
     let mut cursor = Cursors::from_input(input);
     let mut issues = Vec::new();
@@ -179,6 +194,9 @@ pub fn predict(input: &PredictionInput) -> Result<PredictionOutput, PredictionEr
 
     if input.length.kind == LengthKind::Issues && issues.len() as u32 != input.length.count {
         return Err(PredictionError::LimitExceeded);
+    }
+    if issues.is_empty() {
+        return Err(PredictionError::EmptyHorizon);
     }
 
     Ok(PredictionOutput {
@@ -240,6 +258,8 @@ fn slot_is_skipped(
     if irregularities.contains(&slot) {
         return true;
     }
+    // Yearly skips use the planned date. Slot numbers shift when the
+    // subscription does not start in January, and again on the next horizon.
     if input
         .recurring_skips
         .iter()
@@ -278,19 +298,21 @@ fn validate_counter(rule: &CounterRule, which: &'static str) -> Result<(), Predi
     Ok(())
 }
 
+/// Exclusive end of a weeks or months window. `start` is the planned date of
+/// this horizon's first slot, which is the anchor only when `start_slot` is 1.
 fn horizon_end(
-    first: NaiveDate,
+    start: NaiveDate,
     length: SubscriptionLength,
 ) -> Result<Option<NaiveDate>, PredictionError> {
     match length.kind {
         LengthKind::Issues => Ok(None),
         LengthKind::Weeks => {
             let days = i64::from(length.count) * 7;
-            add_days(first, days).map(Some)
+            add_days(start, days).map(Some)
         }
         LengthKind::Months => {
             let months = i32::try_from(length.count).map_err(|_| PredictionError::DateOverflow)?;
-            add_months(first, months).map(Some)
+            add_months(start, months).map(Some)
         }
     }
 }
@@ -1014,7 +1036,7 @@ mod tests {
     fn two_horizons_match_one_horizon() {
         let mut end_of_month = base(monthly(), numbering("{Day}"));
         end_of_month.first_issue_date = date(2026, 1, 31);
-        assert_horizons_match(end_of_month);
+        assert_horizons_match_lengths(end_of_month, &[LengthKind::Issues, LengthKind::Months]);
 
         let mut twice_a_month = base(
             FrequencySpec {
@@ -1025,7 +1047,10 @@ mod tests {
             numbering("{X}"),
         );
         twice_a_month.first_issue_date = date(2026, 1, 1);
-        assert_horizons_match(twice_a_month.clone());
+        assert_horizons_match_lengths(
+            twice_a_month.clone(),
+            &[LengthKind::Issues, LengthKind::Months],
+        );
         let full = {
             let mut once = twice_a_month.clone();
             once.length.count = 12;
@@ -1037,7 +1062,10 @@ mod tests {
         let mut skipped_august_slot = base(monthly(), numbering("{X}"));
         skipped_august_slot.first_issue_date = date(2026, 1, 1);
         skipped_august_slot.irregularities = vec![8];
-        assert_horizons_match(skipped_august_slot);
+        assert_horizons_match_lengths(
+            skipped_august_slot,
+            &[LengthKind::Issues, LengthKind::Months],
+        );
 
         let mut recurring = base(monthly(), numbering("{MonthName}"));
         recurring.first_issue_date = date(2026, 1, 15);
@@ -1045,7 +1073,74 @@ mod tests {
             month: 8,
             day: None,
         }];
-        assert_horizons_match(recurring);
+        assert_horizons_match_lengths(recurring, &[LengthKind::Issues, LengthKind::Months]);
+
+        // October start: August is not slot 8, and it falls in the second horizon.
+        let mut from_october = base(monthly(), numbering("{MonthName}"));
+        from_october.first_issue_date = date(2026, 10, 1);
+        from_october.recurring_skips = vec![RecurringSkip {
+            month: 8,
+            day: None,
+        }];
+        assert_horizons_match_lengths(
+            from_october.clone(),
+            &[LengthKind::Issues, LengthKind::Months],
+        );
+
+        let mut weekly_run = base(weekly(), numbering("{X}"));
+        weekly_run.first_issue_date = date(2026, 1, 5);
+        assert_horizons_match_lengths(
+            weekly_run,
+            &[LengthKind::Issues, LengthKind::Weeks, LengthKind::Months],
+        );
+        let mut issues_year = from_october.clone();
+        issues_year.length.kind = LengthKind::Issues;
+        issues_year.length.count = 12;
+        let issued = run(issues_year);
+        let dates: Vec<_> = issued
+            .issues
+            .iter()
+            .map(|issue| issue.planned_date)
+            .collect();
+        assert!(dates.contains(&date(2027, 5, 1)));
+        assert!(!dates.contains(&date(2027, 8, 1)));
+        assert!(dates.iter().all(|planned| planned.month() != 8));
+
+        let mut renewal = base(monthly(), numbering("{Day}"));
+        renewal.first_issue_date = date(2026, 1, 31);
+        renewal.start_slot = 13;
+        renewal.length = SubscriptionLength {
+            kind: LengthKind::Months,
+            count: 12,
+        };
+        let renewed = run(renewal);
+        assert_eq!(renewed.issues[0].planned_date, date(2027, 1, 31));
+        assert_eq!(
+            renewed.issues.last().expect("last issue").planned_date,
+            date(2027, 12, 31)
+        );
+
+        let mut blocked = base(
+            FrequencySpec {
+                unit: Some(FrequencyUnit::Day),
+                issues_per_unit: 1,
+                units_per_issue: 1,
+            },
+            numbering("{Day}"),
+        );
+        blocked.first_issue_date = date(2026, 8, 1);
+        blocked.length = SubscriptionLength {
+            kind: LengthKind::Weeks,
+            count: 1,
+        };
+        blocked.recurring_skips = vec![RecurringSkip {
+            month: 8,
+            day: None,
+        }];
+        assert_eq!(
+            predict(&blocked).unwrap_err(),
+            PredictionError::EmptyHorizon
+        );
     }
 
     #[test]
@@ -1150,13 +1245,22 @@ mod tests {
         assert!(days.contains(&date(2026, 12, 26)));
     }
 
-    fn assert_horizons_match(mut input: PredictionInput) {
-        input.length.kind = LengthKind::Issues;
-        input.length.count = 12;
-        let full = run(input.clone());
-        input.length.count = 6;
-        let first = run(input.clone());
-        let mut second_input = input;
+    fn assert_horizons_match_lengths(input: PredictionInput, kinds: &[LengthKind]) {
+        for kind in kinds {
+            assert_horizons_match(&input, *kind);
+        }
+    }
+
+    fn assert_horizons_match(input: &PredictionInput, kind: LengthKind) {
+        let mut full_input = input.clone();
+        full_input.length.kind = kind;
+        full_input.length.count = 12;
+        let full = run(full_input.clone());
+        let mut first_input = full_input.clone();
+        first_input.length.count = 6;
+        let first = run(first_input);
+        let mut second_input = full_input;
+        second_input.length.count = 6;
         second_input.start_slot = first.next_state.next_slot;
         second_input.starting = CounterValues {
             x: first.next_state.x,
@@ -1180,9 +1284,10 @@ mod tests {
             full.issues
                 .iter()
                 .map(issue_fingerprint)
-                .collect::<Vec<_>>()
+                .collect::<Vec<_>>(),
+            "{kind:?}"
         );
-        assert_eq!(second.next_state, full.next_state);
+        assert_eq!(second.next_state, full.next_state, "{kind:?}");
     }
 
     fn issue_fingerprint(issue: &PredictedIssue) -> (u32, NaiveDate, String, i32, i32, i32) {

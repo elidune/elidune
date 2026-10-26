@@ -20,9 +20,9 @@ Librarian input, also unconfirmed, and included in the data model below:
 
 - The retention rule moves to Phase 2 (keep the last N issues, or the last N months). Discarded issues go through the existing weeding flow (#139, `items.weeding_status`) with reason `retention period ended`. Serials never deletes a copy.
 - Fund and cost on a serial subscription are optional (donations, free municipal magazines, deposits from the central library). Vendor is optional for the same reason. `cost` is the annual serial subscription cost. It is never copied onto the item. Optional `issue_price_cents` is the per-issue price in cents. On receipt, `items.price` is set from `issue_price_cents` when that field is set. When it is null, `items.price` stays empty and lost-item billing (#261) uses the default replacement amount, not the annual cost. A patron who loses a 6 EUR magazine must not be billed 120 EUR.
-- `grace_days` is the per-serial-subscription delay before an expected issue becomes `late`. The scheduler marks `late` when the calendar date is after `planned_date + grace_days`. The default is 0.
+- `grace_days` is the per-serial-subscription delay before an expected issue becomes `late`. The scheduler marks `late` when the calendar date is after `planned_date + grace_days`. Null uses the frequency default (daily 2, weekly 3, twice a month or every two weeks 7, monthly 15, every two months or quarterly 30, twice a year or yearly 45). A stored value, including 0, overrides that default.
 - Every issue carries a human-readable display label that combines numbering and date (for example `n° 412, mars 2026`). The prediction engine generates it. It is stored on the issue row. Desk staff, the OPAC, issue-level holds, and vendor claims all refer to that label.
-- Frequency labels in the UI are translations (`quotidien`, `hebdomadaire`, `bimensuel`, `mensuel`, `bimestriel`, `trimestriel`, `semestriel`, `annuel`, and the other seeded rows). The English seed `description` stays as stored. MVP 4 looks up `serials.frequencies.*` from `unit`, `issues_per_unit`, and `units_per_issue`, and falls back to `description` when no key exists. There is no frequency screen in this change.
+- Frequency labels in the UI are translations. `bimensuel` is twice a month (`2/month`). Once every two weeks is `tous les quinze jours` (quinzomadaire), not `bimensuel`. The other usual names are `quotidien`, `hebdomadaire`, `mensuel`, `bimestriel`, `trimestriel`, `semestriel`, and `annuel`. The English seed `description` stays as stored. MVP 4 looks up `serials.frequencies.*` from `unit`, `issues_per_unit`, and `units_per_issue`, and falls back to `description` when no key exists. There is no frequency screen in this change.
 
 Naming: **serial subscription** in new docs, API fields, and code. The word `subscription` alone remains patron membership (`subscription_expired`, and so on).
 
@@ -113,12 +113,12 @@ The UI does not display `description` as the patron-facing or desk label. MVP 4 
 | `serials.frequencies.daily` | 1/day | quotidien |
 | `serials.frequencies.threePerWeek` | 3/week | trois fois par semaine |
 | `serials.frequencies.weekly` | 1/week | hebdomadaire |
-| `serials.frequencies.fortnightly` | 1/2 weeks | bimensuel |
+| `serials.frequencies.fortnightly` | 1/2 weeks | tous les quinze jours |
 | `serials.frequencies.everyThreeWeeks` | 1/3 weeks | toutes les trois semaines |
 | `serials.frequencies.monthly` | 1/month | mensuel |
 | `serials.frequencies.everyTwoMonths` | 1/2 months | bimestriel |
 | `serials.frequencies.quarterly` | 1/3 months | trimestriel |
-| `serials.frequencies.twiceMonthly` | 2/month | deux fois par mois |
+| `serials.frequencies.twiceMonthly` | 2/month | bimensuel |
 | `serials.frequencies.semiannual` | 1/6 months | semestriel |
 | `serials.frequencies.annual` | 1/year | annuel |
 | `serials.frequencies.everyTwoYears` | 1/2 years | tous les deux ans |
@@ -147,7 +147,7 @@ Migration `004` seeds three patterns (stable ids 1–3, same idea as the frequen
 
 The engine emits the **current** counter values, then advances. Starting values are the first issue of this call. Skipped slots do not advance counters.
 
-`first_issue_date` is the anchor and does not move between horizons. Dates are always computed from that anchor and the absolute slot, so a monthly that starts on the 31st still lands on the 31st after February, and `2/month` keeps its place inside the cycle. `start_slot` is the absolute 1-based slot this call emits first (1 for a new serial subscription). `nextState.next_slot` is the absolute slot the following horizon must pass back as `start_slot`, together with the counter values and inner loops, and the same anchor. Two horizons of 6 issues are defined to equal one horizon of 12.
+`first_issue_date` is the anchor and does not move between horizons. Dates are always computed from that anchor and the absolute slot, so a monthly that starts on the 31st still lands on the 31st after February, and `2/month` keeps its place inside the cycle. `start_slot` is the absolute 1-based slot this call emits first (1 for a new serial subscription). `nextState.next_slot` is the absolute slot the following horizon must pass back as `start_slot`, together with the counter values and inner loops, and the same anchor. Two horizons of 6 issues are defined to equal one horizon of 12. The same holds for 6 then 6 months against 12 months, and for weeks.
 
 Advance, per counter, after an emitted issue:
 
@@ -171,7 +171,7 @@ This even split is the Elidune rule for several issues per unit. One-issue frequ
 
 **Irregularities** are absolute 1-based publication slots, counted from the anchor, that are not issued (a weekly that skips a week). They are not renumbered per horizon: slot 8 is still slot 8 on the second call. The date advances as if the slot existed. No row is emitted and counters do not move. `0` is rejected. Duplicates are ignored. This is not the irregular frequency (NULL unit). A NULL unit cannot predict dates; the preview returns `422`. Staff enter those dates by hand in MVP 3.
 
-**Yearly skips** avoid re-entering those slot numbers every year. They live on the serial subscription (the preview accepts them inline) and the engine applies them on top of the absolute irregularities.
+**Yearly skips** avoid re-entering those slot numbers every year. They live on the serial subscription (the preview accepts them inline) and the engine applies them on top of the absolute irregularities. A skip matches the **planned date** (month, or month and day), never a slot number. That still holds when the first issue is not in January, and when the skipped month falls in a later horizon.
 
 - `recurringSkips`: `{ "month": 8 }` skips every planned date in August (11 issues in a calendar year for a monthly). `{ "month": 7 }` and `{ "month": 8 }` together are 10 issues. `{ "month": 12, "day": 25 }` skips only 25 December; a weekly that does not fall on that day is unchanged.
 - `combinedIssues`: `{ "months": [7, 8], "monthName": "juillet-août" }`. The first month is published. Later months are skipped. `{MonthName}` on the published issue is the given text, so the July row reads `juillet-août` and August has no row. The same rule applies again the next year. A full-month recurring skip of the published month is rejected. The first month of one combined issue cannot also be a later month of another.
@@ -181,7 +181,7 @@ A skipped month still consumes a frequency slot, so the following issue keeps it
 **Length** is one of:
 
 - `issues`: that many emitted issues (irregularities extend the calendar).
-- `weeks` or `months`: emit while `planned_date < first_issue_date + length`. A weekly for 2 weeks yields two issues, not three.
+- `weeks` or `months`: the window opens on the planned date of `start_slot`, which is the anchor only when `start_slot` is 1. Emit while `planned_date` is strictly before that date plus the length. A weekly for 2 weeks from slot 1 yields two issues, not three. A renewal of 12 more months starting at slot 13 covers the next 12 months; it does not stop on the first year's end. Two calls of 6 months produce the same issues as one call of 12 months, including a monthly that starts on the 31st and an August skip (also when the first issue is in October, so August is not slot 8). Two calls of 6 weeks produce the same issues as one call of 12 weeks for a weekly. A window that emits nothing is `422`, not an empty list.
 
 The preview rejects a length under 1, an issue count over 500, or a date window that would emit more than 500 issues. Walking more than 5000 slots (a long skip list) is the same error.
 
@@ -207,7 +207,7 @@ All routes are under `/api/v1`. OpenAPI tag `serials`.
 
 `POST /serials/predictions` takes either `frequencyId` or an inline `frequency`, and either `patternId` or an inline `pattern`, plus `firstIssueDate` (the anchor), `starting` (`x`, `y`, `z`), optional `inner`, optional `startSlot` (default 1), `length` (`{ "kind": "issues"|"weeks"|"months", "count" }`), optional absolute `irregularities`, optional `recurringSkips`, and optional `combinedIssues`. It returns `issues[]` (`sequence`, `slot`, `plannedDate`, `displayLabel`, `x`, `y`, `z`) and `nextState` (`x`, `y`, `z`, `innerX`, `innerY`, `innerZ`, `nextSlot`).
 
-List endpoints take `q`, `page`, and `perPage`. Ids in JSON are strings. Validation failures are `400`. An irregular frequency, or a preview over the 500-issue cap, is `422`. Unknown ids are `404`. Missing token is `401`. The wrong right is `403`.
+List endpoints take `q`, `page`, and `perPage`. Ids in JSON are strings. Validation failures are `400`. An irregular frequency, a preview over the 500-issue cap, or a weeks/months horizon that emits nothing is `422`. Unknown ids are `404`. Missing token is `401`. The wrong right is `403`.
 
 Mutations are audited (`serial_frequency.*`, `serial_numbering_pattern.*`). The preview is not.
 
@@ -228,7 +228,19 @@ One open serial subscription per (`biblio_id`, `site_id`).
 - Starting and cursor values (`value_x/y/z`, `inner_x/y/z`) and `next_slot` integer not null default 1. The next horizon passes this slot as `startSlot` with the same anchor.
 - `length_kind`, `length_count`, `irregularities` (integer array of absolute slots), optional `end_date`.
 - `recurring_skips` jsonb not null default `[]`. `combined_issues` jsonb not null default `[]`. Shape as in the prediction rules.
-- `grace_days` integer not null default 0. Days after `planned_date` before the late job may set `late`.
+- `grace_days` integer null. Days after `planned_date` before the late job may set `late`. Null uses `default_grace_days` (`server/src/serials/grace.rs`). A stored number, including 0, wins. Irregular frequency with null grace is not auto-marked late.
+
+Approximate interval: `units_per_issue` times 1, 7, 30, or 365 (day, week, month, year), divided by `issues_per_unit`. The default grace is 1 under 1 day, 2 under 4 days, 3 under 10 days, 7 under 20 days, 15 under 45 days, 30 under 120 days, and 45 after that.
+
+| Cycle | Grace |
+|---|---|
+| 2/day | 1 |
+| 1/day, 3/week | 2 |
+| 1/week | 3 |
+| 1/2 weeks, 2/month | 7 |
+| 1/3 weeks, 1/month | 15 |
+| 1/2 months, 1/3 months | 30 |
+| 1/6 months, 1/year, 1/2 years | 45 |
 - `status`: `active`, `expired`, `closed`.
 - `create_items` boolean not null default true. The subscription form shows it as a checkbox beside the frequency, checked by default. One click clears it. Daily press is usually not itemised.
 - `latest_issue_library_use_only` boolean not null default true.
@@ -323,4 +335,4 @@ Phase 3 shows the latest arrived issues and the free-text holdings statement. It
 
 - `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test --lib`.
 - DB integration tests: seeded frequencies, CRUD, the preview (including the `n° 412, mars 2026` label), `401` / `403` / `422`, and `serials_rights` on `librarian` / `admin` (`w`) and `reader` (`n`).
-- Prediction unit tests: irregular slots, year and month-end rollover, leap day, several issues per unit, counter reset, renumbering, inner-loop continuation, the 500-issue cap, two horizons of 6 matching one horizon of 12 (31st of the month, 2 per month, an absolute irregularity, a yearly August skip), 10 and 11 issues per year, and a combined July–August issue.
+- Prediction unit tests: irregular slots, year and month-end rollover, leap day, several issues per unit, counter reset, renumbering, inner-loop continuation, the 500-issue cap, two horizons of 6 matching one horizon of 12 for issue counts and for months (31st of the month, 2 per month, an absolute irregularity, a yearly August skip, including a subscription that starts in October) and for weeks on a weekly, a 12-month renewal from slot 13, an empty horizon refused with an error, 10 and 11 issues per year, and a combined July–August issue. Grace defaults are unit-tested in `server/src/serials/grace.rs`.

@@ -2,4 +2,5 @@
 //!
 //! Persistence lives in `repository::serials` and `services::serials`.
 
+pub mod grace;
 pub mod prediction;

@@ -13,7 +13,8 @@ describe('serial frequency labels', () => {
     const named: Array<[string | null, number, number, string]> = [
       ['day', 1, 1, 'quotidien'],
       ['week', 1, 1, 'hebdomadaire'],
-      ['week', 1, 2, 'bimensuel'],
+      ['week', 1, 2, 'tous les quinze jours'],
+      ['month', 2, 1, 'bimensuel'],
       ['month', 1, 1, 'mensuel'],
       ['month', 1, 2, 'bimestriel'],
       ['month', 1, 3, 'trimestriel'],
