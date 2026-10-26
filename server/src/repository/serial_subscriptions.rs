@@ -691,6 +691,8 @@ impl Repository {
         received_at: DateTime<Utc>,
         item_id: Option<i64>,
     ) -> AppResult<Option<SerialIssue>> {
+        let mut tx = self.pool.begin().await?;
+        lock_subscription(&mut tx, subscription_id).await?;
         let sql = format!(
             "UPDATE serial_issues \
              SET status = 'arrived', received_at = $3, item_id = $4, updated_at = now() \
@@ -703,9 +705,10 @@ impl Repository {
             .bind(subscription_id)
             .bind(received_at)
             .bind(item_id)
-            .fetch_optional(&self.pool)
+            .fetch_optional(&mut *tx)
             .await
             .map_err(map_subscription_sql)?;
+        tx.commit().await.map_err(map_subscription_sql)?;
         row.map(issue_from_row).transpose()
     }
 
@@ -720,6 +723,8 @@ impl Repository {
             .iter()
             .map(|status| status.as_db_str().to_string())
             .collect();
+        let mut tx = self.pool.begin().await?;
+        lock_subscription(&mut tx, subscription_id).await?;
         let sql = format!(
             "UPDATE serial_issues SET status = $3, updated_at = now() \
              WHERE id = $1 AND serial_subscription_id = $2 AND status = ANY($4) \
@@ -730,9 +735,10 @@ impl Repository {
             .bind(subscription_id)
             .bind(status.as_db_str())
             .bind(&from_db)
-            .fetch_optional(&self.pool)
+            .fetch_optional(&mut *tx)
             .await
             .map_err(map_subscription_sql)?;
+        tx.commit().await.map_err(map_subscription_sql)?;
         row.map(issue_from_row).transpose()
     }
 
@@ -768,6 +774,8 @@ impl Repository {
         grace_days: i32,
         today: NaiveDate,
     ) -> AppResult<Vec<SerialIssue>> {
+        let mut tx = self.pool.begin().await?;
+        lock_subscription(&mut tx, subscription_id).await?;
         let sql = format!(
             "UPDATE serial_issues \
              SET status = 'late', updated_at = now() \
@@ -780,14 +788,16 @@ impl Repository {
             .bind(subscription_id)
             .bind(grace_days)
             .bind(today)
-            .fetch_all(&self.pool)
+            .fetch_all(&mut *tx)
             .await
             .map_err(map_subscription_sql)?;
+        tx.commit().await.map_err(map_subscription_sql)?;
         rows.into_iter().map(issue_from_row).collect()
     }
 
-    /// Receive one issue. The issue row is locked before a copy is inserted, and the
-    /// copy insert shares the transaction, so a conflicting receipt commits nothing.
+    /// Receive one issue. The subscription row is locked before the issue row, then
+    /// the copy insert shares that transaction, so receipts of one subscription run
+    /// one at a time and a conflicting receipt commits nothing.
     pub async fn receive_serial_issue(
         &self,
         subscription_id: i64,
@@ -798,6 +808,7 @@ impl Repository {
         hold_latest_in_library: bool,
     ) -> AppResult<SerialIssue> {
         let mut tx = self.pool.begin().await?;
+        lock_subscription(&mut tx, subscription_id).await?;
         let status: Option<String> = sqlx::query_scalar(
             "SELECT status FROM serial_issues \
              WHERE id = $1 AND serial_subscription_id = $2 \
@@ -913,12 +924,34 @@ impl Repository {
     /// The new latest copy becomes non-borrowable. The copy this rule previously
     /// held returns to the `borrowable` value saved on that row. Every other copy
     /// stays as it is, including one a librarian marked non-borrowable.
+    /// The subscription row is locked before any issue row.
     pub async fn apply_latest_issue_borrowable(&self, subscription_id: i64) -> AppResult<()> {
         let mut tx = self.pool.begin().await?;
+        lock_subscription(&mut tx, subscription_id).await?;
         apply_latest_issue_borrowable_tx(&mut tx, subscription_id).await?;
         tx.commit().await.map_err(map_subscription_sql)?;
         Ok(())
     }
+}
+
+/// Lock the subscription before any of its issue rows.
+///
+/// Receipt and every status change that can move the latest issue take this lock
+/// first, so two transactions cannot lock an issue and then the subscription in
+/// opposite orders.
+async fn lock_subscription(tx: &mut sqlx::PgConnection, subscription_id: i64) -> AppResult<()> {
+    let id: Option<i64> =
+        sqlx::query_scalar("SELECT id FROM serial_subscriptions WHERE id = $1 FOR UPDATE")
+            .bind(subscription_id)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(map_subscription_sql)?;
+    if id.is_none() {
+        return Err(AppError::NotFound(format!(
+            "Serial subscription {subscription_id} not found"
+        )));
+    }
+    Ok(())
 }
 
 async fn apply_latest_issue_borrowable_tx(

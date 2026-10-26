@@ -283,9 +283,10 @@ impl SerialsService {
     /// Receive an expected or late issue. Other issues keep their status.
     ///
     /// When `create_items` is set, the copy is built with [`Item::received_copy`] and
-    /// inserted with the same statement as [`CatalogService::create_item`]. The issue
-    /// row is locked first, and the copy insert commits with the status change, so a
-    /// conflicting receipt leaves no copy. `issue_price_cents` is the item price.
+    /// inserted with the same statement as [`CatalogService::create_item`]. The
+    /// subscription row is locked first, then the issue row, and the copy insert
+    /// commits with the status change, so a conflicting receipt leaves no copy.
+    /// `issue_price_cents` is the item price.
     /// `cost_cents` is not copied. A missing barcode uses
     /// [`crate::services::item_barcode::allocate_local_item_barcode`].
     pub async fn receive_issue(

@@ -286,7 +286,7 @@ Stored as text, not Koha's integers.
 
 ### Receipt (MVP 3)
 
-`POST /serials/subscriptions/{id}/issues/{issueId}/receive` moves an `expected` or `late` issue to `arrived` and sets `received_at`. It does not change any other issue's status. The handler locks that issue row, then inserts the copy and marks the issue arrived in the same transaction. A second receipt that loses the race returns 409 and leaves no copy. An expected issue becomes `late` only through `POST /serials/subscriptions/{id}/mark-late`, when the library's local date (`library_info.timezone`, via `local_date`) is after that issue's own `planned_date` plus the effective grace (`grace_days` when stored, including 0, otherwise the frequency default). An irregular subscription with no grace is not auto-marked. The scheduler that calls this remains Phase 2.
+`POST /serials/subscriptions/{id}/issues/{issueId}/receive` moves an `expected` or `late` issue to `arrived` and sets `received_at`. It does not change any other issue's status. The handler locks the subscription row (`SELECT … FROM serial_subscriptions WHERE id = $1 FOR UPDATE`), then that issue row, then inserts the copy and marks the issue arrived in the same transaction. Receipts of the same subscription therefore run one at a time, so only the newest arrived regular issue stays non-borrowable. A second receipt of the same issue that loses the race returns 409 and leaves no copy. Status changes that can move which issue is latest take that same subscription lock before any issue row. An expected issue becomes `late` only through `POST /serials/subscriptions/{id}/mark-late`, when the library's local date (`library_info.timezone`, via `local_date`) is after that issue's own `planned_date` plus the effective grace (`grace_days` when stored, including 0, otherwise the frequency default). An irregular subscription with no grace is not auto-marked. The scheduler that calls this remains Phase 2.
 
 `POST /serials/subscriptions/{id}/issues/{issueId}/status` moves an unreceived issue to `late`, `missing` (claim-ready; no claim is sent), `claimed` (from expected, late, or missing; still no email), `notAvailable` (will not be published), or `deleted`. `arrived` is only the receive route.
 
@@ -295,7 +295,7 @@ Stored as text, not Koha's integers.
 For each issue moved to `arrived`, when `create_items` is true:
 
 - Barcode from the scan, otherwise `allocate_local_item_barcode`.
-- The copy is `Item::received_copy`, the same constructor acquisitions receipt uses. The insert is the statement `CatalogService::create_item` uses (`insert_item_row`), run inside the receipt transaction after the issue row is locked. The search index is updated after that transaction commits.
+- The copy is `Item::received_copy`, the same constructor acquisitions receipt uses. The insert is the statement `CatalogService::create_item` uses (`insert_item_row`), run inside the receipt transaction after the subscription row and the issue row are locked. The search index is updated after that transaction commits.
 - `volume_designation` = `display_label`.
 - `site_id` = the serial subscription site.
 - `call_number`, `public_note`, and `internal_note` are copied. `notes` is copied into the item internal note only when `internal_note` is empty. `location` stays on the subscription: `items.place` is a numeric shelf code, not free text.

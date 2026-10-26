@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::http::StatusCode;
-use chrono::Utc;
+use chrono::{NaiveDate, Utc};
 use chrono_tz::Tz;
 use common::fixtures;
 use common::TestApp;
@@ -713,6 +713,112 @@ async fn concurrent_receipt_of_the_same_issue_keeps_one_item() {
     .await
     .expect("linked issue");
     assert_eq!(linked, 1);
+}
+
+#[tokio::test]
+async fn concurrent_receipt_of_two_issues_keeps_only_the_newest_in_the_library() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin = fixtures::ensure_first_setup(&app).await;
+    let monthly = frequency_id(&app, &admin, "1/month").await;
+    let pattern = pattern_id(&app, &admin, "n° {X}").await;
+    let site_id = create_site_id(&app, &admin).await;
+    let suffix = fixtures::unique_suffix();
+    let biblio_id = create_periodical(&app, &admin, &format!("Revue parallèle {suffix}")).await;
+
+    let (status, created) = app
+        .post_json(
+            "/api/v1/serials/subscriptions",
+            &json!({
+                "biblioId": biblio_id,
+                "siteId": site_id,
+                "frequencyId": monthly,
+                "numberingPatternId": pattern,
+                "firstIssueDate": "2024-01-31",
+                "x": 412,
+                "y": 0,
+                "z": 0,
+                "length": { "kind": "months", "count": 2 }
+            }),
+            Some(&admin),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let subscription_id = created["id"].as_str().expect("id").to_string();
+    let subscription_num: i64 = subscription_id.parse().unwrap();
+    let issues = created["issues"].as_array().expect("issues");
+    let issue_412 = issue_with_x(issues, 412);
+    let issue_413 = issue_with_x(issues, 413);
+    let planned_412 = issue_412["plannedDate"].as_str().unwrap();
+    let planned_413 = issue_413["plannedDate"].as_str().unwrap();
+    assert!(planned_412 < planned_413, "413 is the newer planned issue");
+    let id_412 = issue_412["id"].as_str().unwrap().to_string();
+    let id_413 = issue_413["id"].as_str().unwrap().to_string();
+
+    let app = Arc::new(app);
+    let pool = app.state.services.repository.pool().clone();
+    // Hold the subscription so both receipts pass the unlocked status check, then
+    // queue on the same row. Releasing it lets them run one after the other.
+    let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL");
+    let mut lock_conn = sqlx::postgres::PgConnection::connect(&database_url)
+        .await
+        .expect("lock connection");
+    let mut tx = lock_conn.begin().await.expect("lock transaction");
+    sqlx::query("SELECT id FROM serial_subscriptions WHERE id = $1 FOR UPDATE")
+        .bind(subscription_num)
+        .execute(&mut *tx)
+        .await
+        .expect("lock subscription");
+
+    let receive_412 =
+        format!("/api/v1/serials/subscriptions/{subscription_id}/issues/{id_412}/receive");
+    let receive_413 =
+        format!("/api/v1/serials/subscriptions/{subscription_id}/issues/{id_413}/receive");
+    let first = {
+        let app = Arc::clone(&app);
+        let admin = admin.clone();
+        tokio::spawn(async move { app.post_json(&receive_412, &json!({}), Some(&admin)).await })
+    };
+    let second = {
+        let app = Arc::clone(&app);
+        let admin = admin.clone();
+        tokio::spawn(async move { app.post_json(&receive_413, &json!({}), Some(&admin)).await })
+    };
+
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    assert!(
+        !first.is_finished() && !second.is_finished(),
+        "both receipts must wait on the subscription lock"
+    );
+    tx.rollback().await.expect("release subscription lock");
+
+    let (status_a, body_a) = first.await.expect("receipt 412");
+    let (status_b, body_b) = second.await.expect("receipt 413");
+    assert_eq!(status_a, StatusCode::OK, "{body_a}");
+    assert_eq!(status_b, StatusCode::OK, "{body_b}");
+
+    let rows: Vec<(i32, bool, NaiveDate)> = sqlx::query_as(
+        "SELECT si.value_x, i.borrowable, si.planned_date \
+         FROM serial_issues si \
+         JOIN items i ON i.id = si.item_id \
+         WHERE si.serial_subscription_id = $1 AND si.status = 'arrived'",
+    )
+    .bind(subscription_num)
+    .fetch_all(&pool)
+    .await
+    .expect("arrived copies");
+    let held = rows.iter().filter(|row| !row.1).count();
+    assert_eq!(held, 1, "exactly one copy stays in the library: {rows:?}");
+    let newest = rows
+        .iter()
+        .max_by_key(|row| row.2)
+        .expect("an arrived issue");
+    assert_eq!(newest.0, 413, "413 has the newest planned date: {rows:?}");
+    assert!(
+        !newest.1,
+        "the newest planned issue stays non-borrowable: {rows:?}"
+    );
 }
 
 #[tokio::test]
