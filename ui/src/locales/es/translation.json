@@ -2067,6 +2067,7 @@
         "settingsRights": "Ajustes",
         "eventsRights": "Eventos",
         "acquisitionsRights": "Adquisiciones",
+        "serialsRights": "Publicaciones periódicas",
         "weedingRights": "Expurgo",
         "weedingCancelRights": "Anular expurgo"
       },

@@ -32,6 +32,7 @@ pub mod reminders;
 pub mod scheduler;
 pub mod schedules;
 pub mod search;
+pub mod serials;
 pub mod sites;
 pub mod stats;
 pub mod task_manager;
@@ -55,7 +56,7 @@ use crate::{
         AccountTypesCatalogRepository, AcquisitionsRepository, BibliosRepository,
         CatalogEntitiesRepository, EquipmentRepository, EventsServiceRepository, FinesRepository,
         HoldsRepository, InventoryRepository, LoansRepository, LoansServiceRepository,
-        PublicTypesRepository, Repository, SchedulesRepository, SitesRepository,
+        PublicTypesRepository, Repository, SchedulesRepository, SerialsRepository, SitesRepository,
         VisitorCountsRepository,
     },
 };
@@ -86,6 +87,7 @@ pub struct Services {
     pub holds: holds::HoldsService,
     pub schedules: schedules::SchedulesService,
     pub search: Option<Arc<search::MeilisearchService>>,
+    pub serials: serials::SerialsService,
     pub sites: sites::SitesService,
     pub stats: stats::StatsService,
     pub transits: transits::TransitsService,
@@ -250,6 +252,7 @@ impl Services {
                 repo.clone() as Arc<dyn SchedulesRepository>
             ),
             search: search_service,
+            serials: serials::SerialsService::new(repo.clone() as Arc<dyn SerialsRepository>),
             sites: sites::SitesService::new(repo.clone() as Arc<dyn SitesRepository>),
             stats: stats::StatsService::new(repository.clone(), redis_service.clone()),
             transits: transits::TransitsService::new(

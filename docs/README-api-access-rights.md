@@ -11,9 +11,9 @@ This document lists API endpoints and their required authentication/authorizatio
 - `Admin (extractor)`: authenticated user with `account_type == admin` (`AdminUser`)
 - `JWT + require_*()`: authenticated user plus granular rights check from JWT claims
 
-JWT rights fields in `UserRights` (JSON camelCase, e.g. `holdsRights`): `items_rights`, `users_rights`, `loans_rights`, `holds_rights`, `settings_rights`, `events_rights`.
+JWT rights fields in `UserRights` (JSON camelCase, e.g. `holdsRights`): `items_rights`, `users_rights`, `loans_rights`, `holds_rights`, `settings_rights`, `events_rights`, `serials_rights`.
 
-For `items_rights`, `users_rights`, `settings_rights`, and `events_rights`, the level is **`none` \| `read` \| `write`** (from DB letters `n` / `r` / `w`). Checks use ordering: none < read < write.
+For `items_rights`, `users_rights`, `settings_rights`, `events_rights`, and `serials_rights`, the level is **`none` \| `read` \| `write`** (from DB letters `n` / `r` / `w`). Checks use ordering: none < read < write. `serials_rights` is the serials gate (frequencies, numbering patterns, and later serial subscriptions). It does not authorize cataloging or acquisitions.
 
 **`loans_rights`** (DB column `account_types.loans_rights`) is the circulation gate. Helper checks use **`none` \| `read` \| `write`** (`n` / `r` / `w`): none < read < write. Seeded `reader` / `group` rows store **`o` (own)**; that letter maps to `Rights::Own`, which ranks **below read** and does **not** satisfy `require_read_loans()` / `require_write_loans()`. Self-service renew of the caller’s own loan is a separate borrower-id check, not `Own >= read`.
 
@@ -39,6 +39,8 @@ Helpers on `UserClaims`:
 | `require_write_settings()` | `settings_rights >= write` |
 | `require_read_events()` | `events_rights >= read` |
 | `require_write_events()` | `events_rights >= write` |
+| `require_read_serials()` | `serials_rights >= read` |
+| `require_write_serials()` | `serials_rights >= write` |
 | `require_admin()` | `account_type == admin` |
 | `require_self_or_staff(id)` | caller is `id`, or `account_type` is librarian/admin |
 | `require_self_or_admin(id)` | caller is `id`, or `account_type` is admin |
@@ -275,6 +277,26 @@ Loan checkout, return, renew, exceptions, and batch loan operations require **`l
 | `GET /audit` | JWT + `require_admin()` |
 | `GET /audit/export` | JWT + `require_admin()` |
 | `POST /maintenance` | Admin (extractor — `AdminUser`) |
+
+## Serials
+
+`serials_rights` (`n` / `r` / `w`) gates `/serials`. Read lists frequencies and numbering patterns and runs the prediction preview. Write creates, updates, and deletes those rows. The preview does not store issues.
+
+Seeded `librarian` and `admin` are `w`. Seeded `guest`, `reader`, and `group` are `n`.
+
+| Endpoint | Required auth |
+|---|---|
+| `GET /serials/frequencies` | JWT + `require_read_serials()` |
+| `GET /serials/frequencies/:id` | JWT + `require_read_serials()` |
+| `POST /serials/frequencies` | JWT + `require_write_serials()` |
+| `PUT /serials/frequencies/:id` | JWT + `require_write_serials()` |
+| `DELETE /serials/frequencies/:id` | JWT + `require_write_serials()` |
+| `GET /serials/numbering-patterns` | JWT + `require_read_serials()` |
+| `GET /serials/numbering-patterns/:id` | JWT + `require_read_serials()` |
+| `POST /serials/numbering-patterns` | JWT + `require_write_serials()` |
+| `PUT /serials/numbering-patterns/:id` | JWT + `require_write_serials()` |
+| `DELETE /serials/numbering-patterns/:id` | JWT + `require_write_serials()` |
+| `POST /serials/predictions` | JWT + `require_read_serials()` |
 
 ## Account types
 

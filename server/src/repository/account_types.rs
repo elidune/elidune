@@ -10,7 +10,7 @@ use crate::{
 
 const ACCOUNT_TYPE_COLUMNS: &str = "code, name, items_rights, users_rights, loans_rights, \
      items_archive_rights, holds_rights, settings_rights, events_rights, \
-     acquisitions_rights, weeding_rights, weeding_cancel_rights, \
+     acquisitions_rights, serials_rights, weeding_rights, weeding_cancel_rights, \
      circulation_override_rights, is_system";
 
 /// Hypothetical change used to count active accounts that would still have admin rights.
@@ -117,7 +117,7 @@ impl Repository {
     ) -> AppResult<AccountTypeDefinition> {
         let sql = format!(
             "INSERT INTO account_types ({ACCOUNT_TYPE_COLUMNS}) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, FALSE) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, FALSE) \
              RETURNING {ACCOUNT_TYPE_COLUMNS}"
         );
         sqlx::query_as::<_, AccountTypeDefinition>(&sql)
@@ -131,6 +131,7 @@ impl Repository {
             .bind(&row.settings_rights)
             .bind(&row.events_rights)
             .bind(&row.acquisitions_rights)
+            .bind(&row.serials_rights)
             .bind(&row.weeding_rights)
             .bind(&row.weeding_cancel_rights)
             .bind(&row.circulation_override_rights)
@@ -168,6 +169,7 @@ impl Repository {
         add_opt!(data.settings_rights, "settings_rights");
         add_opt!(data.events_rights, "events_rights");
         add_opt!(data.acquisitions_rights, "acquisitions_rights");
+        add_opt!(data.serials_rights, "serials_rights");
         add_opt!(data.weeding_rights, "weeding_rights");
         add_opt!(data.weeding_cancel_rights, "weeding_cancel_rights");
         add_opt!(
@@ -205,6 +207,7 @@ impl Repository {
         bind_opt!(data.settings_rights);
         bind_opt!(data.events_rights);
         bind_opt!(data.acquisitions_rights);
+        bind_opt!(data.serials_rights);
         bind_opt!(data.weeding_rights);
         bind_opt!(data.weeding_cancel_rights);
         bind_opt!(data.circulation_override_rights);

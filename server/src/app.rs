@@ -266,6 +266,7 @@ pub fn build_app_with_options(state: AppState, options: AppBuildOptions) -> Rout
             state.clone(),
             Feature::Acquisitions,
         ))
+        .merge(api::serials::router())
         .merge(gated(
             api::suggestions::router(),
             state.clone(),

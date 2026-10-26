@@ -32,6 +32,7 @@ pub mod public_type_age;
 pub mod rate_limit;
 pub mod renewal;
 pub mod repository;
+pub mod serials;
 pub mod services;
 
 pub use app::{build_app, build_app_with_options, build_cors, AppBuildOptions};

@@ -2099,6 +2099,8 @@ export interface AccountTypeDefinition {
   eventsRights: string | null;
   /** Present after the acquisitions domain lands (`n`/`r`/`w`). */
   acquisitionsRights?: string | null;
+  /** Serials (`n`/`r`/`w`): frequencies, numbering patterns, serial subscriptions. */
+  serialsRights?: string | null;
   /** Weeding (`n`/`r`/`w`). */
   weedingRights?: string | null;
   /** Cancel a withdrawal (`n`/`r`/`w`). */
@@ -2131,6 +2133,7 @@ export interface UpdateAccountTypeRequest {
   settingsRights?: AccountTypeRightLevel | null;
   eventsRights?: AccountTypeRightLevel | null;
   acquisitionsRights?: AccountTypeRightLevel | null;
+  serialsRights?: AccountTypeRightLevel | null;
   weedingRights?: AccountTypeRightLevel | null;
   weedingCancelRights?: AccountTypeRightLevel | null;
   circulationOverrideRights?: AccountTypeRightLevel | null;
@@ -2148,6 +2151,7 @@ export interface CreateAccountTypeRequest {
   settingsRights?: AccountTypeRightLevel | null;
   eventsRights?: AccountTypeRightLevel | null;
   acquisitionsRights?: AccountTypeRightLevel | null;
+  serialsRights?: AccountTypeRightLevel | null;
   weedingRights?: AccountTypeRightLevel | null;
   weedingCancelRights?: AccountTypeRightLevel | null;
   circulationOverrideRights?: AccountTypeRightLevel | null;

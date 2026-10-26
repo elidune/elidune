@@ -2067,6 +2067,7 @@
         "settingsRights": "Paramètres",
         "eventsRights": "Événements",
         "acquisitionsRights": "Acquisitions",
+        "serialsRights": "Périodiques",
         "weedingRights": "Désherbage",
         "weedingCancelRights": "Annuler un désherbage"
       },

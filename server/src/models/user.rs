@@ -949,6 +949,10 @@ pub struct UserRights {
     /// Acquisitions (`/acquisitions`): vendors, funds, orders, receipt. Distinct from cataloging.
     #[serde(default)]
     pub acquisitions_rights: Rights,
+    /// Serials (`/serials`): frequencies, numbering patterns, serial subscriptions.
+    /// Distinct from cataloging and from acquisitions.
+    #[serde(default)]
+    pub serials_rights: Rights,
     /// Weeding: write withdraws, read lists and exports. Distinct from cataloging and deletion.
     #[serde(default)]
     pub weeding_rights: Rights,
@@ -975,6 +979,7 @@ impl Default for UserRights {
             settings_rights: Rights::None,
             events_rights: Rights::None,
             acquisitions_rights: Rights::None,
+            serials_rights: Rights::None,
             weeding_rights: Rights::None,
             weeding_cancel_rights: Rights::None,
             items_archive_rights: Rights::None,
@@ -1266,6 +1271,26 @@ impl UserClaims {
         }
     }
 
+    pub fn require_read_serials(&self) -> Result<(), AppError> {
+        if self.rights.serials_rights.rank() >= Rights::Read.rank() {
+            Ok(())
+        } else {
+            Err(AppError::Authorization(
+                "Insufficient rights to read serials".to_string(),
+            ))
+        }
+    }
+
+    pub fn require_write_serials(&self) -> Result<(), AppError> {
+        if self.rights.serials_rights.rank() >= Rights::Write.rank() {
+            Ok(())
+        } else {
+            Err(AppError::Authorization(
+                "Insufficient rights to manage serials".to_string(),
+            ))
+        }
+    }
+
     pub fn require_list_holds(&self) -> Result<(), AppError> {
         if self.rights.holds_rights.rank() >= Rights::Read.rank()
             || self.rights.holds_rights == Rights::Own
@@ -1423,6 +1448,27 @@ mod erasure_tests {
         };
         assert!(selector.require_write_acquisitions().is_ok());
         assert!(selector.require_write_items().is_err());
+        assert!(selector.require_write_serials().is_err());
+
+        let serials = UserClaims {
+            sub: "3".into(),
+            user_id: 3,
+            account_type: AccountTypeSlug::Librarian,
+            rights: UserRights {
+                items_rights: Rights::None,
+                acquisitions_rights: Rights::None,
+                serials_rights: Rights::Write,
+                ..UserRights::default()
+            },
+            exp: 0,
+            iat: 0,
+            token_version: 1,
+            scope: None,
+        };
+        assert!(serials.require_write_serials().is_ok());
+        assert!(serials.require_read_serials().is_ok());
+        assert!(serials.require_write_items().is_err());
+        assert!(serials.require_write_acquisitions().is_err());
     }
 
     #[test]

@@ -2067,6 +2067,7 @@
         "settingsRights": "Settings",
         "eventsRights": "Events",
         "acquisitionsRights": "Acquisitions",
+        "serialsRights": "Serials",
         "weedingRights": "Weeding",
         "weedingCancelRights": "Cancel weeding"
       },

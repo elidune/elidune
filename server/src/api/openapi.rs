@@ -8,8 +8,8 @@ use utoipa_swagger_ui::SwaggerUi;
 use crate::api::{
     account_types, acquisitions, admin_config, audit, auth, batch, biblios, collections, deposits,
     email_templates, equipment, events, fines, first_setup, genres, health, holds, inventory,
-    items, library_info, loans, maintenance, metrics, opac, public_types, schedules, series, sites,
-    stats, suggestions, tasks, transits, users, visitor_counts, withdrawals, z3950,
+    items, library_info, loans, maintenance, metrics, opac, public_types, schedules, serials,
+    series, sites, stats, suggestions, tasks, transits, users, visitor_counts, withdrawals, z3950,
 };
 
 #[derive(OpenApi)]
@@ -258,6 +258,18 @@ use crate::api::{
         acquisitions::cancel_order,
         acquisitions::receive_order,
         acquisitions::order_audit,
+        // Serials
+        serials::list_frequencies,
+        serials::get_frequency,
+        serials::create_frequency,
+        serials::update_frequency,
+        serials::delete_frequency,
+        serials::list_numbering_patterns,
+        serials::get_numbering_pattern,
+        serials::create_numbering_pattern,
+        serials::update_numbering_pattern,
+        serials::delete_numbering_pattern,
+        serials::test_prediction,
         suggestions::create_suggestion,
         suggestions::list_suggestions,
         suggestions::get_suggestion,
@@ -752,6 +764,7 @@ use crate::api::{
         (name = "equipment", description = "Library equipment management"),
         (name = "events", description = "Cultural events and school visits"),
         (name = "acquisitions", description = "Vendors, yearly funds, purchase orders, and receipt (creates catalog items only at receipt)"),
+        (name = "serials", description = "Serial subscriptions: frequencies, numbering patterns, and the prediction preview. Receipt and serial subscription rows come later."),
         (name = "suggestions", description = "Patron purchase suggestions: propose a title; staff accept opens a draft order intent (no biblio, no item)"),
         (name = "account_types", description = "Library account types (built-in and custom) and per-domain rights. Settings write is required."),
         (name = "library_info", description = "Library global information (name, address, phones, email, default UI language)"),
@@ -806,6 +819,9 @@ mod tests {
     fn openapi_schema_compiles() {
         let doc = ApiDoc::openapi();
         assert!(!doc.paths.paths.is_empty());
+        assert!(doc.paths.paths.contains_key("/serials/frequencies"));
+        assert!(doc.paths.paths.contains_key("/serials/numbering-patterns"));
+        assert!(doc.paths.paths.contains_key("/serials/predictions"));
     }
 
     #[test]
