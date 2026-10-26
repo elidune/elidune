@@ -114,6 +114,7 @@
     "pageSubtitle": "Lots reçus en prêt et prêteurs partenaires.",
     "sectionNav": "Sections dépôts",
     "badge": "Dépôt · {{lender}} · retour le {{date}}",
+    "badgeReader": "Dépôt · {{lender}}",
     "badgePermanent": "Dépôt · {{lender}} · sans date de retour",
     "dueDateCapped": "Échéance ramenée au {{date}} (retour du dépôt)",
     "dueDateCappedUnknown": "Échéance ramenée à la date de retour du dépôt",

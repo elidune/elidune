@@ -114,6 +114,7 @@
     "pageSubtitle": "Eingehende Leihlose und Partner-Verleiher.",
     "sectionNav": "Depot-Bereiche",
     "badge": "Depot · {{lender}} · Rückgabe am {{date}}",
+    "badgeReader": "Depot · {{lender}}",
     "badgePermanent": "Depot · {{lender}} · kein Rückgabedatum",
     "dueDateCapped": "Fälligkeit auf {{date}} vorgezogen (Rückgabe des Depots)",
     "dueDateCappedUnknown": "Fälligkeit auf das Rückgabedatum des Depots vorgezogen",

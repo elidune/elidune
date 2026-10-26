@@ -741,13 +741,22 @@ export type DepositCopyState =
   | 'returned'
   | 'missing';
 
-/** Embedded on item JSON. Null means own stock. */
+/** Embedded on staff item JSON. Null means own stock. */
 export interface ItemDeposit {
   batchId: string;
   lenderId: string;
   lenderName: string;
   reference: string;
   returnDueOn: string | null;
+  batchStatus: DepositBatchStatus;
+}
+
+/** Reader and OPAC deposit block. Batch return date is staff-only. */
+export interface ItemDepositPublic {
+  batchId: string;
+  lenderId: string;
+  lenderName: string;
+  reference: string;
   batchStatus: DepositBatchStatus;
 }
 
@@ -894,7 +903,7 @@ export interface ItemShortPublic {
   availability: ItemPublicAvailability;
   canHoldItem: boolean;
   /** Null or omitted means own stock. */
-  deposit?: ItemDeposit | null;
+  deposit?: ItemDepositPublic | null;
 }
 
 /** Staff search hit (`BiblioShortStaff`). */
@@ -1082,8 +1091,8 @@ export interface ItemPublicView {
    * An unassigned `pending` title hold leaves this false.
    */
   onHold: boolean;
-  /** Null or omitted means own stock. */
-  deposit?: ItemDeposit | null;
+  /** Null or omitted means own stock. Batch return date is staff-only. */
+  deposit?: ItemDepositPublic | null;
 }
 
 /** `GET /biblios/{id}`, `GET /items/{id}`, and `GET /items/barcode/{barcode}`. */

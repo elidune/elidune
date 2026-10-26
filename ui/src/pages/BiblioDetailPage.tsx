@@ -1140,7 +1140,7 @@ function SpecimenCard({
                 {t('deposits.lenderBarcode')}: {staffCopy.lenderBarcode}
               </p>
             ) : null}
-            <DepositBadge deposit={specimen.deposit} />
+            <DepositBadge deposit={specimen.deposit} audience={audience} />
           </div>
         </div>
         <div className="flex items-center gap-2">

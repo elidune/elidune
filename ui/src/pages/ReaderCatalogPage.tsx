@@ -164,7 +164,7 @@ export default function ReaderCatalogPage() {
                           </span>
                         )}
                       </div>
-                      <CopyDepositBadges copies={biblio.items} />
+                      <CopyDepositBadges copies={biblio.items} audience="public" />
                     </div>
                     <ChevronRight className="h-5 w-5 shrink-0 text-gray-400" aria-hidden />
                   </button>

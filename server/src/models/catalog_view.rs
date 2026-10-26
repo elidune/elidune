@@ -287,8 +287,8 @@ pub struct ItemPublicView {
     pub can_hold_item: bool,
     /// This copy is assigned to a hold, or in transit for one. See [`Item::on_hold`].
     pub on_hold: bool,
-    /// Incoming deposit. `null` when the copy is own stock.
-    pub deposit: Option<super::deposit::ItemDeposit>,
+    /// Incoming deposit. `null` when the copy is own stock. Batch return date is omitted.
+    pub deposit: Option<super::deposit::ItemDepositPublic>,
 }
 
 impl From<Item> for ItemPublicView {
@@ -315,7 +315,7 @@ impl From<Item> for ItemPublicView {
             availability,
             can_hold_item: item.can_hold_item,
             on_hold: item.on_hold,
-            deposit: item.deposit,
+            deposit: item.deposit.map(super::deposit::ItemDepositPublic::from),
         }
     }
 }
@@ -380,8 +380,8 @@ pub struct ItemShortPublic {
     pub borrowed: bool,
     pub availability: ItemPublicAvailability,
     pub can_hold_item: bool,
-    /// Incoming deposit. `null` when the copy is own stock.
-    pub deposit: Option<super::deposit::ItemDeposit>,
+    /// Incoming deposit. `null` when the copy is own stock. Batch return date is omitted.
+    pub deposit: Option<super::deposit::ItemDepositPublic>,
 }
 
 impl From<ItemShort> for ItemShortPublic {
@@ -395,7 +395,7 @@ impl From<ItemShort> for ItemShortPublic {
             borrowed: item.borrowed,
             availability: ItemPublicAvailability::for_copy(item.availability, item.borrowable, item.circulation_status),
             can_hold_item: item.can_hold_item,
-            deposit: item.deposit,
+            deposit: item.deposit.map(super::deposit::ItemDepositPublic::from),
         }
     }
 }

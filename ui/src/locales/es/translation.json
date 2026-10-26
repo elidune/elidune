@@ -114,6 +114,7 @@
     "pageSubtitle": "Lotes recibidos en préstamo y prestamistas asociados.",
     "sectionNav": "Secciones de depósitos",
     "badge": "Depósito · {{lender}} · devolución el {{date}}",
+    "badgeReader": "Depósito · {{lender}}",
     "badgePermanent": "Depósito · {{lender}} · sin fecha de devolución",
     "dueDateCapped": "Vencimiento adelantado al {{date}} (devolución del depósito)",
     "dueDateCappedUnknown": "Vencimiento adelantado a la fecha de devolución del depósito",

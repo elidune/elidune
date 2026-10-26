@@ -70,6 +70,10 @@ describe('deposit badge', () => {
       depositBadgeText(deposit, t, 'fr'),
       'Dépôt · Médiathèque départementale · retour le 1 septembre 2026',
     );
+    assert.equal(
+      depositBadgeText(deposit, t, 'fr', 'public'),
+      'Dépôt · Médiathèque départementale',
+    );
     assert.equal(depositBadgeText(null, t, 'fr'), null);
     assert.equal(depositBadgeText(undefined, t, 'fr'), null);
   });

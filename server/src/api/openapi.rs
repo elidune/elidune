@@ -602,6 +602,7 @@ use crate::api::{
             crate::models::deposit::DepositBatchStatus,
             crate::models::deposit::DepositCopyState,
             crate::models::deposit::ItemDeposit,
+            crate::models::deposit::ItemDepositPublic,
             crate::models::deposit::DepositScanOutRequest,
             crate::models::deposit::DepositScanOut,
             crate::models::deposit::DepositGlobalScanOut,

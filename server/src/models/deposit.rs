@@ -321,6 +321,34 @@ pub struct ItemDeposit {
     pub deposit_loss_notified_at: Option<DateTime<Utc>>,
 }
 
+/// Deposit block on reader and OPAC item JSON. Batch return date is staff-only.
+#[serde_as]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ItemDepositPublic {
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub batch_id: i64,
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub lender_id: i64,
+    pub lender_name: String,
+    pub reference: String,
+    pub batch_status: DepositBatchStatus,
+}
+
+impl From<ItemDeposit> for ItemDepositPublic {
+    fn from(deposit: ItemDeposit) -> Self {
+        Self {
+            batch_id: deposit.batch_id,
+            lender_id: deposit.lender_id,
+            lender_name: deposit.lender_name,
+            reference: deposit.reference,
+            batch_status: deposit.batch_status,
+        }
+    }
+}
+
 /// `items.deposit_batch_id IS NULL`. Own stock, and the predicate exclusion
 /// rules share. Callers pass the items table alias.
 #[must_use]

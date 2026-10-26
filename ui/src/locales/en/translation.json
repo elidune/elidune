@@ -114,6 +114,7 @@
     "pageSubtitle": "Incoming loan batches and partner lenders.",
     "sectionNav": "Deposit sections",
     "badge": "Deposit · {{lender}} · return on {{date}}",
+    "badgeReader": "Deposit · {{lender}}",
     "badgePermanent": "Deposit · {{lender}} · no return date",
     "dueDateCapped": "Due date brought forward to {{date}} (deposit return)",
     "dueDateCappedUnknown": "Due date brought forward to the deposit return date",
