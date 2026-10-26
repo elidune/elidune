@@ -2,7 +2,7 @@
 -- serial_subscriptions and serial_issues arrive with the phase that writes them.
 
 ALTER TABLE account_types
-    ADD COLUMN serials_rights character varying(1) DEFAULT 'n'::character varying;
+    ADD COLUMN serials_rights character varying(1) DEFAULT 'n'::character varying NOT NULL;
 
 COMMENT ON COLUMN account_types.serials_rights IS
     'n/r/w: none, read, or write access to serials (frequencies, numbering patterns, serial subscriptions). Distinct from items_rights and acquisitions_rights.';
@@ -138,3 +138,24 @@ INSERT INTO serial_frequencies (
     (12, '1/year', 'year', 1, 1, 12),
     (13, '1/2 years', 'year', 1, 2, 13),
     (14, 'Irregular', NULL, 1, 1, 14);
+
+-- Common numbering patterns. Ids stay small, like the frequency seed, so a
+-- serial subscription can be created before staff write a pattern.
+INSERT INTO serial_numbering_patterns (
+    id, label, description, display_order, formula, locale,
+    name_x, add_x, every_x, when_more_than_x, set_back_to_x, format_x, zero_pad_x,
+    name_y, add_y, every_y, when_more_than_y, set_back_to_y, format_y, zero_pad_y,
+    name_z, add_z, every_z, when_more_than_z, set_back_to_z, format_z, zero_pad_z
+) VALUES
+    (1, 'Number', 'Issue number', 1, 'n° {X}', 'fr',
+     NULL, 1, 1, NULL, NULL, 'number', NULL,
+     NULL, 0, 1, NULL, NULL, 'number', NULL,
+     NULL, 0, 1, NULL, NULL, 'number', NULL),
+    (2, 'Volume and number', 'Volume advances every 12 issues; the issue number returns to 1', 2, 'vol. {X}, n° {Y}', 'fr',
+     NULL, 1, 12, NULL, NULL, 'number', NULL,
+     NULL, 1, 1, 12, 1, 'number', NULL,
+     NULL, 0, 1, NULL, NULL, 'number', NULL),
+    (3, 'Number and date', 'Issue number with the month name and year', 3, 'n° {X}, {MonthName} {Year}', 'fr',
+     NULL, 1, 1, NULL, NULL, 'number', NULL,
+     NULL, 0, 1, NULL, NULL, 'number', NULL,
+     NULL, 0, 1, NULL, NULL, 'number', NULL);

@@ -8,19 +8,21 @@
 
 These are the defaults from #282. They are not confirmed.
 
-- Item creation on receipt is a per-serial-subscription setting, on by default. The barcode is scanned or generated. `items.volume_designation` is the issue display label. The copy's `site_id` is the serial subscription's site.
+- Item creation on receipt is a per-serial-subscription setting (`create_items`), on by default. The subscription form shows that checkbox beside the frequency, already checked, so clearing it is one click. Daily press is usually not itemised; the control must not be buried. The barcode is scanned or generated. `items.volume_designation` is the issue display label. The copy's `site_id` is the serial subscription's site.
 - Latest issue: per-serial-subscription setting, default "in-library use only until the next issue arrives" (Koha `makePreviousSerialAvailable`).
 - Holds on periodicals: issue-level (a hold pinned to the copy) only for the MVP. No title-level periodical hold in the MVP.
 - One serial subscription per site. Adding another site means a second serial subscription on the same periodical biblio.
-- Fund and cost are stored on the serial subscription. A purchase order on renewal comes later.
+- Fund and annual cost are stored on the serial subscription. A purchase order on renewal comes later. The annual cost is not the copy price.
 - Vendor claims: email from Elidune, plus a CSV export.
 - Existing periodical copies are left untouched. The holdings statement is free text on the serial subscription.
 
 Librarian input, also unconfirmed, and included in the data model below:
 
 - The retention rule moves to Phase 2 (keep the last N issues, or the last N months). Discarded issues go through the existing weeding flow (#139, `items.weeding_status`) with reason `retention period ended`. Serials never deletes a copy.
-- Fund and cost on a serial subscription are optional (donations, free municipal magazines, deposits from the central library). Vendor is optional for the same reason.
+- Fund and cost on a serial subscription are optional (donations, free municipal magazines, deposits from the central library). Vendor is optional for the same reason. `cost` is the annual serial subscription cost. It is never copied onto the item. Optional `issue_price_cents` is the per-issue price in cents. On receipt, `items.price` is set from `issue_price_cents` when that field is set. When it is null, `items.price` stays empty and lost-item billing (#261) uses the default replacement amount, not the annual cost. A patron who loses a 6 EUR magazine must not be billed 120 EUR.
+- `grace_days` is the per-serial-subscription delay before an expected issue becomes `late`. The scheduler marks `late` when the calendar date is after `planned_date + grace_days`. The default is 0.
 - Every issue carries a human-readable display label that combines numbering and date (for example `n° 412, mars 2026`). The prediction engine generates it. It is stored on the issue row. Desk staff, the OPAC, issue-level holds, and vendor claims all refer to that label.
+- Frequency labels in the UI are translations (`quotidien`, `hebdomadaire`, `bimensuel`, `mensuel`, `bimestriel`, `trimestriel`, `semestriel`, `annuel`, and the other seeded rows). The English seed `description` stays as stored. MVP 4 looks up `serials.frequencies.*` from `unit`, `issues_per_unit`, and `units_per_issue`, and falls back to `description` when no key exists. There is no frequency screen in this change.
 
 Naming: **serial subscription** in new docs, API fields, and code. The word `subscription` alone remains patron membership (`subscription_expired`, and so on).
 
@@ -32,7 +34,7 @@ This document covers the whole feature. The first implementation (this change) i
 
 ## Architecture
 
-1. **Prediction is a pure Rust module** (`server/src/serials/prediction.rs`). It does not touch the database. Inputs are the frequency, the numbering pattern, the first issue date, the starting counter values (and the inner-loop cursors when continuing a horizon), the length, and the irregularities. The output is the expected issue list: planned date, counter values, and display label. Unit tests cover irregular issues, year and month-end rollover, counter resets, and renumbering.
+1. **Prediction is a pure Rust module** (`server/src/serials/prediction.rs`). It does not touch the database. Inputs are the frequency, the numbering pattern, the anchor date (`first_issue_date`), the absolute `start_slot`, the starting counter values (and the inner-loop cursors when continuing a horizon), the length, absolute irregularity slot numbers, and the yearly skip rules. The output is the expected issue list (planned date, counter values, display label) and `nextState`, including `next_slot`. Unit tests cover irregular issues, year and month-end rollover, counter resets, renumbering, two horizons matching one horizon, and yearly skips.
 2. **Expected issues are persisted rows** (`serial_issues`), written progressively (a horizon, then "generate next"), not computed on the fly. Receiving, late detection, and claims update those rows. Re-running prediction does not rewrite rows that already exist. The MVP 1 `POST /serials/predictions` endpoint is a preview only: it calls the engine and returns the list. It does not insert rows. `serial_issues` is created in the migration of the phase that first writes it (MVP 2 / MVP 3).
 3. **Receiving an issue (MVP 3) reuses the acquisitions item path.** `AcquisitionsService::receive_order` builds an `Item` and calls `CatalogService::create_item`. A missing barcode uses `allocate_local_item_barcode`. Serials receipt calls those same functions. It does not grow a second `INSERT` into `items`. Shared field defaults (weeding `on_shelf`, the availability pair) may move into one constructor used by both call sites so the two paths do not drift. The insert stays `CatalogService::create_item`.
 
@@ -103,6 +105,27 @@ Seeded catalog (Koha's usual English sample: `issues_per_unit` / `units_per_issu
 
 Seed rows are ordinary data. Staff may edit or delete them. Once a serial subscription references a row, the foreign key blocks delete (`409`).
 
+The UI does not display `description` as the patron-facing or desk label. MVP 4 translates from the structural key (`issues_per_unit`, `units_per_issue`, `unit`):
+
+| Key | Matches | French |
+|---|---|---|
+| `serials.frequencies.twiceDaily` | 2/day | deux fois par jour |
+| `serials.frequencies.daily` | 1/day | quotidien |
+| `serials.frequencies.threePerWeek` | 3/week | trois fois par semaine |
+| `serials.frequencies.weekly` | 1/week | hebdomadaire |
+| `serials.frequencies.fortnightly` | 1/2 weeks | bimensuel |
+| `serials.frequencies.everyThreeWeeks` | 1/3 weeks | toutes les trois semaines |
+| `serials.frequencies.monthly` | 1/month | mensuel |
+| `serials.frequencies.everyTwoMonths` | 1/2 months | bimestriel |
+| `serials.frequencies.quarterly` | 1/3 months | trimestriel |
+| `serials.frequencies.twiceMonthly` | 2/month | deux fois par mois |
+| `serials.frequencies.semiannual` | 1/6 months | semestriel |
+| `serials.frequencies.annual` | 1/year | annuel |
+| `serials.frequencies.everyTwoYears` | 1/2 years | tous les deux ans |
+| `serials.frequencies.irregular` | NULL unit | irrégulier |
+
+`ui/src/utils/serialFrequencyLabel.ts` maps a frequency to that key. A row staff created with some other cycle has no key, so the screen shows `description`. English, German, and Spanish strings live beside the French ones. The seed text is not rewritten.
+
 ### `serial_numbering_patterns`
 
 Koha-style formula. Three counters, X, Y, and Z.
@@ -118,9 +141,13 @@ Koha-style formula. Three counters, X, Y, and Z.
 
 `when_more_than` and `set_back_to` are both set or both null. `every` is at least 1.
 
+Migration `004` seeds three patterns (stable ids 1–3, same idea as the frequency ids) so a serial subscription can be created before anyone writes a pattern: `n° {X}`, `vol. {X}, n° {Y}` (volume every 12 issues, issue number back to 1), and `n° {X}, {MonthName} {Year}`. Staff may edit or delete them. A referenced row cannot be deleted (`409`).
+
 ### Prediction rules
 
-The engine emits the **current** counter values, then advances. Starting values are the first issue. Skipped irregularity slots do not advance counters.
+The engine emits the **current** counter values, then advances. Starting values are the first issue of this call. Skipped slots do not advance counters.
+
+`first_issue_date` is the anchor and does not move between horizons. Dates are always computed from that anchor and the absolute slot, so a monthly that starts on the 31st still lands on the 31st after February, and `2/month` keeps its place inside the cycle. `start_slot` is the absolute 1-based slot this call emits first (1 for a new serial subscription). `nextState.next_slot` is the absolute slot the following horizon must pass back as `start_slot`, together with the counter values and inner loops, and the same anchor. Two horizons of 6 issues are defined to equal one horizon of 12.
 
 Advance, per counter, after an emitted issue:
 
@@ -142,7 +169,14 @@ When `issues_per_unit` is greater than 1, issues are spaced evenly inside the cy
 
 This even split is the Elidune rule for several issues per unit. One-issue frequencies match Koha. The product owner can revisit the intra-cycle spacing.
 
-**Irregularities** are 1-based publication slots that are not issued (a weekly that skips a week). The date advances as if the slot existed. No row is emitted and counters do not move. `0` is rejected. Duplicates are ignored. This is not the irregular frequency (NULL unit). A NULL unit cannot predict dates; the preview returns `422`. Staff enter those dates by hand in MVP 3.
+**Irregularities** are absolute 1-based publication slots, counted from the anchor, that are not issued (a weekly that skips a week). They are not renumbered per horizon: slot 8 is still slot 8 on the second call. The date advances as if the slot existed. No row is emitted and counters do not move. `0` is rejected. Duplicates are ignored. This is not the irregular frequency (NULL unit). A NULL unit cannot predict dates; the preview returns `422`. Staff enter those dates by hand in MVP 3.
+
+**Yearly skips** avoid re-entering those slot numbers every year. They live on the serial subscription (the preview accepts them inline) and the engine applies them on top of the absolute irregularities.
+
+- `recurringSkips`: `{ "month": 8 }` skips every planned date in August (11 issues in a calendar year for a monthly). `{ "month": 7 }` and `{ "month": 8 }` together are 10 issues. `{ "month": 12, "day": 25 }` skips only 25 December; a weekly that does not fall on that day is unchanged.
+- `combinedIssues`: `{ "months": [7, 8], "monthName": "juillet-août" }`. The first month is published. Later months are skipped. `{MonthName}` on the published issue is the given text, so the July row reads `juillet-août` and August has no row. The same rule applies again the next year. A full-month recurring skip of the published month is rejected. The first month of one combined issue cannot also be a later month of another.
+
+A skipped month still consumes a frequency slot, so the following issue keeps its cycle position.
 
 **Length** is one of:
 
@@ -151,7 +185,7 @@ This even split is the Elidune rule for several issues per unit. One-issue frequ
 
 The preview rejects a length under 1, an issue count over 500, or a date window that would emit more than 500 issues. Walking more than 5000 slots (a long skip list) is the same error.
 
-The response includes `nextState` (values and inner loops after the last emitted issue). MVP 2 stores that cursor on the serial subscription. The next horizon calls the engine with it. The preview accepts an optional `inner` so a horizon can be tried before the table exists.
+The response includes `nextState` (values, inner loops, and `nextSlot` after the last emitted issue). MVP 2 stores that cursor and the original anchor on the serial subscription. The next horizon calls the engine with the same `firstIssueDate`, `startSlot` = `nextSlot`, and the stored counters. The preview accepts optional `inner`, `startSlot` (default 1), `recurringSkips`, and `combinedIssues` so a horizon can be tried before the table exists.
 
 ## API (MVP 1)
 
@@ -171,7 +205,7 @@ All routes are under `/api/v1`. OpenAPI tag `serials`.
 | `DELETE /serials/numbering-patterns/{id}` | write |
 | `POST /serials/predictions` | read |
 
-`POST /serials/predictions` takes either `frequencyId` or an inline `frequency`, and either `patternId` or an inline `pattern`, plus `firstIssueDate`, `starting` (`x`, `y`, `z`), optional `inner`, `length` (`{ "kind": "issues"|"weeks"|"months", "count" }`), and optional `irregularities`. It returns `issues[]` (`sequence`, `slot`, `plannedDate`, `displayLabel`, `x`, `y`, `z`) and `nextState`.
+`POST /serials/predictions` takes either `frequencyId` or an inline `frequency`, and either `patternId` or an inline `pattern`, plus `firstIssueDate` (the anchor), `starting` (`x`, `y`, `z`), optional `inner`, optional `startSlot` (default 1), `length` (`{ "kind": "issues"|"weeks"|"months", "count" }`), optional absolute `irregularities`, optional `recurringSkips`, and optional `combinedIssues`. It returns `issues[]` (`sequence`, `slot`, `plannedDate`, `displayLabel`, `x`, `y`, `z`) and `nextState` (`x`, `y`, `z`, `innerX`, `innerY`, `innerZ`, `nextSlot`).
 
 List endpoints take `q`, `page`, and `perPage`. Ids in JSON are strings. Validation failures are `400`. An irregular frequency, or a preview over the 500-issue cap, is `422`. Unknown ids are `404`. Missing token is `401`. The wrong right is `403`.
 
@@ -187,12 +221,16 @@ One open serial subscription per (`biblio_id`, `site_id`).
 
 - `biblio_id` not null, the periodical record.
 - `site_id` not null.
-- `vendor_id` null → `vendors`. `fund_id` null → `acquisition_funds`. `cost` numeric null.
+- `vendor_id` null → `vendors`. `fund_id` null → `acquisition_funds`. `cost` numeric null. This is the annual serial subscription cost. Receipt does not copy it to the item.
+- `issue_price_cents` integer null. Optional price of one issue, in cents. Receipt sets `items.price` from it. Null leaves `items.price` empty, so lost-item billing uses the default replacement amount.
 - `frequency_id`, `numbering_pattern_id` not null.
-- `first_issue_date`, starting and cursor values (`value_x/y/z`, `inner_x/y/z`).
-- `length_kind`, `length_count`, `irregularities` (integer array), optional `end_date`.
+- `first_issue_date` date not null. Anchor for every horizon. Not replaced by the last predicted date.
+- Starting and cursor values (`value_x/y/z`, `inner_x/y/z`) and `next_slot` integer not null default 1. The next horizon passes this slot as `startSlot` with the same anchor.
+- `length_kind`, `length_count`, `irregularities` (integer array of absolute slots), optional `end_date`.
+- `recurring_skips` jsonb not null default `[]`. `combined_issues` jsonb not null default `[]`. Shape as in the prediction rules.
+- `grace_days` integer not null default 0. Days after `planned_date` before the late job may set `late`.
 - `status`: `active`, `expired`, `closed`.
-- `create_items` boolean not null default true.
+- `create_items` boolean not null default true. The subscription form shows it as a checkbox beside the frequency, checked by default. One click clears it. Daily press is usually not itemised.
 - `latest_issue_library_use_only` boolean not null default true.
 - `holdings_statement` text null. Free text. Existing copies are not rewritten.
 - `notes`, timestamps.
@@ -219,7 +257,7 @@ Stored as text, not Koha's integers.
 |---|---|
 | `expected` | Predicted, not received. |
 | `arrived` | Received. |
-| `late` | Still expected after the grace delay. Set by the scheduler, not by recomputing dates. |
+| `late` | Still expected after `planned_date + grace_days`. Set by the scheduler, not by recomputing dates. |
 | `missing` | Staff marked it missing. |
 | `claimed` | A vendor claim has been sent for this row. |
 | `not_available` | Will not arrive and should not be claimed (Koha "not available"). |
@@ -240,7 +278,7 @@ For each issue moved to `arrived`, when `create_items` is true:
 - `CatalogService::create_item` on the periodical biblio.
 - `volume_designation` = `display_label`.
 - `site_id` = the serial subscription site.
-- Price from `cost` when it is set.
+- `items.price` = `issue_price_cents` when that column is set. When it is null, the item price stays empty. `cost` is not the item price.
 - `borrowable` follows `latest_issue_library_use_only`: the new copy stays non-borrowable, and the previous issue's copy becomes borrowable, in the Phase 2 circulation rules.
 
 Irregular issues (extra skips) and supplements are staff edits on rows, not a second prediction model.
@@ -266,10 +304,10 @@ Phase 3 shows the latest arrived issues and the free-text holdings statement. It
 ## Phases
 
 - **Phase 0.** This spec.
-- **MVP 1 (this change).** Migration `004`: `serials_rights`, `serial_frequencies` with the seed, `serial_numbering_patterns`. Pure prediction engine and its unit tests. Read/CRUD for frequencies and patterns, `POST /serials/predictions`, OpenAPI, rights, integration tests. No serial subscription rows.
-- **MVP 2.** `serial_subscriptions` per site, optional vendor, fund, and cost, horizon generation into `serial_issues`.
+- **MVP 1 (this change).** Migration `004`: `serials_rights` (`NOT NULL DEFAULT 'n'`, like `weeding_rights`), `serial_frequencies` with the seed, `serial_numbering_patterns` with three seeded patterns. Pure prediction engine and its unit tests. Read/CRUD for frequencies and patterns, `POST /serials/predictions`, OpenAPI, rights, integration tests. No serial subscription rows. Frequency translation keys are in the UI locales; no frequency screen yet.
+- **MVP 2.** `serial_subscriptions` per site, optional vendor, fund, annual cost, and `issue_price_cents`, `grace_days`, anchor date, and `next_slot`. Horizon generation into `serial_issues` continues from that cursor.
 - **MVP 3.** Receive issues onto persisted rows, create items through `CatalogService::create_item`, statuses, irregular skips, supplements.
-- **MVP 4.** UI: serial subscription form with the prediction preview, serial collection, receive screen, search. Account-type settings already expose `serialsRights` from MVP 1.
+- **MVP 4.** UI: serial subscription form with the prediction preview, the `create_items` checkbox beside the frequency, serial collection, receive screen, search. Frequency labels use `serials.frequencies.*`. Account-type settings already expose `serialsRights` from MVP 1.
 - **Phase 2.** Late-issue scheduler job and vendor claims (email + CSV). Expiration, renewal, close/reopen. Circulation: previous issue lendable, issue-level holds. Retention rule via weeding.
 - **Phase 3.** OPAC latest issues and holdings text. Patron new-issue alerts. Routing lists.
 - **Phase 4.** Renewal creates a purchase-order line. Binding status. Stats.
@@ -285,4 +323,4 @@ Phase 3 shows the latest arrived issues and the free-text holdings statement. It
 
 - `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test --lib`.
 - DB integration tests: seeded frequencies, CRUD, the preview (including the `n° 412, mars 2026` label), `401` / `403` / `422`, and `serials_rights` on `librarian` / `admin` (`w`) and `reader` (`n`).
-- Prediction unit tests: irregular slots, year and month-end rollover, leap day, several issues per unit, counter reset, renumbering, inner-loop continuation, the 500-issue cap.
+- Prediction unit tests: irregular slots, year and month-end rollover, leap day, several issues per unit, counter reset, renumbering, inner-loop continuation, the 500-issue cap, two horizons of 6 matching one horizon of 12 (31st of the month, 2 per month, an absolute irregularity, a yearly August skip), 10 and 11 issues per year, and a combined July–August issue.

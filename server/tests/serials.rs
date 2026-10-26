@@ -60,6 +60,26 @@ async fn seeded_frequencies_and_serials_rights() {
         .await;
     assert_eq!(status, StatusCode::OK, "{reader}");
     assert_eq!(reader["serialsRights"], "n");
+
+    let (status, patterns) = app
+        .get_json_with_auth(
+            "/api/v1/serials/numbering-patterns?perPage=50",
+            &admin_token,
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{patterns}");
+    let formulas: Vec<&str> = patterns["patterns"]
+        .as_array()
+        .expect("patterns")
+        .iter()
+        .filter_map(|row| row["formula"].as_str())
+        .collect();
+    assert!(formulas.contains(&"n° {X}"), "{patterns}");
+    assert!(formulas.contains(&"vol. {X}, n° {Y}"), "{patterns}");
+    assert!(
+        formulas.contains(&"n° {X}, {MonthName} {Year}"),
+        "{patterns}"
+    );
 }
 
 #[tokio::test]

@@ -280,7 +280,7 @@ Loan checkout, return, renew, exceptions, and batch loan operations require **`l
 
 ## Serials
 
-`serials_rights` (`n` / `r` / `w`) gates `/serials`. Read lists frequencies and numbering patterns and runs the prediction preview. Write creates, updates, and deletes those rows. The preview does not store issues.
+`serials_rights` (`n` / `r` / `w`, `NOT NULL DEFAULT 'n'`, same shape as `weeding_rights`) gates `/serials`. Read lists frequencies and numbering patterns and runs the prediction preview. Write creates, updates, and deletes those rows. The preview does not store issues.
 
 Seeded `librarian` and `admin` are `w`. Seeded `guest`, `reader`, and `group` are `n`.
 

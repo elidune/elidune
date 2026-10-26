@@ -101,8 +101,11 @@ impl SerialsService {
             pattern,
             starting: request.starting,
             inner: request.inner,
+            start_slot: request.start_slot,
             length: request.length,
             irregularities: request.irregularities.clone(),
+            recurring_skips: request.recurring_skips.clone(),
+            combined_issues: request.combined_issues.clone(),
         })
         .map_err(prediction_error)?;
         Ok(PredictionResponse {

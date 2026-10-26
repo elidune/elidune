@@ -193,6 +193,28 @@ pub struct CounterInners {
     pub z: u32,
 }
 
+/// A publication slot skipped every year, by month or by month and day.
+///
+/// `day` absent skips every planned date in that month. A set day skips only
+/// that calendar day, so a weekly that does not land on it is unaffected.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RecurringSkip {
+    pub month: u8,
+    #[serde(default)]
+    pub day: Option<u8>,
+}
+
+/// One published issue covers several months. The first month is issued.
+/// Later months are skipped every year, and `{MonthName}` on the published
+/// issue is `month_name` (for example `juillet-août`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CombinedIssue {
+    pub months: Vec<u8>,
+    pub month_name: String,
+}
+
 /// How long to predict. Date kinds stop before `first + count` (exclusive end).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -370,10 +392,23 @@ pub struct TestPredictionRequest {
     pub starting: CounterValues,
     #[serde(default)]
     pub inner: CounterInners,
+    /// Absolute 1-based slot to emit first. The anchor date stays `first_issue_date`.
+    #[serde(default = "default_start_slot")]
+    pub start_slot: u32,
     pub length: SubscriptionLength,
-    /// 1-based publication slots to skip. The date moves on; numbering does not.
+    /// Absolute 1-based publication slots to skip. The date moves on; numbering does not.
     #[serde(default)]
     pub irregularities: Vec<u32>,
+    /// Yearly skips by month or month/day. Applied on top of `irregularities`.
+    #[serde(default)]
+    pub recurring_skips: Vec<RecurringSkip>,
+    /// Double issues such as July–August. The later months are yearly skips.
+    #[serde(default)]
+    pub combined_issues: Vec<CombinedIssue>,
+}
+
+fn default_start_slot() -> u32 {
+    1
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]
@@ -401,6 +436,8 @@ pub struct PredictionState {
     pub inner_x: u32,
     pub inner_y: u32,
     pub inner_z: u32,
+    /// Absolute 1-based slot the next horizon must pass as `startSlot`.
+    pub next_slot: u32,
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]

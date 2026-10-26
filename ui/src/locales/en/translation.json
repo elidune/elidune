@@ -3081,5 +3081,23 @@
       "accepted": "Accepted",
       "refused": "Refused"
     }
+  },
+  "serials": {
+    "frequencies": {
+      "twiceDaily": "Twice a day",
+      "daily": "Daily",
+      "threePerWeek": "Three times a week",
+      "weekly": "Weekly",
+      "fortnightly": "Fortnightly",
+      "everyThreeWeeks": "Every three weeks",
+      "monthly": "Monthly",
+      "everyTwoMonths": "Every two months",
+      "quarterly": "Quarterly",
+      "twiceMonthly": "Twice a month",
+      "semiannual": "Twice a year",
+      "annual": "Annual",
+      "everyTwoYears": "Every two years",
+      "irregular": "Irregular"
+    }
   }
 }
