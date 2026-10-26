@@ -23,7 +23,8 @@ pub async fn get(redis: &RedisService, key: &str) -> Option<StatsTableResponse> 
 }
 
 pub async fn set(redis: &RedisService, key: &str, response: &StatsTableResponse) -> AppResult<()> {
-    let json = serde_json::to_string(response).map_err(|e| crate::error::AppError::Internal(format!("Cache serialize: {}", e)))?;
+    let json = serde_json::to_string(response)
+        .map_err(|e| crate::error::AppError::Internal(format!("Cache serialize: {}", e)))?;
     let mut conn = redis.get_connection().await?;
     use redis::AsyncCommands;
     conn.set_ex::<_, _, ()>(key, json, CACHE_TTL_SECS)

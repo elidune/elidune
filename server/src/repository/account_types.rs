@@ -33,8 +33,16 @@ pub struct ActiveAdminForecast {
 pub trait AccountTypesCatalogRepository: Send + Sync {
     async fn account_types_list(&self) -> AppResult<Vec<AccountTypeDefinition>>;
     async fn account_types_get_by_code(&self, code: &str) -> AppResult<AccountTypeDefinition>;
-    async fn account_types_create(&self, row: &AccountTypeDefinition) -> AppResult<AccountTypeDefinition>;
-    async fn account_types_update(&self, code: &str, data: &UpdateAccountTypeDefinition, revoke_sessions: bool) -> AppResult<AccountTypeDefinition>;
+    async fn account_types_create(
+        &self,
+        row: &AccountTypeDefinition,
+    ) -> AppResult<AccountTypeDefinition>;
+    async fn account_types_update(
+        &self,
+        code: &str,
+        data: &UpdateAccountTypeDefinition,
+        revoke_sessions: bool,
+    ) -> AppResult<AccountTypeDefinition>;
     async fn account_types_delete(&self, code: &str) -> AppResult<()>;
     async fn account_types_count_users(&self, code: &str) -> AppResult<i64>;
     async fn guard_active_admins(&self, forecast: &ActiveAdminForecast) -> AppResult<()>;
@@ -48,10 +56,18 @@ impl AccountTypesCatalogRepository for Repository {
     async fn account_types_get_by_code(&self, code: &str) -> AppResult<AccountTypeDefinition> {
         Repository::account_types_get_by_code(self, code).await
     }
-    async fn account_types_create(&self, row: &AccountTypeDefinition) -> AppResult<AccountTypeDefinition> {
+    async fn account_types_create(
+        &self,
+        row: &AccountTypeDefinition,
+    ) -> AppResult<AccountTypeDefinition> {
         Repository::account_types_create(self, row).await
     }
-    async fn account_types_update(&self, code: &str, data: &UpdateAccountTypeDefinition, revoke_sessions: bool) -> AppResult<AccountTypeDefinition> {
+    async fn account_types_update(
+        &self,
+        code: &str,
+        data: &UpdateAccountTypeDefinition,
+        revoke_sessions: bool,
+    ) -> AppResult<AccountTypeDefinition> {
         Repository::account_types_update(self, code, data, revoke_sessions).await
     }
     async fn account_types_delete(&self, code: &str) -> AppResult<()> {
@@ -80,7 +96,10 @@ fn map_account_type_sql(err: sqlx::Error) -> AppError {
 impl Repository {
     pub async fn account_types_list(&self) -> AppResult<Vec<AccountTypeDefinition>> {
         let sql = format!("SELECT {ACCOUNT_TYPE_COLUMNS} FROM account_types ORDER BY code");
-        sqlx::query_as::<_, AccountTypeDefinition>(&sql).fetch_all(&self.pool).await.map_err(Into::into)
+        sqlx::query_as::<_, AccountTypeDefinition>(&sql)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(Into::into)
     }
 
     pub async fn account_types_get_by_code(&self, code: &str) -> AppResult<AccountTypeDefinition> {
@@ -92,7 +111,10 @@ impl Repository {
             .ok_or_else(|| AppError::NotFound(format!("Account type '{code}' not found")))
     }
 
-    pub async fn account_types_create(&self, row: &AccountTypeDefinition) -> AppResult<AccountTypeDefinition> {
+    pub async fn account_types_create(
+        &self,
+        row: &AccountTypeDefinition,
+    ) -> AppResult<AccountTypeDefinition> {
         let sql = format!(
             "INSERT INTO account_types ({ACCOUNT_TYPE_COLUMNS}) \
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, FALSE) \
@@ -119,7 +141,12 @@ impl Repository {
 
     /// Apply a partial update. When `revoke_sessions` is set, open sessions of
     /// accounts of this type are invalidated in the same transaction.
-    pub async fn account_types_update(&self, code: &str, data: &UpdateAccountTypeDefinition, revoke_sessions: bool) -> AppResult<AccountTypeDefinition> {
+    pub async fn account_types_update(
+        &self,
+        code: &str,
+        data: &UpdateAccountTypeDefinition,
+        revoke_sessions: bool,
+    ) -> AppResult<AccountTypeDefinition> {
         let mut sets = Vec::new();
         let mut idx: usize = 1;
 
@@ -143,13 +170,20 @@ impl Repository {
         add_opt!(data.acquisitions_rights, "acquisitions_rights");
         add_opt!(data.weeding_rights, "weeding_rights");
         add_opt!(data.weeding_cancel_rights, "weeding_cancel_rights");
-        add_opt!(data.circulation_override_rights, "circulation_override_rights");
+        add_opt!(
+            data.circulation_override_rights,
+            "circulation_override_rights"
+        );
 
         if sets.is_empty() {
             return Err(AppError::Validation("No fields to update".to_string()));
         }
 
-        let q = format!("UPDATE account_types SET {} WHERE code = ${} RETURNING {ACCOUNT_TYPE_COLUMNS}", sets.join(", "), idx);
+        let q = format!(
+            "UPDATE account_types SET {} WHERE code = ${} RETURNING {ACCOUNT_TYPE_COLUMNS}",
+            sets.join(", "),
+            idx
+        );
 
         let mut tx = self.pool.begin().await?;
         let mut b = sqlx::query_as::<_, AccountTypeDefinition>(&q);
@@ -217,7 +251,9 @@ impl Repository {
     /// whose type has settings write. A change that starts from zero admins
     /// is left alone so the library can grant settings write again.
     pub async fn guard_active_admins(&self, forecast: &ActiveAdminForecast) -> AppResult<()> {
-        let before = self.count_active_admins(&ActiveAdminForecast::default()).await?;
+        let before = self
+            .count_active_admins(&ActiveAdminForecast::default())
+            .await?;
         let after = self.count_active_admins(forecast).await?;
         if before > 0 && after == 0 {
             return Err(AppError::last_active_admin());

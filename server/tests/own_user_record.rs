@@ -15,7 +15,8 @@ fn retarget_users(token: &str, secret: &str, users: Rights) -> String {
 }
 
 async fn user_of(app: &TestApp, token: &str, id: i64) -> (StatusCode, Value) {
-    app.get_json_with_auth(&format!("/api/v1/users/{id}"), token).await
+    app.get_json_with_auth(&format!("/api/v1/users/{id}"), token)
+        .await
 }
 
 #[tokio::test]
@@ -87,23 +88,44 @@ async fn own_rights_get_and_put_contact_fields_only() {
         json!({"email": "stolen@library.test", "firstname": "Changed"}),
     ];
     for body in forbidden {
-        let (status, rejected) = app.put_json(&format!("/api/v1/users/{reader_id}"), &body, Some(&reader_token)).await;
+        let (status, rejected) = app
+            .put_json(
+                &format!("/api/v1/users/{reader_id}"),
+                &body,
+                Some(&reader_token),
+            )
+            .await;
         assert_eq!(status, StatusCode::FORBIDDEN, "{body} -> {rejected}");
         let (status, current) = user_of(&app, &reader_token, reader_id).await;
         assert_eq!(status, StatusCode::OK, "{current}");
-        assert_eq!(current["email"], "ada.own@library.test", "{body} wrote {current}");
+        assert_eq!(
+            current["email"], "ada.own@library.test",
+            "{body} wrote {current}"
+        );
         assert_eq!(current["accountType"], "reader", "{current}");
         assert_eq!(current["phone"], "0601020304", "{current}");
         assert_ne!(current["status"], "blocked", "{current}");
     }
 
-    let (status, bad_email) = app.put_json(&format!("/api/v1/users/{reader_id}"), &json!({"email": "not-an-email"}), Some(&reader_token)).await;
+    let (status, bad_email) = app
+        .put_json(
+            &format!("/api/v1/users/{reader_id}"),
+            &json!({"email": "not-an-email"}),
+            Some(&reader_token),
+        )
+        .await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{bad_email}");
     let (status, current) = user_of(&app, &reader_token, reader_id).await;
     assert_eq!(status, StatusCode::OK, "{current}");
     assert_eq!(current["email"], "ada.own@library.test", "{current}");
 
-    let (status, other_put) = app.put_json(&format!("/api/v1/users/{other_id}"), &json!({"email": "other@library.test"}), Some(&reader_token)).await;
+    let (status, other_put) = app
+        .put_json(
+            &format!("/api/v1/users/{other_id}"),
+            &json!({"email": "other@library.test"}),
+            Some(&reader_token),
+        )
+        .await;
     assert_eq!(status, StatusCode::FORBIDDEN, "{other_put}");
     let (status, other_user) = user_of(&app, &admin_token, other_id).await;
     assert_eq!(status, StatusCode::OK, "{other_user}");

@@ -39,7 +39,10 @@ pub fn router() -> axum::Router<crate::AppState> {
         .route("/transits/:id/ship", post(ship_transit))
         .route("/transits/:id/receive", post(receive_transit))
         .route("/transits/:id/cancel", post(cancel_transit))
-        .route("/holds/:id/transits", get(get_hold_transit).post(create_hold_transit))
+        .route(
+            "/holds/:id/transits",
+            get(get_hold_transit).post(create_hold_transit),
+        )
         .route("/items/:id/transit", get(get_item_transit))
 }
 
@@ -66,7 +69,15 @@ pub async fn list_transits(
     let (items, total) = state
         .services
         .transits
-        .list(&claims, query.status, query.item_id, query.hold_id, query.to_site_id, page, per_page)
+        .list(
+            &claims,
+            query.status,
+            query.item_id,
+            query.hold_id,
+            query.to_site_id,
+            page,
+            per_page,
+        )
         .await?;
     Ok(Json(PaginatedResponse::new(items, total, page, per_page)))
 }
@@ -82,7 +93,11 @@ pub async fn list_transits(
         (status = 404, description = "Not found")
     )
 )]
-pub async fn get_transit(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Path(id): Path<i64>) -> AppResult<Json<TransitWithHold>> {
+pub async fn get_transit(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    Path(id): Path<i64>,
+) -> AppResult<Json<TransitWithHold>> {
     require_transit_reader(&claims)?;
     Ok(Json(state.services.transits.get_by_id(id, &claims).await?))
 }
@@ -98,9 +113,15 @@ pub async fn get_transit(State(state): State<crate::AppState>, AuthenticatedUser
         (status = 404, description = "Hold not found")
     )
 )]
-pub async fn get_hold_transit(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Path(id): Path<i64>) -> AppResult<Json<Option<ItemTransit>>> {
+pub async fn get_hold_transit(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    Path(id): Path<i64>,
+) -> AppResult<Json<Option<ItemTransit>>> {
     require_transit_reader(&claims)?;
-    Ok(Json(state.services.transits.active_for_hold(id, &claims).await?))
+    Ok(Json(
+        state.services.transits.active_for_hold(id, &claims).await?,
+    ))
 }
 
 #[utoipa::path(
@@ -113,9 +134,15 @@ pub async fn get_hold_transit(State(state): State<crate::AppState>, Authenticate
         (status = 200, description = "Active transit for this copy", body = Option<ItemTransit>)
     )
 )]
-pub async fn get_item_transit(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Path(id): Path<i64>) -> AppResult<Json<Option<ItemTransit>>> {
+pub async fn get_item_transit(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    Path(id): Path<i64>,
+) -> AppResult<Json<Option<ItemTransit>>> {
     require_transit_reader(&claims)?;
-    Ok(Json(state.services.transits.active_for_item(id, &claims).await?))
+    Ok(Json(
+        state.services.transits.active_for_item(id, &claims).await?,
+    ))
 }
 
 #[utoipa::path(
@@ -140,7 +167,12 @@ pub async fn create_hold_transit(
     Json(data): Json<CreateTransit>,
 ) -> AppResult<(StatusCode, Json<TransitWithHold>)> {
     claims.require_write_holds()?;
-    match state.services.transits.request(&claims, id, data, claims.user_id, ip.clone()).await {
+    match state
+        .services
+        .transits
+        .request(&claims, id, data, claims.user_id, ip.clone())
+        .await
+    {
         Ok(body) => Ok((StatusCode::CREATED, Json(body))),
         Err(e) => {
             state.services.audit.log(
@@ -177,7 +209,12 @@ pub async fn ship_transit(
     Json(req): Json<TransitActionRequest>,
 ) -> AppResult<Json<ItemTransit>> {
     claims.require_write_holds()?;
-    match state.services.transits.ship(&claims, id, claims.user_id, req.notes, ip.clone()).await {
+    match state
+        .services
+        .transits
+        .ship(&claims, id, claims.user_id, req.notes, ip.clone())
+        .await
+    {
         Ok(transit) => Ok(Json(transit)),
         Err(e) => {
             state.services.audit.log(
@@ -214,7 +251,12 @@ pub async fn receive_transit(
     Json(req): Json<TransitActionRequest>,
 ) -> AppResult<Json<TransitWithHold>> {
     claims.require_write_holds()?;
-    match state.services.transits.receive(&claims, id, claims.user_id, req.notes, ip.clone()).await {
+    match state
+        .services
+        .transits
+        .receive(&claims, id, claims.user_id, req.notes, ip.clone())
+        .await
+    {
         Ok(body) => Ok(Json(body)),
         Err(e) => {
             state.services.audit.log(
@@ -250,7 +292,19 @@ pub async fn cancel_transit(
     Json(req): Json<TransitActionRequest>,
 ) -> AppResult<Json<TransitWithHold>> {
     claims.require_write_holds()?;
-    match state.services.transits.cancel(&claims, id, claims.user_id, req.reverse, req.notes, ip.clone()).await {
+    match state
+        .services
+        .transits
+        .cancel(
+            &claims,
+            id,
+            claims.user_id,
+            req.reverse,
+            req.notes,
+            ip.clone(),
+        )
+        .await
+    {
         Ok(body) => Ok(Json(body)),
         Err(e) => {
             state.services.audit.log(

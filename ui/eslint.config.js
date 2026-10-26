@@ -38,6 +38,8 @@ export default defineConfig([
             'useLibrary',
             'useToast',
             'useBackgroundTasks',
+            'useMobilePageTitle',
+            'useMobilePageTitleDisplay',
           ],
         },
       ],

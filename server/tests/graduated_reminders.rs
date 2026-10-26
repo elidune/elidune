@@ -34,7 +34,9 @@ async fn does_not_skip_or_double_send_a_tier() {
 
     let (loan_id, email) = seed_overdue_loan(&repo, 40, 0, None).await;
 
-    let (status, body) = app.post_empty("/api/v1/loans/send-overdue-reminders", Some(&admin_token)).await;
+    let (status, body) = app
+        .post_empty("/api/v1/loans/send-overdue-reminders", Some(&admin_token))
+        .await;
     assert_eq!(status, StatusCode::OK, "first send: {body}");
     assert_eq!(tier_for_email(&body, &email), Some("first"));
 
@@ -42,23 +44,37 @@ async fn does_not_skip_or_double_send_a_tier() {
     let count = reminder_count(&repo, loan_id).await;
     assert_eq!(count, 1, "first send must advance reminder_count by one");
 
-    let (status, body) = app.post_empty("/api/v1/loans/send-overdue-reminders", Some(&admin_token)).await;
+    let (status, body) = app
+        .post_empty("/api/v1/loans/send-overdue-reminders", Some(&admin_token))
+        .await;
     assert_eq!(status, StatusCode::OK, "second send: {body}");
-    assert_eq!(tier_for_email(&body, &email), Some("second"), "must not skip to formalNotice: {body}");
+    assert_eq!(
+        tier_for_email(&body, &email),
+        Some("second"),
+        "must not skip to formalNotice: {body}"
+    );
 
     simulate_delivery(&repo, loan_id).await;
     assert_eq!(reminder_count(&repo, loan_id).await, 2);
 
-    let (status, body) = app.post_empty("/api/v1/loans/send-overdue-reminders", Some(&admin_token)).await;
+    let (status, body) = app
+        .post_empty("/api/v1/loans/send-overdue-reminders", Some(&admin_token))
+        .await;
     assert_eq!(status, StatusCode::OK, "formal send: {body}");
     assert_eq!(tier_for_email(&body, &email), Some("formalNotice"));
 
     simulate_delivery(&repo, loan_id).await;
     assert_eq!(reminder_count(&repo, loan_id).await, 3);
 
-    let (status, body) = app.post_empty("/api/v1/loans/send-overdue-reminders", Some(&admin_token)).await;
+    let (status, body) = app
+        .post_empty("/api/v1/loans/send-overdue-reminders", Some(&admin_token))
+        .await;
     assert_eq!(status, StatusCode::OK, "fourth send: {body}");
-    assert_eq!(tier_for_email(&body, &email), None, "must not send the same tier twice after the chain is done: {body}");
+    assert_eq!(
+        tier_for_email(&body, &email),
+        None,
+        "must not send the same tier twice after the chain is done: {body}"
+    );
 }
 
 #[tokio::test]
@@ -74,7 +90,9 @@ async fn groups_same_tier_loans_into_one_mail_per_patron() {
     let loan_b = seed_second_loan_for_user(&repo, loan_a, 40, 0).await;
 
     let before = pending_to(&repo, &email).await;
-    let (status, body) = app.post_empty("/api/v1/loans/send-overdue-reminders", Some(&admin_token)).await;
+    let (status, body) = app
+        .post_empty("/api/v1/loans/send-overdue-reminders", Some(&admin_token))
+        .await;
     assert_eq!(status, StatusCode::OK, "grouped send: {body}");
 
     let detail = detail_for_email(&body, &email).expect("detail for patron");
@@ -82,8 +100,13 @@ async fn groups_same_tier_loans_into_one_mail_per_patron() {
     assert_eq!(detail["loanCount"].as_u64().unwrap_or(0), 2);
     assert_eq!(pending_to(&repo, &email).await, before + 1);
 
-    let eligible = repo.loans_get_overdue_for_reminders(delays()).await.expect("eligible");
-    assert!(eligible.iter().all(|row| row.loan_id != loan_a && row.loan_id != loan_b));
+    let eligible = repo
+        .loans_get_overdue_for_reminders(delays())
+        .await
+        .expect("eligible");
+    assert!(eligible
+        .iter()
+        .all(|row| row.loan_id != loan_a && row.loan_id != loan_b));
 }
 
 #[tokio::test]
@@ -111,13 +134,26 @@ async fn stops_when_returned_lost_or_claimed_returned() {
 
     let (claimed_id, claimed_email) = seed_overdue_loan(&repo, 40, 0, Some(3)).await;
 
-    let (status, body) = app.post_empty("/api/v1/loans/send-overdue-reminders", Some(&admin_token)).await;
+    let (status, body) = app
+        .post_empty("/api/v1/loans/send-overdue-reminders", Some(&admin_token))
+        .await;
     assert_eq!(status, StatusCode::OK, "send: {body}");
-    assert_eq!(tier_for_email(&body, &returned_email), None, "returned: {body}");
+    assert_eq!(
+        tier_for_email(&body, &returned_email),
+        None,
+        "returned: {body}"
+    );
     assert_eq!(tier_for_email(&body, &lost_email), None, "lost: {body}");
-    assert_eq!(tier_for_email(&body, &claimed_email), None, "claimed-returned: {body}");
+    assert_eq!(
+        tier_for_email(&body, &claimed_email),
+        None,
+        "claimed-returned: {body}"
+    );
 
-    let eligible = repo.loans_get_overdue_for_reminders(delays()).await.expect("eligible");
+    let eligible = repo
+        .loans_get_overdue_for_reminders(delays())
+        .await
+        .expect("eligible");
     let ids: Vec<i64> = eligible.iter().map(|r| r.loan_id).collect();
     assert!(!ids.contains(&returned_id));
     assert!(!ids.contains(&lost_id));
@@ -137,16 +173,24 @@ async fn disabled_formal_notice_stops_at_second_and_does_not_loop_it() {
 
     let (loan_id, email) = seed_overdue_loan(&repo, 40, 1, None).await;
 
-    let (status, body) = app.post_empty("/api/v1/loans/send-overdue-reminders", Some(&admin_token)).await;
+    let (status, body) = app
+        .post_empty("/api/v1/loans/send-overdue-reminders", Some(&admin_token))
+        .await;
     assert_eq!(status, StatusCode::OK, "second send: {body}");
     assert_eq!(tier_for_email(&body, &email), Some("second"));
 
     simulate_delivery(&repo, loan_id).await;
     assert_eq!(reminder_count(&repo, loan_id).await, 2);
 
-    let (status, body) = app.post_empty("/api/v1/loans/send-overdue-reminders", Some(&admin_token)).await;
+    let (status, body) = app
+        .post_empty("/api/v1/loans/send-overdue-reminders", Some(&admin_token))
+        .await;
     assert_eq!(status, StatusCode::OK, "must not loop: {body}");
-    assert_eq!(tier_for_email(&body, &email), None, "disabled formal notice must not resend the second reminder: {body}");
+    assert_eq!(
+        tier_for_email(&body, &email),
+        None,
+        "disabled formal notice must not resend the second reminder: {body}"
+    );
 }
 
 #[tokio::test]
@@ -161,14 +205,30 @@ async fn disabling_second_reminder_also_disables_formal_notice() {
     value["second_reminder_enabled"] = json!(false);
     value["formal_notice_enabled"] = json!(true);
 
-    let (status, body) = app.put_json("/api/v1/admin/config/reminders", &json!({ "value": value }), Some(&admin_token)).await;
+    let (status, body) = app
+        .put_json(
+            "/api/v1/admin/config/reminders",
+            &json!({ "value": value }),
+            Some(&admin_token),
+        )
+        .await;
     assert_eq!(status, StatusCode::OK, "put reminders: {body}");
     assert_eq!(body["value"]["second_reminder_enabled"], false);
-    assert_eq!(body["value"]["formal_notice_enabled"], false, "write must close the hole: {body}");
+    assert_eq!(
+        body["value"]["formal_notice_enabled"], false,
+        "write must close the hole: {body}"
+    );
 
-    let (status, get_body) = app.get_json_with_auth("/api/v1/admin/config", &admin_token).await;
+    let (status, get_body) = app
+        .get_json_with_auth("/api/v1/admin/config", &admin_token)
+        .await;
     assert_eq!(status, StatusCode::OK, "get config: {get_body}");
-    let reminders = get_body["sections"].as_array().expect("sections").iter().find(|s| s["key"] == "reminders").expect("reminders section");
+    let reminders = get_body["sections"]
+        .as_array()
+        .expect("sections")
+        .iter()
+        .find(|s| s["key"] == "reminders")
+        .expect("reminders section");
     assert_eq!(reminders["value"]["second_reminder_enabled"], false);
     assert_eq!(reminders["value"]["formal_notice_enabled"], false);
 }
@@ -187,11 +247,20 @@ async fn loan_already_at_highest_enabled_tier_is_not_sent_again() {
     let (loan_id, email) = seed_overdue_loan(&repo, 40, 2, None).await;
 
     let row = app.find_overdue_loan(&admin_token, loan_id).await;
-    assert!(row["nextReminderTier"].is_null(), "highest enabled tier must show no next tier: {row}");
+    assert!(
+        row["nextReminderTier"].is_null(),
+        "highest enabled tier must show no next tier: {row}"
+    );
 
-    let (status, body) = app.post_empty("/api/v1/loans/send-overdue-reminders", Some(&admin_token)).await;
+    let (status, body) = app
+        .post_empty("/api/v1/loans/send-overdue-reminders", Some(&admin_token))
+        .await;
     assert_eq!(status, StatusCode::OK, "send: {body}");
-    assert_eq!(tier_for_email(&body, &email), None, "loan already at the highest enabled tier must not be mailed: {body}");
+    assert_eq!(
+        tier_for_email(&body, &email),
+        None,
+        "loan already at the highest enabled tier must not be mailed: {body}"
+    );
 }
 
 #[tokio::test]
@@ -212,11 +281,16 @@ async fn overdue_list_reports_next_tier() {
 fn disable_formal(app: &TestApp) {
     let mut value = serde_json::to_value(app.state.dynamic_config.read_reminders()).unwrap();
     value["formal_notice_enabled"] = json!(false);
-    app.state.dynamic_config.update_section("reminders", value).expect("disable formal notice");
+    app.state
+        .dynamic_config
+        .update_section("reminders", value)
+        .expect("disable formal notice");
 }
 
 async fn simulate_delivery(repo: &Repository, loan_id: i64) {
-    repo.loans_update_reminder_sent(&[loan_id]).await.expect("mark reminded");
+    repo.loans_update_reminder_sent(&[loan_id])
+        .await
+        .expect("mark reminded");
     sqlx::query(
         r#"
         UPDATE email_outbox o
@@ -255,7 +329,10 @@ fn tier_for_email<'a>(body: &'a serde_json::Value, email: &str) -> Option<&'a st
 }
 
 fn detail_for_email<'a>(body: &'a serde_json::Value, email: &str) -> Option<&'a serde_json::Value> {
-    body["details"].as_array()?.iter().find(|d| d["email"].as_str() == Some(email))
+    body["details"]
+        .as_array()?
+        .iter()
+        .find(|d| d["email"].as_str() == Some(email))
 }
 
 fn snowflake() -> i64 {
@@ -264,11 +341,13 @@ fn snowflake() -> i64 {
 }
 
 async fn pending_to(repo: &Repository, email: &str) -> i64 {
-    sqlx::query_scalar("SELECT COUNT(*) FROM email_outbox WHERE to_addr = $1 AND status = 'pending'")
-        .bind(email)
-        .fetch_one(repo.pool())
-        .await
-        .expect("pending count")
+    sqlx::query_scalar(
+        "SELECT COUNT(*) FROM email_outbox WHERE to_addr = $1 AND status = 'pending'",
+    )
+    .bind(email)
+    .fetch_one(repo.pool())
+    .await
+    .expect("pending count")
 }
 
 async fn admin_token(app: &TestApp) -> String {
@@ -280,7 +359,12 @@ async fn admin_token(app: &TestApp) -> String {
 }
 
 /// Returns (loan_id, patron_email). `circulation_status` is written on the item.
-async fn seed_overdue_loan(repo: &Repository, overdue_days: i64, reminder_count: i32, circulation_status: Option<i16>) -> (i64, String) {
+async fn seed_overdue_loan(
+    repo: &Repository,
+    overdue_days: i64,
+    reminder_count: i32,
+    circulation_status: Option<i16>,
+) -> (i64, String) {
     let suffix = Utc::now().timestamp_micros();
     let patron_email = format!("grad_{suffix}@test.local");
     let user_id: i64 = sqlx::query_scalar(
@@ -301,11 +385,23 @@ async fn seed_overdue_loan(repo: &Repository, overdue_days: i64, reminder_count:
     .await
     .expect("insert user");
 
-    let loan_id = insert_loan_for_user(repo, user_id, overdue_days, reminder_count, circulation_status).await;
+    let loan_id = insert_loan_for_user(
+        repo,
+        user_id,
+        overdue_days,
+        reminder_count,
+        circulation_status,
+    )
+    .await;
     (loan_id, patron_email)
 }
 
-async fn seed_second_loan_for_user(repo: &Repository, existing_loan_id: i64, overdue_days: i64, reminder_count: i32) -> i64 {
+async fn seed_second_loan_for_user(
+    repo: &Repository,
+    existing_loan_id: i64,
+    overdue_days: i64,
+    reminder_count: i32,
+) -> i64 {
     let user_id: i64 = sqlx::query_scalar("SELECT user_id FROM loans WHERE id = $1")
         .bind(existing_loan_id)
         .fetch_one(repo.pool())
@@ -314,7 +410,13 @@ async fn seed_second_loan_for_user(repo: &Repository, existing_loan_id: i64, ove
     insert_loan_for_user(repo, user_id, overdue_days, reminder_count, None).await
 }
 
-async fn insert_loan_for_user(repo: &Repository, user_id: i64, overdue_days: i64, reminder_count: i32, circulation_status: Option<i16>) -> i64 {
+async fn insert_loan_for_user(
+    repo: &Repository,
+    user_id: i64,
+    overdue_days: i64,
+    reminder_count: i32,
+    circulation_status: Option<i16>,
+) -> i64 {
     let suffix = Utc::now().timestamp_micros();
     let biblio_id: i64 = sqlx::query_scalar(
         r#"

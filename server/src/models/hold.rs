@@ -66,7 +66,9 @@ impl sqlx::Type<sqlx::Postgres> for HoldStatus {
 }
 
 impl<'r> sqlx::Decode<'r, sqlx::Postgres> for HoldStatus {
-    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    fn decode(
+        value: sqlx::postgres::PgValueRef<'r>,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let s: String = sqlx::Decode::<sqlx::Postgres>::decode(value)?;
         Ok(Self::from(s))
     }
@@ -237,7 +239,8 @@ impl CreateHold {
 pub const HOLD_NOTE_MAX_CHARS: usize = 4000;
 
 /// Returned as 400 `validation_error` when a hold write still sends `notes`.
-pub const LEGACY_HOLD_NOTES_MESSAGE: &str = "notes is no longer accepted on hold writes. Use patronNote and internalNote.";
+pub const LEGACY_HOLD_NOTES_MESSAGE: &str =
+    "notes is no longer accepted on hold writes. Use patronNote and internalNote.";
 
 /// Returned as 403 `authorization_failed` when the caller lacks `holds_rights` write.
 pub const INTERNAL_HOLD_NOTE_FORBIDDEN: &str = "Insufficient rights to set an internal hold note";
@@ -255,7 +258,10 @@ pub struct MaybeHoldNote {
 impl<'de> Deserialize<'de> for MaybeHoldNote {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let value = Option::<String>::deserialize(deserializer)?;
-        Ok(Self { present: true, value })
+        Ok(Self {
+            present: true,
+            value,
+        })
     }
 }
 
@@ -274,7 +280,9 @@ pub fn validate_hold_note(label: &str, value: Option<&str>) -> Result<(), String
         return Ok(());
     };
     if text.chars().count() > HOLD_NOTE_MAX_CHARS {
-        return Err(format!("{label} must be at most {HOLD_NOTE_MAX_CHARS} characters"));
+        return Err(format!(
+            "{label} must be at most {HOLD_NOTE_MAX_CHARS} characters"
+        ));
     }
     Ok(())
 }
@@ -282,7 +290,9 @@ pub fn validate_hold_note(label: &str, value: Option<&str>) -> Result<(), String
 /// Trim a hold note. Blank and whitespace become SQL NULL.
 #[must_use]
 pub fn normalize_hold_note(value: Option<String>) -> Option<String> {
-    value.map(|raw| raw.trim().to_string()).filter(|text| !text.is_empty())
+    value
+        .map(|raw| raw.trim().to_string())
+        .filter(|text| !text.is_empty())
 }
 
 /// Hold JSON for a caller who does not see the internal catalog.
@@ -337,7 +347,10 @@ impl From<Hold> for HoldPublic {
 
 #[cfg(test)]
 mod tests {
-    use super::{normalize_hold_note, validate_hold_note, Hold, HoldPublic, HoldStatus, MaybeHoldNote, HOLD_NOTE_MAX_CHARS};
+    use super::{
+        normalize_hold_note, validate_hold_note, Hold, HoldPublic, HoldStatus, MaybeHoldNote,
+        HOLD_NOTE_MAX_CHARS,
+    };
     use chrono::Utc;
     use serde_json::json;
 
@@ -369,7 +382,8 @@ mod tests {
 
     #[test]
     fn public_hold_json_omits_the_internal_note() {
-        let body = serde_json::to_value(HoldPublic::from(sample("visible", "staff secret"))).expect("json");
+        let body = serde_json::to_value(HoldPublic::from(sample("visible", "staff secret")))
+            .expect("json");
         assert_eq!(body["patronNote"], "visible");
         assert!(body.get("internalNote").is_none());
         assert!(body.get("notes").is_none());
@@ -389,7 +403,10 @@ mod tests {
 
     #[test]
     fn blank_notes_normalize_to_null() {
-        assert_eq!(normalize_hold_note(Some("  hello  ".into())).as_deref(), Some("hello"));
+        assert_eq!(
+            normalize_hold_note(Some("  hello  ".into())).as_deref(),
+            Some("hello")
+        );
         assert!(normalize_hold_note(Some("   ".into())).is_none());
         assert!(normalize_hold_note(None).is_none());
     }

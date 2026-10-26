@@ -9,7 +9,10 @@ use crate::{
     models::{
         catalog_view::partial_user_short,
         hold::{Hold, HoldStatus},
-        transit::{transit_patron, CreateTransit, ItemTransit, TransitPatron, TransitStatus, TransitWithHold},
+        transit::{
+            transit_patron, CreateTransit, ItemTransit, TransitPatron, TransitStatus,
+            TransitWithHold,
+        },
         user::UserClaims,
     },
     repository::{transits::TransitCopyContext, Repository},
@@ -29,26 +32,57 @@ pub struct TransitsService {
 }
 
 impl TransitsService {
-    pub fn new(repository: Arc<Repository>, audit: AuditService, events: EventBus, email: EmailService) -> Self {
-        Self { repository, audit, events, email }
+    pub fn new(
+        repository: Arc<Repository>,
+        audit: AuditService,
+        events: EventBus,
+        email: EmailService,
+    ) -> Self {
+        Self {
+            repository,
+            audit,
+            events,
+            email,
+        }
     }
 
     #[tracing::instrument(skip(self, claims), err)]
     pub async fn get_by_id(&self, id: i64, claims: &UserClaims) -> AppResult<TransitWithHold> {
         let transit = self.repository.transits_get_by_id(id).await?;
         let hold = self.load_hold(transit.hold_id).await?;
-        self.present(claims, TransitWithHold { transit, hold }).await
+        self.present(claims, TransitWithHold { transit, hold })
+            .await
     }
 
     #[tracing::instrument(skip(self, claims), err)]
-    pub async fn active_for_hold(&self, hold_id: i64, claims: &UserClaims) -> AppResult<Option<ItemTransit>> {
+    pub async fn active_for_hold(
+        &self,
+        hold_id: i64,
+        claims: &UserClaims,
+    ) -> AppResult<Option<ItemTransit>> {
         self.repository.holds_get_by_id(hold_id).await?;
-        self.present_opt(claims, self.repository.transits_get_active_for_hold(hold_id).await?).await
+        self.present_opt(
+            claims,
+            self.repository
+                .transits_get_active_for_hold(hold_id)
+                .await?,
+        )
+        .await
     }
 
     #[tracing::instrument(skip(self, claims), err)]
-    pub async fn active_for_item(&self, item_id: i64, claims: &UserClaims) -> AppResult<Option<ItemTransit>> {
-        self.present_opt(claims, self.repository.transits_get_active_for_item(item_id).await?).await
+    pub async fn active_for_item(
+        &self,
+        item_id: i64,
+        claims: &UserClaims,
+    ) -> AppResult<Option<ItemTransit>> {
+        self.present_opt(
+            claims,
+            self.repository
+                .transits_get_active_for_item(item_id)
+                .await?,
+        )
+        .await
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -63,14 +97,27 @@ impl TransitsService {
         page: i64,
         per_page: i64,
     ) -> AppResult<(Vec<ItemTransit>, i64)> {
-        let (mut items, total) = self.repository.transits_list(status, item_id, hold_id, to_site_id, page, per_page).await?;
+        let (mut items, total) = self
+            .repository
+            .transits_list(status, item_id, hold_id, to_site_id, page, per_page)
+            .await?;
         self.attach_display(claims, &mut items).await?;
         Ok((items, total))
     }
 
     #[tracing::instrument(skip(self, claims), err)]
-    pub async fn request(&self, claims: &UserClaims, hold_id: i64, data: CreateTransit, actor_id: i64, client_ip: Option<String>) -> AppResult<TransitWithHold> {
-        let (transit, hold) = self.repository.transits_request(hold_id, &data, actor_id).await?;
+    pub async fn request(
+        &self,
+        claims: &UserClaims,
+        hold_id: i64,
+        data: CreateTransit,
+        actor_id: i64,
+        client_ip: Option<String>,
+    ) -> AppResult<TransitWithHold> {
+        let (transit, hold) = self
+            .repository
+            .transits_request(hold_id, &data, actor_id)
+            .await?;
         let event = if transit.status == TransitStatus::InTransit {
             audit::event::TRANSIT_SHIPPED
         } else {
@@ -91,14 +138,36 @@ impl TransitsService {
             })),
             AuditLogMeta::success(),
         );
-        let sse_event = if transit.status == TransitStatus::InTransit { "transit.shipped" } else { "transit.requested" };
-        self.events.transit_event(sse_event, transit.id, transit.item_id, transit.hold_id);
-        self.present(claims, TransitWithHold { transit, hold: Some(hold) }).await
+        let sse_event = if transit.status == TransitStatus::InTransit {
+            "transit.shipped"
+        } else {
+            "transit.requested"
+        };
+        self.events
+            .transit_event(sse_event, transit.id, transit.item_id, transit.hold_id);
+        self.present(
+            claims,
+            TransitWithHold {
+                transit,
+                hold: Some(hold),
+            },
+        )
+        .await
     }
 
     #[tracing::instrument(skip(self, claims), err)]
-    pub async fn ship(&self, claims: &UserClaims, transit_id: i64, actor_id: i64, notes: Option<String>, client_ip: Option<String>) -> AppResult<ItemTransit> {
-        let transit = self.repository.transits_ship(transit_id, actor_id, notes.as_deref()).await?;
+    pub async fn ship(
+        &self,
+        claims: &UserClaims,
+        transit_id: i64,
+        actor_id: i64,
+        notes: Option<String>,
+        client_ip: Option<String>,
+    ) -> AppResult<ItemTransit> {
+        let transit = self
+            .repository
+            .transits_ship(transit_id, actor_id, notes.as_deref())
+            .await?;
         self.audit.log(
             audit::event::TRANSIT_SHIPPED,
             Some(actor_id),
@@ -113,13 +182,28 @@ impl TransitsService {
             })),
             AuditLogMeta::success(),
         );
-        self.events.transit_event("transit.shipped", transit.id, transit.item_id, transit.hold_id);
+        self.events.transit_event(
+            "transit.shipped",
+            transit.id,
+            transit.item_id,
+            transit.hold_id,
+        );
         self.present_one(claims, transit).await
     }
 
     #[tracing::instrument(skip(self, claims), err)]
-    pub async fn receive(&self, claims: &UserClaims, transit_id: i64, actor_id: i64, notes: Option<String>, client_ip: Option<String>) -> AppResult<TransitWithHold> {
-        let (transit, hold) = self.repository.transits_receive(transit_id, actor_id, notes.as_deref()).await?;
+    pub async fn receive(
+        &self,
+        claims: &UserClaims,
+        transit_id: i64,
+        actor_id: i64,
+        notes: Option<String>,
+        client_ip: Option<String>,
+    ) -> AppResult<TransitWithHold> {
+        let (transit, hold) = self
+            .repository
+            .transits_receive(transit_id, actor_id, notes.as_deref())
+            .await?;
         self.audit.log(
             audit::event::TRANSIT_RECEIVED,
             Some(actor_id),
@@ -134,7 +218,12 @@ impl TransitsService {
             })),
             AuditLogMeta::success(),
         );
-        self.events.transit_event("transit.received", transit.id, transit.item_id, transit.hold_id);
+        self.events.transit_event(
+            "transit.received",
+            transit.id,
+            transit.item_id,
+            transit.hold_id,
+        );
 
         if let Some(ref hold) = hold {
             if hold.status == crate::models::hold::HoldStatus::Ready {
@@ -159,14 +248,26 @@ impl TransitsService {
             }
         }
 
-        self.present(claims, TransitWithHold { transit, hold }).await
+        self.present(claims, TransitWithHold { transit, hold })
+            .await
     }
 
     #[tracing::instrument(skip(self, claims), err)]
-    pub async fn cancel(&self, claims: &UserClaims, transit_id: i64, actor_id: i64, reverse: Option<bool>, notes: Option<String>, client_ip: Option<String>) -> AppResult<TransitWithHold> {
+    pub async fn cancel(
+        &self,
+        claims: &UserClaims,
+        transit_id: i64,
+        actor_id: i64,
+        reverse: Option<bool>,
+        notes: Option<String>,
+        client_ip: Option<String>,
+    ) -> AppResult<TransitWithHold> {
         let current = self.repository.transits_get_by_id(transit_id).await?;
         let reverse = reverse.unwrap_or(current.status == TransitStatus::InTransit);
-        let (transit, reverse_row) = self.repository.transits_cancel(transit_id, actor_id, reverse, notes.as_deref()).await?;
+        let (transit, reverse_row) = self
+            .repository
+            .transits_cancel(transit_id, actor_id, reverse, notes.as_deref())
+            .await?;
         self.audit.log(
             audit::event::TRANSIT_CANCELLED,
             Some(actor_id),
@@ -180,25 +281,50 @@ impl TransitsService {
             })),
             AuditLogMeta::success(),
         );
-        self.events.transit_event("transit.cancelled", transit.id, transit.item_id, transit.hold_id);
+        self.events.transit_event(
+            "transit.cancelled",
+            transit.id,
+            transit.item_id,
+            transit.hold_id,
+        );
         if let Some(ref reverse_row) = reverse_row {
-            self.events.transit_event("transit.requested", reverse_row.id, reverse_row.item_id, reverse_row.hold_id);
+            self.events.transit_event(
+                "transit.requested",
+                reverse_row.id,
+                reverse_row.item_id,
+                reverse_row.hold_id,
+            );
         }
         let hold = self.load_hold(transit.hold_id).await?;
-        self.present(claims, TransitWithHold { transit, hold }).await
+        self.present(claims, TransitWithHold { transit, hold })
+            .await
     }
 
-    async fn present(&self, claims: &UserClaims, mut body: TransitWithHold) -> AppResult<TransitWithHold> {
-        self.attach_display(claims, std::slice::from_mut(&mut body.transit)).await?;
+    async fn present(
+        &self,
+        claims: &UserClaims,
+        mut body: TransitWithHold,
+    ) -> AppResult<TransitWithHold> {
+        self.attach_display(claims, std::slice::from_mut(&mut body.transit))
+            .await?;
         Ok(body)
     }
 
-    async fn present_one(&self, claims: &UserClaims, mut transit: ItemTransit) -> AppResult<ItemTransit> {
-        self.attach_display(claims, std::slice::from_mut(&mut transit)).await?;
+    async fn present_one(
+        &self,
+        claims: &UserClaims,
+        mut transit: ItemTransit,
+    ) -> AppResult<ItemTransit> {
+        self.attach_display(claims, std::slice::from_mut(&mut transit))
+            .await?;
         Ok(transit)
     }
 
-    async fn present_opt(&self, claims: &UserClaims, transit: Option<ItemTransit>) -> AppResult<Option<ItemTransit>> {
+    async fn present_opt(
+        &self,
+        claims: &UserClaims,
+        transit: Option<ItemTransit>,
+    ) -> AppResult<Option<ItemTransit>> {
         let Some(transit) = transit else {
             return Ok(None);
         };
@@ -206,13 +332,18 @@ impl TransitsService {
     }
 
     /// Fill barcode, title, site, and patron on rows about to be serialized.
-    async fn attach_display(&self, claims: &UserClaims, transits: &mut [ItemTransit]) -> AppResult<()> {
+    async fn attach_display(
+        &self,
+        claims: &UserClaims,
+        transits: &mut [ItemTransit],
+    ) -> AppResult<()> {
         if transits.is_empty() {
             return Ok(());
         }
         let ids: Vec<i64> = transits.iter().map(|transit| transit.id).collect();
         let rows = self.repository.transits_copy_context(&ids).await?;
-        let by_id: HashMap<i64, TransitCopyContext> = rows.into_iter().map(|row| (row.transit_id, row)).collect();
+        let by_id: HashMap<i64, TransitCopyContext> =
+            rows.into_iter().map(|row| (row.transit_id, row)).collect();
         for transit in transits {
             let Some(row) = by_id.get(&transit.id) else {
                 continue;
@@ -238,7 +369,12 @@ impl TransitsService {
     }
 
     async fn send_ready_email(&self, hold: &Hold, item_id: i64) {
-        let contact = self.repository.users_hold_ready_contact(hold.user_id).await.ok().flatten();
+        let contact = self
+            .repository
+            .users_hold_ready_contact(hold.user_id)
+            .await
+            .ok()
+            .flatten();
         let ctx = sqlx::query_as::<_, (Option<String>, Option<String>)>(
             r#"
             SELECT b.title, it.barcode
@@ -252,13 +388,19 @@ impl TransitsService {
         .await
         .ok()
         .flatten();
-        let title = ctx.as_ref().and_then(|(t, _)| t.as_deref()).unwrap_or("(unknown title)");
+        let title = ctx
+            .as_ref()
+            .and_then(|(t, _)| t.as_deref())
+            .unwrap_or("(unknown title)");
         let barcode = ctx.as_ref().and_then(|(_, b)| b.as_deref());
         let zone = self.repository.library_zone().await.unwrap_or_else(|err| {
             tracing::warn!(error = %err, "library timezone unavailable; using Europe/Paris");
             crate::services::calendar::default_zone()
         });
-        if let Err(e) = hold_email::send_hold_ready_simple(&self.email, contact, hold, title, barcode, zone).await {
+        if let Err(e) =
+            hold_email::send_hold_ready_simple(&self.email, contact, hold, title, barcode, zone)
+                .await
+        {
             tracing::warn!(
                 target: "transits",
                 error = %e,
@@ -285,7 +427,12 @@ fn patron_for_context(claims: &UserClaims, row: &TransitCopyContext) -> Option<T
         return None;
     }
     let patron_id = row.patron_id?;
-    let mut patron = partial_user_short(patron_id, row.patron_barcode.clone(), row.patron_firstname.clone(), row.patron_lastname.clone());
+    let mut patron = partial_user_short(
+        patron_id,
+        row.patron_barcode.clone(),
+        row.patron_firstname.clone(),
+        row.patron_lastname.clone(),
+    );
     patron.login = row.patron_login.clone();
     transit_patron(&claims.rights, patron)
 }

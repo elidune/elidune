@@ -26,8 +26,22 @@ impl LibraryInfoService {
         let result = self.repository.library_info_get().await?;
 
         match result {
-            Some((name, addr_line1, addr_line2, addr_postcode, addr_city, addr_country, phones_val, email, timezone, language, updated_at)) => {
-                let phones: Vec<String> = phones_val.and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default();
+            Some((
+                name,
+                addr_line1,
+                addr_line2,
+                addr_postcode,
+                addr_city,
+                addr_country,
+                phones_val,
+                email,
+                timezone,
+                language,
+                updated_at,
+            )) => {
+                let phones: Vec<String> = phones_val
+                    .and_then(|v| serde_json::from_value(v).ok())
+                    .unwrap_or_default();
 
                 Ok(LibraryInfo {
                     name,
@@ -64,17 +78,22 @@ impl LibraryInfoService {
     /// Update library information (partial update: only provided fields are changed)
     #[tracing::instrument(skip(self), err)]
     pub async fn update(&self, req: UpdateLibraryInfoRequest) -> AppResult<LibraryInfo> {
-        let phones_json = req.phones.map(|p| serde_json::to_value(p).unwrap_or(serde_json::json!([])));
+        let phones_json = req
+            .phones
+            .map(|p| serde_json::to_value(p).unwrap_or(serde_json::json!([])));
         let submitted = submitted_timezone(req.timezone.as_deref())?;
         let addr_country = country_code::normalize_optional_country(req.addr_country)?;
         let language = normalize_language(req.language)?;
 
         // A name-only update must not read or rewrite the stored zone.
-        let timezone = if addr_country.is_some() || !matches!(submitted, SubmittedTimezone::Omitted) {
+        let timezone = if addr_country.is_some() || !matches!(submitted, SubmittedTimezone::Omitted)
+        {
             let current = self.get().await?;
-            let country = addr_country
-                .clone()
-                .or_else(|| current.addr_country.and_then(|stored| country_code::normalize_country_code(&stored).ok()));
+            let country = addr_country.clone().or_else(|| {
+                current
+                    .addr_country
+                    .and_then(|stored| country_code::normalize_country_code(&stored).ok())
+            });
             resolve_timezone(&submitted, country.as_deref(), &current.timezone)?
         } else {
             None
@@ -112,7 +131,9 @@ fn submitted_timezone(value: Option<&str>) -> AppResult<SubmittedTimezone> {
     match value {
         None => Ok(SubmittedTimezone::Omitted),
         Some(name) if name.trim().is_empty() => Ok(SubmittedTimezone::Blank),
-        Some(name) => Ok(SubmittedTimezone::Set(calendar::parse_timezone(name)?.name().to_string())),
+        Some(name) => Ok(SubmittedTimezone::Set(
+            calendar::parse_timezone(name)?.name().to_string(),
+        )),
     }
 }
 
@@ -122,11 +143,17 @@ fn submitted_timezone(value: Option<&str>) -> AppResult<SubmittedTimezone> {
 /// clears the field. A multi-zone country has no default: a blank field, or an
 /// omitted field whose stored zone is outside the country, is `timezone_required`.
 /// An explicit zone outside the country is `timezone_country_mismatch`.
-fn resolve_timezone(submitted: &SubmittedTimezone, country: Option<&str>, stored: &str) -> AppResult<Option<String>> {
+fn resolve_timezone(
+    submitted: &SubmittedTimezone,
+    country: Option<&str>,
+    stored: &str,
+) -> AppResult<Option<String>> {
     let Some(country) = country else {
         return match submitted {
             SubmittedTimezone::Omitted => Ok(None),
-            SubmittedTimezone::Blank => Err(AppError::InvalidTimezone("Timezone is required".to_string())),
+            SubmittedTimezone::Blank => Err(AppError::InvalidTimezone(
+                "Timezone is required".to_string(),
+            )),
             SubmittedTimezone::Set(zone) => Ok(Some(zone.clone())),
         };
     };
@@ -134,17 +161,33 @@ fn resolve_timezone(submitted: &SubmittedTimezone, country: Option<&str>, stored
     if let Some(only) = country_zones::single_zone_for_country(country) {
         return match submitted {
             SubmittedTimezone::Omitted | SubmittedTimezone::Blank => Ok(Some(only.to_string())),
-            SubmittedTimezone::Set(zone) if country_zones::timezone_belongs_to_country(zone, country) => Ok(Some(zone.clone())),
-            SubmittedTimezone::Set(zone) => Err(AppError::TimezoneCountryMismatch(format!("Timezone '{zone}' does not belong to country {country}"))),
+            SubmittedTimezone::Set(zone)
+                if country_zones::timezone_belongs_to_country(zone, country) =>
+            {
+                Ok(Some(zone.clone()))
+            }
+            SubmittedTimezone::Set(zone) => Err(AppError::TimezoneCountryMismatch(format!(
+                "Timezone '{zone}' does not belong to country {country}"
+            ))),
         };
     }
 
     match submitted {
         SubmittedTimezone::Blank => Err(timezone_required(country)),
-        SubmittedTimezone::Omitted if country_zones::timezone_belongs_to_country(stored, country) => Ok(None),
+        SubmittedTimezone::Omitted
+            if country_zones::timezone_belongs_to_country(stored, country) =>
+        {
+            Ok(None)
+        }
         SubmittedTimezone::Omitted => Err(timezone_required(country)),
-        SubmittedTimezone::Set(zone) if country_zones::timezone_belongs_to_country(zone, country) => Ok(Some(zone.clone())),
-        SubmittedTimezone::Set(zone) => Err(AppError::TimezoneCountryMismatch(format!("Timezone '{zone}' does not belong to country {country}"))),
+        SubmittedTimezone::Set(zone)
+            if country_zones::timezone_belongs_to_country(zone, country) =>
+        {
+            Ok(Some(zone.clone()))
+        }
+        SubmittedTimezone::Set(zone) => Err(AppError::TimezoneCountryMismatch(format!(
+            "Timezone '{zone}' does not belong to country {country}"
+        ))),
     }
 }
 
@@ -159,7 +202,9 @@ fn normalize_language(value: Option<Option<String>>) -> AppResult<Option<Option<
         Some(None) => Ok(Some(None)),
         Some(Some(raw)) => match LibraryUiLanguage::try_from(raw.as_str()) {
             Ok(language) => Ok(Some(Some(language.as_code().to_string()))),
-            Err(_) => Err(AppError::Validation("language must be one of: fr, en, de, es".into())),
+            Err(_) => Err(AppError::Validation(
+                "language must be one of: fr, en, de, es".into(),
+            )),
         },
     }
 }
@@ -169,7 +214,11 @@ fn stored_language(value: Option<String>) -> AppResult<Option<LibraryUiLanguage>
         None => Ok(None),
         Some(code) => LibraryUiLanguage::try_from(code.as_str())
             .map(Some)
-            .map_err(|_| AppError::Internal(format!("stored library language '{code}' is not fr, en, de, or es"))),
+            .map_err(|_| {
+                AppError::Internal(format!(
+                    "stored library language '{code}' is not fr, en, de, or es"
+                ))
+            }),
     }
 }
 
@@ -183,21 +232,42 @@ mod tests {
 
     #[test]
     fn single_zone_country_fills_its_only_zone() {
-        assert_eq!(resolve_timezone(&SubmittedTimezone::Omitted, Some("FR"), "America/New_York").unwrap(), Some("Europe/Paris".to_string()));
-        assert_eq!(resolve_timezone(&SubmittedTimezone::Blank, Some("RE"), "Europe/Paris").unwrap(), Some("Indian/Reunion".to_string()));
-        assert_eq!(resolve_timezone(&set("Europe/Paris"), Some("FR"), "Europe/Paris").unwrap(), Some("Europe/Paris".to_string()));
+        assert_eq!(
+            resolve_timezone(&SubmittedTimezone::Omitted, Some("FR"), "America/New_York").unwrap(),
+            Some("Europe/Paris".to_string())
+        );
+        assert_eq!(
+            resolve_timezone(&SubmittedTimezone::Blank, Some("RE"), "Europe/Paris").unwrap(),
+            Some("Indian/Reunion".to_string())
+        );
+        assert_eq!(
+            resolve_timezone(&set("Europe/Paris"), Some("FR"), "Europe/Paris").unwrap(),
+            Some("Europe/Paris".to_string())
+        );
     }
 
     #[test]
     fn multi_zone_country_has_no_default() {
-        assert!(matches!(resolve_timezone(&SubmittedTimezone::Blank, Some("US"), "America/Chicago"), Err(AppError::TimezoneRequired(_))));
-        assert!(matches!(resolve_timezone(&SubmittedTimezone::Omitted, Some("US"), "Europe/Paris"), Err(AppError::TimezoneRequired(_))));
+        assert!(matches!(
+            resolve_timezone(&SubmittedTimezone::Blank, Some("US"), "America/Chicago"),
+            Err(AppError::TimezoneRequired(_))
+        ));
+        assert!(matches!(
+            resolve_timezone(&SubmittedTimezone::Omitted, Some("US"), "Europe/Paris"),
+            Err(AppError::TimezoneRequired(_))
+        ));
         assert!(matches!(
             resolve_timezone(&SubmittedTimezone::Omitted, Some("DE"), "America/Chicago"),
             Err(AppError::TimezoneRequired(_))
         ));
-        assert_eq!(resolve_timezone(&SubmittedTimezone::Omitted, Some("US"), "America/Chicago").unwrap(), None);
-        assert_eq!(resolve_timezone(&set("America/New_York"), Some("US"), "America/Chicago").unwrap(), Some("America/New_York".to_string()));
+        assert_eq!(
+            resolve_timezone(&SubmittedTimezone::Omitted, Some("US"), "America/Chicago").unwrap(),
+            None
+        );
+        assert_eq!(
+            resolve_timezone(&set("America/New_York"), Some("US"), "America/Chicago").unwrap(),
+            Some("America/New_York".to_string())
+        );
     }
 
     #[test]
@@ -214,18 +284,39 @@ mod tests {
 
     #[test]
     fn no_country_stores_a_parsed_zone_and_rejects_a_blank_one() {
-        assert_eq!(resolve_timezone(&set("Europe/Paris"), None, "Europe/Paris").unwrap(), Some("Europe/Paris".to_string()));
-        assert!(matches!(resolve_timezone(&SubmittedTimezone::Blank, None, "Europe/Paris"), Err(AppError::InvalidTimezone(_))));
-        assert_eq!(resolve_timezone(&SubmittedTimezone::Omitted, None, "Europe/Paris").unwrap(), None);
+        assert_eq!(
+            resolve_timezone(&set("Europe/Paris"), None, "Europe/Paris").unwrap(),
+            Some("Europe/Paris".to_string())
+        );
+        assert!(matches!(
+            resolve_timezone(&SubmittedTimezone::Blank, None, "Europe/Paris"),
+            Err(AppError::InvalidTimezone(_))
+        ));
+        assert_eq!(
+            resolve_timezone(&SubmittedTimezone::Omitted, None, "Europe/Paris").unwrap(),
+            None
+        );
     }
 
     #[test]
     fn language_accepts_only_the_four_ui_codes_and_null_clears() {
         assert!(normalize_language(None).unwrap().is_none());
-        assert!(matches!(normalize_language(Some(None)).unwrap(), Some(None)));
-        assert_eq!(normalize_language(Some(Some("de".into()))).unwrap(), Some(Some("de".into())));
+        assert!(matches!(
+            normalize_language(Some(None)).unwrap(),
+            Some(None)
+        ));
+        assert_eq!(
+            normalize_language(Some(Some("de".into()))).unwrap(),
+            Some(Some("de".into()))
+        );
         for rejected in ["it", "FR", "french", "en-US", "", " de "] {
-            assert!(matches!(normalize_language(Some(Some(rejected.into()))), Err(AppError::Validation(_))), "{rejected}");
+            assert!(
+                matches!(
+                    normalize_language(Some(Some(rejected.into()))),
+                    Err(AppError::Validation(_))
+                ),
+                "{rejected}"
+            );
         }
     }
 }

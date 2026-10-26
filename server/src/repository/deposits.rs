@@ -3,12 +3,15 @@
 use super::Repository;
 use crate::error::{error_code, AppError, AppResult};
 use crate::models::deposit::{
-    own_stock_sql, CreateDepositBatch, CreateLender, DepositActiveLoanCopy, DepositBatch, DepositBatchCounts, DepositBatchItem, DepositBatchStatus, DepositCloseCopy, DepositCloseReport,
-    DepositCopyState, DepositGlobalScanOut, DepositScanOut, Lender, UpdateDepositBatch, UpdateLender,
+    own_stock_sql, CreateDepositBatch, CreateLender, DepositActiveLoanCopy, DepositBatch,
+    DepositBatchCounts, DepositBatchItem, DepositBatchStatus, DepositCloseCopy, DepositCloseReport,
+    DepositCopyState, DepositGlobalScanOut, DepositScanOut, Lender, UpdateDepositBatch,
+    UpdateLender,
 };
 use crate::models::fine::Cents;
 
-const LENDER_COLUMNS: &str = "id, name, contact, notes, replacement_rate_cents, archived_at, created_at, updated_at";
+const LENDER_COLUMNS: &str =
+    "id, name, contact, notes, replacement_rate_cents, archived_at, created_at, updated_at";
 
 const BATCH_COLUMNS: &str = r#"
     id, lender_id, reference, site_id, arrived_on, return_due_on, status,
@@ -45,16 +48,20 @@ impl Repository {
         } else {
             format!("SELECT {LENDER_COLUMNS} FROM lenders WHERE archived_at IS NULL ORDER BY lower(name), id")
         };
-        let rows = sqlx::query_as::<_, Lender>(&sql).fetch_all(&self.pool).await?;
+        let rows = sqlx::query_as::<_, Lender>(&sql)
+            .fetch_all(&self.pool)
+            .await?;
         Ok(rows)
     }
 
     pub async fn lenders_get(&self, id: i64) -> AppResult<Lender> {
-        sqlx::query_as::<_, Lender>(&format!("SELECT {LENDER_COLUMNS} FROM lenders WHERE id = $1"))
-            .bind(id)
-            .fetch_optional(&self.pool)
-            .await?
-            .ok_or_else(|| AppError::NotFound(format!("Lender {id} not found")))
+        sqlx::query_as::<_, Lender>(&format!(
+            "SELECT {LENDER_COLUMNS} FROM lenders WHERE id = $1"
+        ))
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Lender {id} not found")))
     }
 
     pub async fn lenders_create(&self, data: &CreateLender) -> AppResult<Lender> {
@@ -119,12 +126,18 @@ impl Repository {
         if existing.archived_at.is_some() {
             return Ok(existing);
         }
-        let open: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM deposit_batches WHERE lender_id = $1 AND status <> 'closed'")
-            .bind(id)
-            .fetch_one(&self.pool)
-            .await?;
+        let open: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM deposit_batches WHERE lender_id = $1 AND status <> 'closed'",
+        )
+        .bind(id)
+        .fetch_one(&self.pool)
+        .await?;
         if open > 0 {
-            return Err(AppError::coded(422, error_code::LENDER_HAS_ACTIVE_BATCHES, "This lender still has a batch that is not closed"));
+            return Err(AppError::coded(
+                422,
+                error_code::LENDER_HAS_ACTIVE_BATCHES,
+                "This lender still has a batch that is not closed",
+            ));
         }
         let lender = sqlx::query_as::<_, Lender>(&format!(
             r#"
@@ -140,7 +153,11 @@ impl Repository {
         Ok(lender)
     }
 
-    pub async fn deposit_batches_list(&self, lender_id: Option<i64>, status: Option<DepositBatchStatus>) -> AppResult<Vec<DepositBatch>> {
+    pub async fn deposit_batches_list(
+        &self,
+        lender_id: Option<i64>,
+        status: Option<DepositBatchStatus>,
+    ) -> AppResult<Vec<DepositBatch>> {
         let rows = sqlx::query_as::<_, DepositBatch>(&format!(
             r#"
             SELECT {BATCH_COLUMNS}
@@ -158,11 +175,13 @@ impl Repository {
     }
 
     pub async fn deposit_batches_get(&self, id: i64) -> AppResult<DepositBatch> {
-        sqlx::query_as::<_, DepositBatch>(&format!("SELECT {BATCH_COLUMNS} FROM deposit_batches WHERE id = $1"))
-            .bind(id)
-            .fetch_optional(&self.pool)
-            .await?
-            .ok_or_else(|| AppError::NotFound(format!("Deposit batch {id} not found")))
+        sqlx::query_as::<_, DepositBatch>(&format!(
+            "SELECT {BATCH_COLUMNS} FROM deposit_batches WHERE id = $1"
+        ))
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Deposit batch {id} not found")))
     }
 
     pub async fn deposit_batch_counts(&self, id: i64) -> AppResult<DepositBatchCounts> {
@@ -184,11 +203,17 @@ impl Repository {
             ) buckets
             "#
         );
-        let row = sqlx::query_as::<_, DepositBatchCounts>(&sql).bind(id).fetch_one(&self.pool).await?;
+        let row = sqlx::query_as::<_, DepositBatchCounts>(&sql)
+            .bind(id)
+            .fetch_one(&self.pool)
+            .await?;
         Ok(row)
     }
 
-    pub async fn deposit_batches_create(&self, data: &CreateDepositBatch) -> AppResult<DepositBatch> {
+    pub async fn deposit_batches_create(
+        &self,
+        data: &CreateDepositBatch,
+    ) -> AppResult<DepositBatch> {
         let reference = data.reference.trim();
         let result = sqlx::query_as::<_, DepositBatch>(&format!(
             r#"
@@ -207,20 +232,35 @@ impl Repository {
         .fetch_one(&self.pool)
         .await;
 
-        result.map_err(|err| map_unique(err, "A deposit batch with this reference already exists for that lender".into()))
+        result.map_err(|err| {
+            map_unique(
+                err,
+                "A deposit batch with this reference already exists for that lender".into(),
+            )
+        })
     }
 
     /// Update `returnDueOn`, `siteId`, and `notes` while the batch is active.
     /// `siteId` is stored on the batch only. Copies keep their current `source_id`.
-    pub async fn deposit_batches_update(&self, id: i64, data: &UpdateDepositBatch) -> AppResult<DepositBatch> {
+    pub async fn deposit_batches_update(
+        &self,
+        id: i64,
+        data: &UpdateDepositBatch,
+    ) -> AppResult<DepositBatch> {
         let existing = self.deposit_batches_get(id).await?;
         if existing.status != DepositBatchStatus::Active {
-            return Err(AppError::coded(422, error_code::DEPOSIT_BATCH_NOT_ACTIVE, "Only an active deposit batch can be updated"));
+            return Err(AppError::coded(
+                422,
+                error_code::DEPOSIT_BATCH_NOT_ACTIVE,
+                "Only an active deposit batch can be updated",
+            ));
         }
         let return_due_on = data.return_due_on.or(existing.return_due_on);
         if let Some(return_due_on) = return_due_on {
             if return_due_on < existing.arrived_on {
-                return Err(AppError::Validation("returnDueOn must be on or after arrivedOn".into()));
+                return Err(AppError::Validation(
+                    "returnDueOn must be on or after arrivedOn".into(),
+                ));
             }
         }
         let site_id = data.site_id.unwrap_or(existing.site_id);
@@ -245,12 +285,20 @@ impl Repository {
 
         match result {
             Ok(Some(batch)) => Ok(batch),
-            Ok(None) => Err(AppError::coded(422, error_code::DEPOSIT_BATCH_NOT_ACTIVE, "Only an active deposit batch can be updated")),
+            Ok(None) => Err(AppError::coded(
+                422,
+                error_code::DEPOSIT_BATCH_NOT_ACTIVE,
+                "Only an active deposit batch can be updated",
+            )),
             Err(err) => Err(map_unique(err, "Could not update the deposit batch".into())),
         }
     }
 
-    pub async fn deposit_batch_items(&self, id: i64, state: Option<DepositCopyState>) -> AppResult<Vec<DepositBatchItem>> {
+    pub async fn deposit_batch_items(
+        &self,
+        id: i64,
+        state: Option<DepositCopyState>,
+    ) -> AppResult<Vec<DepositBatchItem>> {
         let _ = self.deposit_batches_get(id).await?;
         let owned = own_stock_sql("i");
         let sql = format!(
@@ -278,7 +326,11 @@ impl Repository {
     /// `notified` false is `deposit_loss_notified_at IS NULL`. The row is the
     /// latest replacement or damage fine on that copy. `amount_cents` is that
     /// fine's frozen amount.
-    pub async fn deposit_losses_list(&self, lender_id: Option<i64>, notified: bool) -> AppResult<Vec<crate::models::deposit::DepositLoss>> {
+    pub async fn deposit_losses_list(
+        &self,
+        lender_id: Option<i64>,
+        notified: bool,
+    ) -> AppResult<Vec<crate::models::deposit::DepositLoss>> {
         let sql = format!(
             r#"
             SELECT {DEPOSIT_LOSS_SELECT}
@@ -304,7 +356,11 @@ impl Repository {
     ///
     /// Returns the lender id. `deposit_loss_already_notified` does not write
     /// an audit row; the caller must not continue the transaction.
-    pub async fn deposit_loss_lock_for_notify(&self, tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, item_id: i64) -> AppResult<i64> {
+    pub async fn deposit_loss_lock_for_notify(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        item_id: i64,
+    ) -> AppResult<i64> {
         let row = sqlx::query_as::<_, DepositLossLock>(
             r#"
             SELECT i.deposit_batch_id,
@@ -328,15 +384,30 @@ impl Repository {
             return Err(AppError::NotFound(format!("Item {item_id} not found")));
         };
         if row.deposit_batch_id.is_none() || !row.declared {
-            return Err(AppError::coded(422, error_code::DEPOSIT_LOSS_NOT_DECLARED, "This copy is not a deposit copy declared lost or damaged"));
+            return Err(AppError::coded(
+                422,
+                error_code::DEPOSIT_LOSS_NOT_DECLARED,
+                "This copy is not a deposit copy declared lost or damaged",
+            ));
         }
         if row.deposit_loss_notified_at.is_some() {
-            return Err(AppError::coded(409, error_code::DEPOSIT_LOSS_ALREADY_NOTIFIED, "The lender was already notified about this copy"));
+            return Err(AppError::coded(
+                409,
+                error_code::DEPOSIT_LOSS_ALREADY_NOTIFIED,
+                "The lender was already notified about this copy",
+            ));
         }
-        row.lender_id.ok_or_else(|| AppError::Internal(format!("Deposit copy {item_id} is missing its lender")))
+        row.lender_id.ok_or_else(|| {
+            AppError::Internal(format!("Deposit copy {item_id} is missing its lender"))
+        })
     }
 
-    pub async fn deposit_loss_set_notified(&self, tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, item_id: i64, notified_at: chrono::DateTime<chrono::Utc>) -> AppResult<()> {
+    pub async fn deposit_loss_set_notified(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        item_id: i64,
+        notified_at: chrono::DateTime<chrono::Utc>,
+    ) -> AppResult<()> {
         let updated = sqlx::query(
             r#"
             UPDATE items
@@ -349,12 +420,20 @@ impl Repository {
         .execute(&mut **tx)
         .await?;
         if updated.rows_affected() == 0 {
-            return Err(AppError::coded(409, error_code::DEPOSIT_LOSS_ALREADY_NOTIFIED, "The lender was already notified about this copy"));
+            return Err(AppError::coded(
+                409,
+                error_code::DEPOSIT_LOSS_ALREADY_NOTIFIED,
+                "The lender was already notified about this copy",
+            ));
         }
         Ok(())
     }
 
-    pub async fn deposit_loss_by_item_tx(&self, tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, item_id: i64) -> AppResult<crate::models::deposit::DepositLoss> {
+    pub async fn deposit_loss_by_item_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        item_id: i64,
+    ) -> AppResult<crate::models::deposit::DepositLoss> {
         let sql = format!(
             r#"
             SELECT {DEPOSIT_LOSS_SELECT}
@@ -366,12 +445,19 @@ impl Repository {
             .bind(item_id)
             .fetch_optional(&mut **tx)
             .await?
-            .ok_or_else(|| AppError::Internal(format!("Declared deposit loss for item {item_id} disappeared")))
+            .ok_or_else(|| {
+                AppError::Internal(format!(
+                    "Declared deposit loss for item {item_id} disappeared"
+                ))
+            })
     }
 
     /// Lender replacement rate and the copy price for a deposit item.
     /// `None` when the copy is own stock.
-    pub async fn item_deposit_replacement(&self, item_id: i64) -> AppResult<Option<DepositReplacement>> {
+    pub async fn item_deposit_replacement(
+        &self,
+        item_id: i64,
+    ) -> AppResult<Option<DepositReplacement>> {
         let row = sqlx::query_as::<_, DepositReplacement>(
             r#"
             SELECT db.lender_id, l.replacement_rate_cents, i.price AS item_price_cents
@@ -424,7 +510,11 @@ impl Repository {
         if block_closed && (row.archived_at.is_some() || row.status == DepositBatchStatus::Closed) {
             let still_with_lender = row.return_due_on.is_none_or(|due| due > today);
             if still_with_lender {
-                return Err(AppError::coded(422, error_code::ITEM_NOT_LOANABLE, "This deposit copy has been returned to the lender"));
+                return Err(AppError::coded(
+                    422,
+                    error_code::ITEM_NOT_LOANABLE,
+                    "This deposit copy has been returned to the lender",
+                ));
             }
         }
         let Some(return_due_on) = row.return_due_on else {
@@ -452,15 +542,20 @@ impl Repository {
     /// Holds pinned to the batch's copies go back to the title queue.
     pub async fn deposit_batches_start_return(&self, id: i64) -> AppResult<DepositBatch> {
         let mut tx = self.pool.begin().await?;
-        let status: Option<String> = sqlx::query_scalar("SELECT status FROM deposit_batches WHERE id = $1 FOR UPDATE")
-            .bind(id)
-            .fetch_optional(&mut *tx)
-            .await?;
+        let status: Option<String> =
+            sqlx::query_scalar("SELECT status FROM deposit_batches WHERE id = $1 FOR UPDATE")
+                .bind(id)
+                .fetch_optional(&mut *tx)
+                .await?;
         let Some(status) = status else {
             return Err(AppError::NotFound(format!("Deposit batch {id} not found")));
         };
         if status == DepositBatchStatus::Closed.as_db_str() {
-            return Err(AppError::coded(422, error_code::DEPOSIT_BATCH_NOT_ACTIVE, "A closed deposit batch cannot start a return"));
+            return Err(AppError::coded(
+                422,
+                error_code::DEPOSIT_BATCH_NOT_ACTIVE,
+                "A closed deposit batch cannot start a return",
+            ));
         }
         if status == DepositBatchStatus::Active.as_db_str() {
             sqlx::query(
@@ -474,8 +569,13 @@ impl Repository {
             .execute(&mut *tx)
             .await?;
         }
-        let item_ids: Vec<i64> = sqlx::query_scalar("SELECT id FROM items WHERE deposit_batch_id = $1").bind(id).fetch_all(&mut *tx).await?;
-        self.holds_release_deposit_copies_tx(&mut tx, &item_ids).await?;
+        let item_ids: Vec<i64> =
+            sqlx::query_scalar("SELECT id FROM items WHERE deposit_batch_id = $1")
+                .bind(id)
+                .fetch_all(&mut *tx)
+                .await?;
+        self.holds_release_deposit_copies_tx(&mut tx, &item_ids)
+            .await?;
         tx.commit().await?;
         self.deposit_batches_get(id).await
     }
@@ -484,15 +584,20 @@ impl Repository {
     /// Already `active` is a no-op. Holds detached at start-return are not restored.
     pub async fn deposit_batches_cancel_return(&self, id: i64) -> AppResult<DepositBatch> {
         let mut tx = self.pool.begin().await?;
-        let status: Option<String> = sqlx::query_scalar("SELECT status FROM deposit_batches WHERE id = $1 FOR UPDATE")
-            .bind(id)
-            .fetch_optional(&mut *tx)
-            .await?;
+        let status: Option<String> =
+            sqlx::query_scalar("SELECT status FROM deposit_batches WHERE id = $1 FOR UPDATE")
+                .bind(id)
+                .fetch_optional(&mut *tx)
+                .await?;
         let Some(status) = status else {
             return Err(AppError::NotFound(format!("Deposit batch {id} not found")));
         };
         if status == DepositBatchStatus::Closed.as_db_str() {
-            return Err(AppError::coded(422, error_code::DEPOSIT_BATCH_NOT_ACTIVE, "A closed deposit batch cannot cancel its return"));
+            return Err(AppError::coded(
+                422,
+                error_code::DEPOSIT_BATCH_NOT_ACTIVE,
+                "A closed deposit batch cannot cancel its return",
+            ));
         }
         if status == DepositBatchStatus::Returning.as_db_str() {
             sqlx::query(
@@ -530,16 +635,21 @@ impl Repository {
 
     /// Set `deposit_returned_at` on one copy of a `returning` batch.
     /// A second scan keeps the first timestamp.
-    pub async fn deposit_batches_scan_out(&self, id: i64, barcode: &str) -> AppResult<DepositScanOut> {
+    pub async fn deposit_batches_scan_out(
+        &self,
+        id: i64,
+        barcode: &str,
+    ) -> AppResult<DepositScanOut> {
         let barcode = barcode.trim();
         if barcode.is_empty() {
             return Err(AppError::Validation("barcode is required".into()));
         }
         let mut tx = self.pool.begin().await?;
-        let status: Option<String> = sqlx::query_scalar("SELECT status FROM deposit_batches WHERE id = $1 FOR UPDATE")
-            .bind(id)
-            .fetch_optional(&mut *tx)
-            .await?;
+        let status: Option<String> =
+            sqlx::query_scalar("SELECT status FROM deposit_batches WHERE id = $1 FOR UPDATE")
+                .bind(id)
+                .fetch_optional(&mut *tx)
+                .await?;
         let Some(status) = status else {
             return Err(AppError::NotFound(format!("Deposit batch {id} not found")));
         };
@@ -563,12 +673,16 @@ impl Repository {
         .fetch_optional(&mut *tx)
         .await?;
         let Some(row) = row else {
-            return Err(AppError::NotFound("This barcode is not a copy of this deposit batch".into()));
+            return Err(AppError::NotFound(
+                "This barcode is not a copy of this deposit batch".into(),
+            ));
         };
-        let on_loan: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM loans WHERE item_id = $1 AND returned_at IS NULL)")
-            .bind(row.id)
-            .fetch_one(&mut *tx)
-            .await?;
+        let on_loan: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM loans WHERE item_id = $1 AND returned_at IS NULL)",
+        )
+        .bind(row.id)
+        .fetch_one(&mut *tx)
+        .await?;
         if on_loan {
             return Err(AppError::deposit_item_on_loan(row.id, row.barcode.clone()));
         }
@@ -604,7 +718,10 @@ impl Repository {
     }
 
     /// Resolve the copy's deposit batch and run [`Self::deposit_batches_scan_out`].
-    pub async fn deposit_batches_scan_out_by_barcode(&self, barcode: &str) -> AppResult<DepositGlobalScanOut> {
+    pub async fn deposit_batches_scan_out_by_barcode(
+        &self,
+        barcode: &str,
+    ) -> AppResult<DepositGlobalScanOut> {
         let barcode = barcode.trim();
         if barcode.is_empty() {
             return Err(AppError::Validation("barcode is required".into()));
@@ -621,10 +738,16 @@ impl Repository {
         .fetch_optional(&self.pool)
         .await?;
         let Some((_item_id, batch_id)) = lookup else {
-            return Err(AppError::NotFound("No active copy with this barcode".into()));
+            return Err(AppError::NotFound(
+                "No active copy with this barcode".into(),
+            ));
         };
         let Some(batch_id) = batch_id else {
-            return Err(AppError::coded(422, error_code::ITEM_NOT_DEPOSIT_COPY, "This copy is not part of a deposit batch"));
+            return Err(AppError::coded(
+                422,
+                error_code::ITEM_NOT_DEPOSIT_COPY,
+                "This copy is not part of a deposit batch",
+            ));
         };
         let scanned = self.deposit_batches_scan_out(batch_id, barcode).await?;
         let meta = sqlx::query_as::<_, (String, String)>(
@@ -639,7 +762,9 @@ impl Repository {
         .fetch_optional(&self.pool)
         .await?;
         let Some((batch_reference, lender_name)) = meta else {
-            return Err(AppError::NotFound(format!("Deposit batch {batch_id} not found")));
+            return Err(AppError::NotFound(format!(
+                "Deposit batch {batch_id} not found"
+            )));
         };
         Ok(DepositGlobalScanOut {
             item_id: scanned.item_id,
@@ -657,18 +782,26 @@ impl Repository {
     /// Does not delete items. A closed batch returns the same report again.
     pub async fn deposit_batches_close(&self, id: i64) -> AppResult<DepositCloseReport> {
         let mut tx = self.pool.begin().await?;
-        let status: Option<String> = sqlx::query_scalar("SELECT status FROM deposit_batches WHERE id = $1 FOR UPDATE")
-            .bind(id)
-            .fetch_optional(&mut *tx)
-            .await?;
+        let status: Option<String> =
+            sqlx::query_scalar("SELECT status FROM deposit_batches WHERE id = $1 FOR UPDATE")
+                .bind(id)
+                .fetch_optional(&mut *tx)
+                .await?;
         let Some(status) = status else {
             return Err(AppError::NotFound(format!("Deposit batch {id} not found")));
         };
         if status == DepositBatchStatus::Active.as_db_str() {
-            return Err(AppError::coded(422, error_code::DEPOSIT_BATCH_NOT_RETURNING, "Start the return before closing the batch"));
+            return Err(AppError::coded(
+                422,
+                error_code::DEPOSIT_BATCH_NOT_RETURNING,
+                "Start the return before closing the batch",
+            ));
         }
         if status == DepositBatchStatus::Returning.as_db_str() {
-            sqlx::query("SELECT id FROM items WHERE deposit_batch_id = $1 FOR UPDATE").bind(id).execute(&mut *tx).await?;
+            sqlx::query("SELECT id FROM items WHERE deposit_batch_id = $1 FOR UPDATE")
+                .bind(id)
+                .execute(&mut *tx)
+                .await?;
             let on_loan = sqlx::query_as::<_, DepositActiveLoanCopy>(
                 r#"
                 SELECT i.id AS item_id, i.barcode
@@ -715,7 +848,11 @@ impl Repository {
         Ok(report)
     }
 
-    async fn deposit_close_report_tx(&self, tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, id: i64) -> AppResult<DepositCloseReport> {
+    async fn deposit_close_report_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        id: i64,
+    ) -> AppResult<DepositCloseReport> {
         let rows = sqlx::query_as::<_, ClassifiedCopy>(
             r#"
             SELECT i.id AS item_id, i.barcode, b.title,
@@ -753,7 +890,11 @@ impl Repository {
     }
 
     /// Latest archived deposit copy for this lender and lender barcode.
-    pub async fn deposit_archived_copy_for_lender_barcode(&self, lender_id: i64, lender_barcode: &str) -> AppResult<Option<DepositArchivedByLenderBarcode>> {
+    pub async fn deposit_archived_copy_for_lender_barcode(
+        &self,
+        lender_id: i64,
+        lender_barcode: &str,
+    ) -> AppResult<Option<DepositArchivedByLenderBarcode>> {
         let row = sqlx::query_as::<_, DepositArchivedByLenderBarcode>(
             r#"
             SELECT
@@ -782,7 +923,10 @@ impl Repository {
     }
 
     pub async fn sources_exists(&self, id: i64) -> AppResult<bool> {
-        let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM sites WHERE id = $1)").bind(id).fetch_one(&self.pool).await?;
+        let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM sites WHERE id = $1)")
+            .bind(id)
+            .fetch_one(&self.pool)
+            .await?;
         Ok(exists)
     }
 }

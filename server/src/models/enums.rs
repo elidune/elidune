@@ -154,7 +154,9 @@ impl sqlx::Type<sqlx::Postgres> for Genre {
 }
 
 impl<'r> sqlx::Decode<'r, sqlx::Postgres> for Genre {
-    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    fn decode(
+        value: sqlx::postgres::PgValueRef<'r>,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let n = <i16 as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
         Ok(Genre::from(n))
     }

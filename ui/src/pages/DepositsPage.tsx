@@ -4,6 +4,7 @@ import { Navigate, useSearchParams } from 'react-router-dom';
 import { PageHeading, PageTabLeadGroup } from '@/components/common';
 import DepositsTabBar from '@/components/deposits/DepositsTabBar';
 import { DepositBatchesPanel } from '@/pages/DepositBatchesPage';
+import { DepositLossesPanel } from '@/pages/DepositLossesPage';
 import { LendersPanel } from '@/pages/LendersPage';
 import { APP_PAGE_CLASS } from '@/utils/appPageLayout';
 import { type DepositsTab, isDepositsTab } from '@/utils/depositsTabs';
@@ -44,6 +45,7 @@ export default function DepositsPage() {
       >
         {activeTab === 'batches' ? <DepositBatchesPanel /> : null}
         {activeTab === 'lenders' ? <LendersPanel /> : null}
+        {activeTab === 'losses' ? <DepositLossesPanel /> : null}
       </div>
     </div>
   );

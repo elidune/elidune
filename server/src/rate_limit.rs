@@ -158,7 +158,11 @@ fn client_from_chain(ips: &[IpAddr], trusted: &[IpNet]) -> Option<IpAddr> {
 /// `Forwarded`, are fallbacks. An empty trusted list, or an untrusted peer,
 /// ignores those headers and returns the peer.
 #[must_use]
-pub fn resolve_client_ip(headers: &HeaderMap, peer: Option<IpAddr>, trusted: &[IpNet]) -> Option<IpAddr> {
+pub fn resolve_client_ip(
+    headers: &HeaderMap,
+    peer: Option<IpAddr>,
+    trusted: &[IpNet],
+) -> Option<IpAddr> {
     let peer = peer?;
     if trusted.is_empty() || !ip_is_trusted(peer, trusted) {
         return Some(peer);
@@ -166,7 +170,10 @@ pub fn resolve_client_ip(headers: &HeaderMap, peer: Option<IpAddr>, trusted: &[I
     if let Some(ip) = client_from_chain(&header_chain(headers, "x-forwarded-for"), trusted) {
         return Some(ip);
     }
-    if let Some(ip) = header_chain(headers, "x-real-ip").into_iter().find(|ip| !ip_is_trusted(*ip, trusted)) {
+    if let Some(ip) = header_chain(headers, "x-real-ip")
+        .into_iter()
+        .find(|ip| !ip_is_trusted(*ip, trusted))
+    {
         return Some(ip);
     }
     if let Some(ip) = client_from_chain(&forwarded_chain(headers), trusted) {
@@ -176,7 +183,9 @@ pub fn resolve_client_ip(headers: &HeaderMap, peer: Option<IpAddr>, trusted: &[I
 }
 
 fn peer_ip<T>(req: &Request<T>) -> Option<IpAddr> {
-    req.extensions().get::<ConnectInfo<SocketAddr>>().map(|info| info.0.ip())
+    req.extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|info| info.0.ip())
 }
 
 /// Rate-limit key: peer IP, or the client behind a trusted proxy.
@@ -189,7 +198,8 @@ impl KeyExtractor for TrustedProxyKeyExtractor {
     type Key = IpAddr;
 
     fn extract<T>(&self, req: &Request<T>) -> Result<Self::Key, GovernorError> {
-        resolve_client_ip(req.headers(), peer_ip(req), &self.trusted).ok_or(GovernorError::UnableToExtractKey)
+        resolve_client_ip(req.headers(), peer_ip(req), &self.trusted)
+            .ok_or(GovernorError::UnableToExtractKey)
     }
 }
 
@@ -204,9 +214,14 @@ pub struct SessionKeyExtractor {
 }
 
 fn bearer_user_id(headers: &HeaderMap, secret: &str) -> Option<i64> {
-    let value = headers.get(axum::http::header::AUTHORIZATION)?.to_str().ok()?;
+    let value = headers
+        .get(axum::http::header::AUTHORIZATION)?
+        .to_str()
+        .ok()?;
     let token = value.strip_prefix("Bearer ")?;
-    UserClaims::from_token(token, secret).ok().map(|claims| claims.user_id)
+    UserClaims::from_token(token, secret)
+        .ok()
+        .map(|claims| claims.user_id)
 }
 
 impl KeyExtractor for SessionKeyExtractor {
@@ -245,7 +260,11 @@ impl AuthAttemptLimiter {
     pub fn new(max_failures: u32, window: Duration) -> Self {
         Self {
             max_failures: usize::try_from(max_failures.max(1)).unwrap_or(usize::MAX),
-            window: if window.is_zero() { Duration::from_secs(1) } else { window },
+            window: if window.is_zero() {
+                Duration::from_secs(1)
+            } else {
+                window
+            },
             failures: Mutex::new(HashMap::new()),
         }
     }
@@ -256,7 +275,10 @@ impl AuthAttemptLimiter {
 
     fn prune_stamps(stamps: &mut VecDeque<Instant>, window: Duration) {
         let now = Instant::now();
-        while stamps.front().is_some_and(|stamp| now.saturating_duration_since(*stamp) >= window) {
+        while stamps
+            .front()
+            .is_some_and(|stamp| now.saturating_duration_since(*stamp) >= window)
+        {
             stamps.pop_front();
         }
     }
@@ -393,10 +415,12 @@ mod tests {
     fn request(peer: Option<IpAddr>, pairs: &[(&'static str, &str)]) -> Request<()> {
         let mut req = Request::builder().uri("/").body(()).expect("request");
         if let Some(peer) = peer {
-            req.extensions_mut().insert(ConnectInfo(SocketAddr::new(peer, 443)));
+            req.extensions_mut()
+                .insert(ConnectInfo(SocketAddr::new(peer, 443)));
         }
         for (name, value) in pairs {
-            req.headers_mut().insert(*name, HeaderValue::from_str(value).expect("header"));
+            req.headers_mut()
+                .insert(*name, HeaderValue::from_str(value).expect("header"));
         }
         req
     }
@@ -408,10 +432,21 @@ mod tests {
     #[test]
     fn unset_trusted_proxies_ignore_forwarding_headers() {
         let peer: IpAddr = "203.0.113.8".parse().unwrap();
-        let headers = header_map(&[("x-forwarded-for", "198.51.100.10, 10.0.0.1"), ("x-real-ip", "198.51.100.11"), ("forwarded", "for=198.51.100.12")]);
+        let headers = header_map(&[
+            ("x-forwarded-for", "198.51.100.10, 10.0.0.1"),
+            ("x-real-ip", "198.51.100.11"),
+            ("forwarded", "for=198.51.100.12"),
+        ]);
         assert_eq!(resolve_client_ip(&headers, Some(peer), &[]), Some(peer));
-        let extractor = TrustedProxyKeyExtractor { trusted: Arc::new(Vec::new()) };
-        assert_eq!(extractor.extract(&request(Some(peer), &[("x-forwarded-for", "1.2.3.4"),])).unwrap(), peer);
+        let extractor = TrustedProxyKeyExtractor {
+            trusted: Arc::new(Vec::new()),
+        };
+        assert_eq!(
+            extractor
+                .extract(&request(Some(peer), &[("x-forwarded-for", "1.2.3.4"),]))
+                .unwrap(),
+            peer
+        );
     }
 
     #[test]
@@ -419,9 +454,17 @@ mod tests {
         let peer: IpAddr = "203.0.113.9".parse().unwrap();
         let trusted = nets("10.0.0.0/8, 127.0.0.1/32");
         let headers = header_map(&[("x-forwarded-for", "198.51.100.50")]);
-        assert_eq!(resolve_client_ip(&headers, Some(peer), &trusted), Some(peer));
+        assert_eq!(
+            resolve_client_ip(&headers, Some(peer), &trusted),
+            Some(peer)
+        );
         let extractor = TrustedProxyKeyExtractor { trusted };
-        assert_eq!(extractor.extract(&request(Some(peer), &[("x-forwarded-for", "8.8.8.8")])).unwrap(), peer);
+        assert_eq!(
+            extractor
+                .extract(&request(Some(peer), &[("x-forwarded-for", "8.8.8.8")]))
+                .unwrap(),
+            peer
+        );
     }
 
     #[test]
@@ -429,9 +472,15 @@ mod tests {
         let peer: IpAddr = "10.1.2.3".parse().unwrap();
         let trusted = nets("10.0.0.0/8, 192.168.0.0/16");
         // Left-most is a spoof. The first untrusted hop from the right is the client.
-        let headers = header_map(&[("x-forwarded-for", "1.2.3.4, 203.0.113.50, 192.168.1.5, 10.0.0.4")]);
+        let headers = header_map(&[(
+            "x-forwarded-for",
+            "1.2.3.4, 203.0.113.50, 192.168.1.5, 10.0.0.4",
+        )]);
         let client: IpAddr = "203.0.113.50".parse().unwrap();
-        assert_eq!(resolve_client_ip(&headers, Some(peer), &trusted), Some(client));
+        assert_eq!(
+            resolve_client_ip(&headers, Some(peer), &trusted),
+            Some(client)
+        );
     }
 
     #[test]
@@ -440,11 +489,17 @@ mod tests {
         let trusted = nets("fd00::/8");
         let headers = header_map(&[("x-forwarded-for", "[2001:db8::abcd], fd00::2")]);
         let client: IpAddr = "2001:db8::abcd".parse().unwrap();
-        assert_eq!(resolve_client_ip(&headers, Some(peer), &trusted), Some(client));
+        assert_eq!(
+            resolve_client_ip(&headers, Some(peer), &trusted),
+            Some(client)
+        );
 
         let spoofed_peer: IpAddr = Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 0x50).into();
         let spoofed = header_map(&[("x-forwarded-for", "198.51.100.1")]);
-        assert_eq!(resolve_client_ip(&spoofed, Some(spoofed_peer), &trusted), Some(spoofed_peer));
+        assert_eq!(
+            resolve_client_ip(&spoofed, Some(spoofed_peer), &trusted),
+            Some(spoofed_peer)
+        );
     }
 
     #[test]
@@ -452,15 +507,33 @@ mod tests {
         let peer: IpAddr = "127.0.0.1".parse().unwrap();
         let trusted = nets("127.0.0.1");
         let real: IpAddr = "198.51.100.22".parse().unwrap();
-        assert_eq!(resolve_client_ip(&header_map(&[("x-real-ip", "198.51.100.22")]), Some(peer), &trusted), Some(real));
+        assert_eq!(
+            resolve_client_ip(
+                &header_map(&[("x-real-ip", "198.51.100.22")]),
+                Some(peer),
+                &trusted
+            ),
+            Some(real)
+        );
         let via_forwarded: IpAddr = "203.0.113.7".parse().unwrap();
         assert_eq!(
-            resolve_client_ip(&header_map(&[("forwarded", "for=203.0.113.7;proto=https, for=127.0.0.1")]), Some(peer), &trusted),
+            resolve_client_ip(
+                &header_map(&[("forwarded", "for=203.0.113.7;proto=https, for=127.0.0.1")]),
+                Some(peer),
+                &trusted
+            ),
             Some(via_forwarded)
         );
         let outsider: IpAddr = "198.51.100.9".parse().unwrap();
         assert_eq!(
-            resolve_client_ip(&header_map(&[("x-real-ip", "203.0.113.1"), ("forwarded", "for=203.0.113.2")]), Some(outsider), &trusted),
+            resolve_client_ip(
+                &header_map(&[
+                    ("x-real-ip", "203.0.113.1"),
+                    ("forwarded", "for=203.0.113.2")
+                ]),
+                Some(outsider),
+                &trusted
+            ),
             Some(outsider)
         );
     }
@@ -470,8 +543,14 @@ mod tests {
         let peer: IpAddr = "10.0.0.8".parse().unwrap();
         let trusted = nets("10.0.0.0/8");
         let client: IpAddr = "203.0.113.5".parse().unwrap();
-        let headers = header_map(&[("x-forwarded-for", "203.0.113.5, 10.0.0.2"), ("x-real-ip", "198.51.100.9")]);
-        assert_eq!(resolve_client_ip(&headers, Some(peer), &trusted), Some(client));
+        let headers = header_map(&[
+            ("x-forwarded-for", "203.0.113.5, 10.0.0.2"),
+            ("x-real-ip", "198.51.100.9"),
+        ]);
+        assert_eq!(
+            resolve_client_ip(&headers, Some(peer), &trusted),
+            Some(client)
+        );
     }
 
     #[test]
@@ -480,13 +559,20 @@ mod tests {
         let trusted = nets("10.0.0.0/8");
         let headers = header_map(&[("x-forwarded-for", "10.0.0.2, 10.0.0.1")]);
         let leftmost: IpAddr = "10.0.0.2".parse().unwrap();
-        assert_eq!(resolve_client_ip(&headers, Some(peer), &trusted), Some(leftmost));
+        assert_eq!(
+            resolve_client_ip(&headers, Some(peer), &trusted),
+            Some(leftmost)
+        );
     }
 
     #[test]
     fn missing_connect_info_cannot_extract_a_key() {
-        let extractor = TrustedProxyKeyExtractor { trusted: nets("127.0.0.1/32") };
-        let err = extractor.extract(&request(None, &[("x-forwarded-for", "203.0.113.5")])).unwrap_err();
+        let extractor = TrustedProxyKeyExtractor {
+            trusted: nets("127.0.0.1/32"),
+        };
+        let err = extractor
+            .extract(&request(None, &[("x-forwarded-for", "203.0.113.5")]))
+            .unwrap_err();
         assert!(matches!(err, GovernorError::UnableToExtractKey));
     }
 

@@ -12,6 +12,8 @@ where
 {
     match Option::<T>::deserialize(deserializer)? {
         Some(value) => Ok(Some(value)),
-        None => Err(D::Error::custom("null is not accepted; omit the field to leave it unchanged")),
+        None => Err(D::Error::custom(
+            "null is not accepted; omit the field to leave it unchanged",
+        )),
     }
 }

@@ -39,7 +39,7 @@ import WeedingStatusControl from '@/components/items/WeedingStatusControl';
 import WithdrawalDialog from '@/components/items/WithdrawalDialog';
 import api from '@/services/api';
 import { CopyNoteFields, CopyNotes } from '@/components/items/CopyNotes';
-import DepositBadge from '@/components/items/DepositBadge';
+import DepositBadge, { DepositLossNotifiedLine } from '@/components/items/DepositBadge';
 import ItemAvailabilityBadge, { ItemHoldPatronLine } from '@/components/items/ItemAvailabilityBadge';
 import type { Author, AuthorPublic, BiblioStaffView, ItemPublicView, ItemStaffView, Site } from '@/types';
 import { isBiblioStaffView, isItemStaffView } from '@/utils/catalogView';
@@ -1141,6 +1141,7 @@ function SpecimenCard({
               </p>
             ) : null}
             <DepositBadge deposit={specimen.deposit} audience={audience} />
+            {staffCopy ? <DepositLossNotifiedLine deposit={staffCopy.deposit} /> : null}
           </div>
         </div>
         <div className="flex items-center gap-2">

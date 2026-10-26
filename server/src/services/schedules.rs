@@ -6,7 +6,10 @@ use std::sync::Arc;
 
 use crate::{
     error::AppResult,
-    models::schedule::{CreateScheduleClosure, CreateSchedulePeriod, CreateScheduleSlot, ScheduleClosure, SchedulePeriod, ScheduleSlot, UpdateSchedulePeriod},
+    models::schedule::{
+        CreateScheduleClosure, CreateSchedulePeriod, CreateScheduleSlot, ScheduleClosure,
+        SchedulePeriod, ScheduleSlot, UpdateSchedulePeriod,
+    },
     repository::SchedulesRepository,
 };
 
@@ -36,7 +39,11 @@ impl SchedulesService {
     }
 
     #[tracing::instrument(skip(self), err)]
-    pub async fn update_period(&self, id: i64, data: &UpdateSchedulePeriod) -> AppResult<SchedulePeriod> {
+    pub async fn update_period(
+        &self,
+        id: i64,
+        data: &UpdateSchedulePeriod,
+    ) -> AppResult<SchedulePeriod> {
         self.repository.schedules_update_period(id, data).await
     }
 
@@ -51,7 +58,11 @@ impl SchedulesService {
     }
 
     #[tracing::instrument(skip(self), err)]
-    pub async fn create_slot(&self, period_id: i64, data: &CreateScheduleSlot) -> AppResult<ScheduleSlot> {
+    pub async fn create_slot(
+        &self,
+        period_id: i64,
+        data: &CreateScheduleSlot,
+    ) -> AppResult<ScheduleSlot> {
         self.repository.schedules_create_slot(period_id, data).await
     }
 
@@ -61,8 +72,14 @@ impl SchedulesService {
     }
 
     // ---- Closures ----
-    pub async fn list_closures(&self, start_date: Option<NaiveDate>, end_date: Option<NaiveDate>) -> AppResult<Vec<ScheduleClosure>> {
-        self.repository.schedules_list_closures(start_date, end_date).await
+    pub async fn list_closures(
+        &self,
+        start_date: Option<NaiveDate>,
+        end_date: Option<NaiveDate>,
+    ) -> AppResult<Vec<ScheduleClosure>> {
+        self.repository
+            .schedules_list_closures(start_date, end_date)
+            .await
     }
 
     #[tracing::instrument(skip(self), err)]

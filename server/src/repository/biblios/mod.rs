@@ -17,7 +17,9 @@ use sqlx::FromRow;
 
 use super::Repository;
 use crate::models::item::ItemShort;
-use crate::models::withdrawal::{ItemWithdrawal, WithdrawalCsvSource, WithdrawalList, WithdrawalQuery, WithdrawalWrite};
+use crate::models::withdrawal::{
+    ItemWithdrawal, WithdrawalCsvSource, WithdrawalList, WithdrawalQuery, WithdrawalWrite,
+};
 use crate::{
     error::AppResult,
     models::{
@@ -32,7 +34,10 @@ use crate::{
 ///
 /// Keeps first-occurrence order. When a duplicate carries a volume number and the first
 /// occurrence had none, the volume is merged in (common when MARC repeats the same 490).
-pub(crate) fn dedupe_junction_links(ids: &[i64], volumes: &[Option<i16>]) -> (Vec<i64>, Vec<Option<i16>>) {
+pub(crate) fn dedupe_junction_links(
+    ids: &[i64],
+    volumes: &[Option<i16>],
+) -> (Vec<i64>, Vec<Option<i16>>) {
     let mut deduped_ids = Vec::with_capacity(ids.len());
     let mut deduped_vols: Vec<Option<i16>> = Vec::with_capacity(ids.len());
     let mut index_by_id: HashMap<i64, usize> = HashMap::new();
@@ -64,10 +69,18 @@ pub trait BibliosRepository: Send + Sync {
     async fn biblios_get_meili_document(&self, id: i64) -> AppResult<Option<MeiliBiblioDocument>>;
     /// Fetch a page of Meilisearch documents using a keyset cursor.
     /// Returns biblios with `id > after_id`, up to `limit` rows, ordered by id.
-    async fn biblios_get_meili_documents_batch(&self, after_id: i64, limit: i64) -> AppResult<Vec<MeiliBiblioDocument>>;
+    async fn biblios_get_meili_documents_batch(
+        &self,
+        after_id: i64,
+        limit: i64,
+    ) -> AppResult<Vec<MeiliBiblioDocument>>;
     async fn biblios_get_short_by_ids_ordered(&self, ids: &[i64]) -> AppResult<Vec<BiblioShort>>;
     async fn biblios_create<'a>(&self, biblio: &'a mut Biblio) -> AppResult<&'a mut Biblio>;
-    async fn biblios_update<'a>(&self, id: i64, biblio: &'a mut Biblio) -> AppResult<&'a mut Biblio>;
+    async fn biblios_update<'a>(
+        &self,
+        id: i64,
+        biblio: &'a mut Biblio,
+    ) -> AppResult<&'a mut Biblio>;
     async fn biblios_delete(&self, id: i64, force: bool) -> AppResult<()>;
     /// Archive a biblio when it has no active copies left. Returns `true` if archived.
     async fn biblios_archive_if_orphan(&self, biblio_id: i64) -> AppResult<bool>;
@@ -76,74 +89,169 @@ pub trait BibliosRepository: Send + Sync {
     async fn items_get_active_by_id(&self, item_id: i64) -> AppResult<Item>;
     /// Active (non-archived) item by barcode (exact match).
     async fn items_get_active_by_barcode(&self, barcode: &str) -> AppResult<Item>;
-    async fn biblios_get_items_short_by_biblio_ids(&self, biblio_ids: &[i64]) -> AppResult<HashMap<i64, Vec<ItemShort>>>;
+    async fn biblios_get_items_short_by_biblio_ids(
+        &self,
+        biblio_ids: &[i64],
+    ) -> AppResult<HashMap<i64, Vec<ItemShort>>>;
     async fn biblios_create_item(&self, biblio_id: i64, item: &Item) -> AppResult<Item>;
     async fn upsert_item<'a>(&self, item: &'a mut Item) -> AppResult<&'a mut Item>;
     async fn items_update<'a>(&self, item: &'a mut Item) -> AppResult<&'a mut Item>;
     async fn items_delete(&self, id: i64, force: bool) -> AppResult<()>;
-    async fn items_barcode_exists(&self, barcode: &str, exclude_item_id: Option<i64>) -> AppResult<bool>;
+    async fn items_barcode_exists(
+        &self,
+        barcode: &str,
+        exclude_item_id: Option<i64>,
+    ) -> AppResult<bool>;
     async fn items_get_by_barcode(&self, barcode: &str) -> AppResult<Option<(i64, bool)>>;
     async fn items_reactivate(&self, item_id: i64, biblio_id: i64, item: &Item) -> AppResult<Item>;
     /// Set candidate or on-shelf weeding status. Withdrawal uses `item_withdrawals_create`.
-    async fn items_set_weeding(&self, item_id: i64, status: crate::models::item::WeedingStatus, reason: Option<String>) -> AppResult<Item>;
-    async fn biblios_find_active_by_isbn(&self, isbn: &str, exclude_id: Option<i64>) -> AppResult<Option<i64>>;
-    async fn items_find_short_by_barcode(&self, barcode: &str, exclude_item_id: Option<i64>) -> AppResult<Option<ItemShort>>;
-    async fn biblios_find_by_isbn_for_import(&self, isbn: &str) -> AppResult<Option<DuplicateCandidate>>;
+    async fn items_set_weeding(
+        &self,
+        item_id: i64,
+        status: crate::models::item::WeedingStatus,
+        reason: Option<String>,
+    ) -> AppResult<Item>;
+    async fn biblios_find_active_by_isbn(
+        &self,
+        isbn: &str,
+        exclude_id: Option<i64>,
+    ) -> AppResult<Option<i64>>;
+    async fn items_find_short_by_barcode(
+        &self,
+        barcode: &str,
+        exclude_item_id: Option<i64>,
+    ) -> AppResult<Option<ItemShort>>;
+    async fn biblios_find_by_isbn_for_import(
+        &self,
+        isbn: &str,
+    ) -> AppResult<Option<DuplicateCandidate>>;
     async fn biblios_update_marc_record(&self, biblio: &mut Biblio) -> AppResult<()>;
     async fn biblios_isbn_exists(&self, isbn: &str, exclude_id: Option<i64>) -> AppResult<bool>;
     async fn biblios_count_items_for_site(&self, site_id: i64) -> AppResult<i64>;
-    async fn biblios_reassign_items_site(&self, old_site_ids: &[i64], new_site_id: i64) -> AppResult<i64>;
-    async fn biblios_reassign_biblios_site(&self, old_site_ids: &[i64], new_site_id: i64) -> AppResult<i64>;
+    async fn biblios_reassign_items_site(
+        &self,
+        old_site_ids: &[i64],
+        new_site_id: i64,
+    ) -> AppResult<i64>;
+    async fn biblios_reassign_biblios_site(
+        &self,
+        old_site_ids: &[i64],
+        new_site_id: i64,
+    ) -> AppResult<i64>;
     /// Stored MARC JSON from `biblios.marc_record`, if non-null (notice without local items for export).
-    async fn biblios_get_marc_record_optional(&self, biblio_id: i64) -> AppResult<Option<crate::marc::MarcRecord>>;
+    async fn biblios_get_marc_record_optional(
+        &self,
+        biblio_id: i64,
+    ) -> AppResult<Option<crate::marc::MarcRecord>>;
     /// Active biblios with a non-empty ISBN, optionally restricted to `marc_record IS NULL` when `force_rebuild` is false.
     async fn biblios_list_ids_for_z3950_refresh(&self, force_rebuild: bool) -> AppResult<Vec<i64>>;
     /// Replace bibliographic columns and `marc_record` (items are taken from `biblio.items` — caller must set copies to keep).
-    async fn biblios_full_bibliographic_replace<'a>(&self, id: i64, biblio: &'a mut crate::models::biblio::Biblio) -> AppResult<&'a mut crate::models::biblio::Biblio>;
-    async fn item_withdrawals_create(&self, item_id: i64, agent_id: i64, input: &WithdrawalWrite) -> AppResult<ItemWithdrawal>;
-    async fn item_withdrawals_create_many(&self, item_ids: &[i64], agent_id: i64, input: &WithdrawalWrite) -> AppResult<Vec<ItemWithdrawal>>;
+    async fn biblios_full_bibliographic_replace<'a>(
+        &self,
+        id: i64,
+        biblio: &'a mut crate::models::biblio::Biblio,
+    ) -> AppResult<&'a mut crate::models::biblio::Biblio>;
+    async fn item_withdrawals_create(
+        &self,
+        item_id: i64,
+        agent_id: i64,
+        input: &WithdrawalWrite,
+    ) -> AppResult<ItemWithdrawal>;
+    async fn item_withdrawals_create_many(
+        &self,
+        item_ids: &[i64],
+        agent_id: i64,
+        input: &WithdrawalWrite,
+    ) -> AppResult<Vec<ItemWithdrawal>>;
     async fn item_withdrawals_cancel(&self, id: i64, agent_id: i64) -> AppResult<ItemWithdrawal>;
-    async fn item_withdrawals_dispose(&self, ids: &[i64], agent_id: i64, disposed_at: chrono::DateTime<chrono::Utc>) -> AppResult<Vec<ItemWithdrawal>>;
-    async fn item_withdrawals_complete(&self, id: i64, input: &WithdrawalWrite) -> AppResult<ItemWithdrawal>;
+    async fn item_withdrawals_dispose(
+        &self,
+        ids: &[i64],
+        agent_id: i64,
+        disposed_at: chrono::DateTime<chrono::Utc>,
+    ) -> AppResult<Vec<ItemWithdrawal>>;
+    async fn item_withdrawals_complete(
+        &self,
+        id: i64,
+        input: &WithdrawalWrite,
+    ) -> AppResult<ItemWithdrawal>;
     async fn item_withdrawals_list(&self, query: &WithdrawalQuery) -> AppResult<WithdrawalList>;
     async fn item_withdrawals_get(&self, id: i64) -> AppResult<ItemWithdrawal>;
     async fn item_withdrawals_active_for_item(&self, item_id: i64) -> AppResult<ItemWithdrawal>;
-    async fn item_withdrawals_export_rows(&self, query: &WithdrawalQuery) -> AppResult<Vec<WithdrawalCsvSource>>;
-    async fn weeding_candidates_list(&self, query: &crate::models::dto::weeding::WeedingCandidateQuery) -> AppResult<crate::models::dto::weeding::WeedingCandidateList>;
+    async fn item_withdrawals_export_rows(
+        &self,
+        query: &WithdrawalQuery,
+    ) -> AppResult<Vec<WithdrawalCsvSource>>;
+    async fn weeding_candidates_list(
+        &self,
+        query: &crate::models::dto::weeding::WeedingCandidateQuery,
+    ) -> AppResult<crate::models::dto::weeding::WeedingCandidateList>;
     async fn user_preferred_language(&self, user_id: i64) -> AppResult<Option<String>>;
     async fn library_zone(&self) -> AppResult<chrono_tz::Tz>;
 }
 
 #[async_trait::async_trait]
 impl BibliosRepository for Repository {
-    async fn biblios_get_by_id(&self, id: i64) -> crate::error::AppResult<crate::models::biblio::Biblio> {
+    async fn biblios_get_by_id(
+        &self,
+        id: i64,
+    ) -> crate::error::AppResult<crate::models::biblio::Biblio> {
         Repository::biblios_get_by_id(self, id).await
     }
-    async fn biblios_get_short_by_id(&self, id: i64) -> crate::error::AppResult<crate::models::biblio::BiblioShort> {
+    async fn biblios_get_short_by_id(
+        &self,
+        id: i64,
+    ) -> crate::error::AppResult<crate::models::biblio::BiblioShort> {
         Repository::biblios_get_short_by_id(self, id).await
     }
-    async fn biblios_search(&self, query: &crate::models::biblio::BiblioQuery) -> crate::error::AppResult<(Vec<crate::models::biblio::BiblioShort>, i64)> {
+    async fn biblios_search(
+        &self,
+        query: &crate::models::biblio::BiblioQuery,
+    ) -> crate::error::AppResult<(Vec<crate::models::biblio::BiblioShort>, i64)> {
         Repository::biblios_search(self, query).await
     }
-    async fn biblios_get_by_series(&self, series_id: i64) -> crate::error::AppResult<Vec<crate::models::biblio::BiblioShort>> {
+    async fn biblios_get_by_series(
+        &self,
+        series_id: i64,
+    ) -> crate::error::AppResult<Vec<crate::models::biblio::BiblioShort>> {
         Repository::biblios_get_by_series(self, series_id).await
     }
-    async fn biblios_get_by_collection(&self, collection_id: i64) -> crate::error::AppResult<Vec<crate::models::biblio::BiblioShort>> {
+    async fn biblios_get_by_collection(
+        &self,
+        collection_id: i64,
+    ) -> crate::error::AppResult<Vec<crate::models::biblio::BiblioShort>> {
         Repository::biblios_get_by_collection(self, collection_id).await
     }
-    async fn biblios_get_meili_document(&self, id: i64) -> crate::error::AppResult<Option<crate::models::biblio::MeiliBiblioDocument>> {
+    async fn biblios_get_meili_document(
+        &self,
+        id: i64,
+    ) -> crate::error::AppResult<Option<crate::models::biblio::MeiliBiblioDocument>> {
         Repository::biblios_get_meili_document(self, id).await
     }
-    async fn biblios_get_meili_documents_batch(&self, after_id: i64, limit: i64) -> crate::error::AppResult<Vec<crate::models::biblio::MeiliBiblioDocument>> {
+    async fn biblios_get_meili_documents_batch(
+        &self,
+        after_id: i64,
+        limit: i64,
+    ) -> crate::error::AppResult<Vec<crate::models::biblio::MeiliBiblioDocument>> {
         Repository::biblios_get_meili_documents_batch(self, after_id, limit).await
     }
-    async fn biblios_get_short_by_ids_ordered(&self, ids: &[i64]) -> crate::error::AppResult<Vec<crate::models::biblio::BiblioShort>> {
+    async fn biblios_get_short_by_ids_ordered(
+        &self,
+        ids: &[i64],
+    ) -> crate::error::AppResult<Vec<crate::models::biblio::BiblioShort>> {
         Repository::biblios_get_short_by_ids_ordered(self, ids).await
     }
-    async fn biblios_create<'a>(&self, biblio: &'a mut crate::models::biblio::Biblio) -> crate::error::AppResult<&'a mut crate::models::biblio::Biblio> {
+    async fn biblios_create<'a>(
+        &self,
+        biblio: &'a mut crate::models::biblio::Biblio,
+    ) -> crate::error::AppResult<&'a mut crate::models::biblio::Biblio> {
         Repository::biblios_create(self, biblio).await
     }
-    async fn biblios_update<'a>(&self, id: i64, biblio: &'a mut crate::models::biblio::Biblio) -> crate::error::AppResult<&'a mut crate::models::biblio::Biblio> {
+    async fn biblios_update<'a>(
+        &self,
+        id: i64,
+        biblio: &'a mut crate::models::biblio::Biblio,
+    ) -> crate::error::AppResult<&'a mut crate::models::biblio::Biblio> {
         Repository::biblios_update(self, id, biblio).await
     }
     async fn biblios_delete(&self, id: i64, force: bool) -> crate::error::AppResult<()> {
@@ -152,88 +260,183 @@ impl BibliosRepository for Repository {
     async fn biblios_archive_if_orphan(&self, biblio_id: i64) -> crate::error::AppResult<bool> {
         Repository::biblios_archive_if_orphan(self, biblio_id).await
     }
-    async fn biblios_get_items(&self, biblio_id: i64) -> crate::error::AppResult<Vec<crate::models::item::Item>> {
+    async fn biblios_get_items(
+        &self,
+        biblio_id: i64,
+    ) -> crate::error::AppResult<Vec<crate::models::item::Item>> {
         Repository::biblios_get_items(self, biblio_id).await
     }
-    async fn items_get_active_by_id(&self, item_id: i64) -> crate::error::AppResult<crate::models::item::Item> {
+    async fn items_get_active_by_id(
+        &self,
+        item_id: i64,
+    ) -> crate::error::AppResult<crate::models::item::Item> {
         Repository::items_get_active_by_id(self, item_id).await
     }
-    async fn items_get_active_by_barcode(&self, barcode: &str) -> crate::error::AppResult<crate::models::item::Item> {
+    async fn items_get_active_by_barcode(
+        &self,
+        barcode: &str,
+    ) -> crate::error::AppResult<crate::models::item::Item> {
         Repository::items_get_active_by_barcode(self, barcode).await
     }
-    async fn biblios_get_items_short_by_biblio_ids(&self, biblio_ids: &[i64]) -> crate::error::AppResult<std::collections::HashMap<i64, Vec<crate::models::item::ItemShort>>> {
+    async fn biblios_get_items_short_by_biblio_ids(
+        &self,
+        biblio_ids: &[i64],
+    ) -> crate::error::AppResult<std::collections::HashMap<i64, Vec<crate::models::item::ItemShort>>>
+    {
         Repository::biblios_get_items_short_by_biblio_ids(self, biblio_ids).await
     }
-    async fn biblios_create_item(&self, biblio_id: i64, item: &crate::models::item::Item) -> crate::error::AppResult<crate::models::item::Item> {
+    async fn biblios_create_item(
+        &self,
+        biblio_id: i64,
+        item: &crate::models::item::Item,
+    ) -> crate::error::AppResult<crate::models::item::Item> {
         Repository::biblios_create_item(self, biblio_id, item).await
     }
-    async fn upsert_item<'a>(&self, item: &'a mut crate::models::item::Item) -> crate::error::AppResult<&'a mut crate::models::item::Item> {
+    async fn upsert_item<'a>(
+        &self,
+        item: &'a mut crate::models::item::Item,
+    ) -> crate::error::AppResult<&'a mut crate::models::item::Item> {
         Repository::upsert_item(self, item).await
     }
-    async fn items_update<'a>(&self, item: &'a mut crate::models::item::Item) -> crate::error::AppResult<&'a mut crate::models::item::Item> {
+    async fn items_update<'a>(
+        &self,
+        item: &'a mut crate::models::item::Item,
+    ) -> crate::error::AppResult<&'a mut crate::models::item::Item> {
         Repository::items_update(self, item).await
     }
     async fn items_delete(&self, id: i64, force: bool) -> crate::error::AppResult<()> {
         Repository::items_delete(self, id, force).await
     }
-    async fn items_barcode_exists(&self, barcode: &str, exclude_item_id: Option<i64>) -> crate::error::AppResult<bool> {
+    async fn items_barcode_exists(
+        &self,
+        barcode: &str,
+        exclude_item_id: Option<i64>,
+    ) -> crate::error::AppResult<bool> {
         Repository::items_barcode_exists(self, barcode, exclude_item_id).await
     }
-    async fn items_get_by_barcode(&self, barcode: &str) -> crate::error::AppResult<Option<(i64, bool)>> {
+    async fn items_get_by_barcode(
+        &self,
+        barcode: &str,
+    ) -> crate::error::AppResult<Option<(i64, bool)>> {
         Repository::items_get_by_barcode(self, barcode).await
     }
-    async fn items_reactivate(&self, item_id: i64, biblio_id: i64, item: &crate::models::item::Item) -> crate::error::AppResult<crate::models::item::Item> {
+    async fn items_reactivate(
+        &self,
+        item_id: i64,
+        biblio_id: i64,
+        item: &crate::models::item::Item,
+    ) -> crate::error::AppResult<crate::models::item::Item> {
         Repository::items_reactivate(self, item_id, biblio_id, item).await
     }
-    async fn items_set_weeding(&self, item_id: i64, status: crate::models::item::WeedingStatus, reason: Option<String>) -> crate::error::AppResult<crate::models::item::Item> {
+    async fn items_set_weeding(
+        &self,
+        item_id: i64,
+        status: crate::models::item::WeedingStatus,
+        reason: Option<String>,
+    ) -> crate::error::AppResult<crate::models::item::Item> {
         Repository::items_set_weeding(self, item_id, status, reason).await
     }
-    async fn biblios_find_active_by_isbn(&self, isbn: &str, exclude_id: Option<i64>) -> crate::error::AppResult<Option<i64>> {
+    async fn biblios_find_active_by_isbn(
+        &self,
+        isbn: &str,
+        exclude_id: Option<i64>,
+    ) -> crate::error::AppResult<Option<i64>> {
         Repository::biblios_find_active_by_isbn(self, isbn, exclude_id).await
     }
-    async fn items_find_short_by_barcode(&self, barcode: &str, exclude_item_id: Option<i64>) -> crate::error::AppResult<Option<crate::models::item::ItemShort>> {
+    async fn items_find_short_by_barcode(
+        &self,
+        barcode: &str,
+        exclude_item_id: Option<i64>,
+    ) -> crate::error::AppResult<Option<crate::models::item::ItemShort>> {
         Repository::items_find_short_by_barcode(self, barcode, exclude_item_id).await
     }
-    async fn biblios_find_by_isbn_for_import(&self, isbn: &str) -> crate::error::AppResult<Option<crate::models::import_report::DuplicateCandidate>> {
+    async fn biblios_find_by_isbn_for_import(
+        &self,
+        isbn: &str,
+    ) -> crate::error::AppResult<Option<crate::models::import_report::DuplicateCandidate>> {
         Repository::biblios_find_by_isbn_for_import(self, isbn).await
     }
-    async fn biblios_update_marc_record(&self, biblio: &mut crate::models::biblio::Biblio) -> crate::error::AppResult<()> {
+    async fn biblios_update_marc_record(
+        &self,
+        biblio: &mut crate::models::biblio::Biblio,
+    ) -> crate::error::AppResult<()> {
         Repository::biblios_update_marc_record(self, biblio).await
     }
-    async fn biblios_isbn_exists(&self, isbn: &str, exclude_id: Option<i64>) -> crate::error::AppResult<bool> {
+    async fn biblios_isbn_exists(
+        &self,
+        isbn: &str,
+        exclude_id: Option<i64>,
+    ) -> crate::error::AppResult<bool> {
         Repository::biblios_isbn_exists(self, isbn, exclude_id).await
     }
     async fn biblios_count_items_for_site(&self, site_id: i64) -> crate::error::AppResult<i64> {
         Repository::biblios_count_items_for_site(self, site_id).await
     }
-    async fn biblios_reassign_items_site(&self, old_site_ids: &[i64], new_site_id: i64) -> crate::error::AppResult<i64> {
+    async fn biblios_reassign_items_site(
+        &self,
+        old_site_ids: &[i64],
+        new_site_id: i64,
+    ) -> crate::error::AppResult<i64> {
         Repository::biblios_reassign_items_site(self, old_site_ids, new_site_id).await
     }
-    async fn biblios_reassign_biblios_site(&self, old_site_ids: &[i64], new_site_id: i64) -> crate::error::AppResult<i64> {
+    async fn biblios_reassign_biblios_site(
+        &self,
+        old_site_ids: &[i64],
+        new_site_id: i64,
+    ) -> crate::error::AppResult<i64> {
         Repository::biblios_reassign_biblios_site(self, old_site_ids, new_site_id).await
     }
-    async fn biblios_get_marc_record_optional(&self, biblio_id: i64) -> crate::error::AppResult<Option<crate::marc::MarcRecord>> {
+    async fn biblios_get_marc_record_optional(
+        &self,
+        biblio_id: i64,
+    ) -> crate::error::AppResult<Option<crate::marc::MarcRecord>> {
         Repository::biblios_get_marc_record_optional(self, biblio_id).await
     }
-    async fn biblios_list_ids_for_z3950_refresh(&self, force_rebuild: bool) -> crate::error::AppResult<Vec<i64>> {
+    async fn biblios_list_ids_for_z3950_refresh(
+        &self,
+        force_rebuild: bool,
+    ) -> crate::error::AppResult<Vec<i64>> {
         Repository::biblios_list_ids_for_z3950_refresh(self, force_rebuild).await
     }
-    async fn biblios_full_bibliographic_replace<'a>(&self, id: i64, biblio: &'a mut crate::models::biblio::Biblio) -> crate::error::AppResult<&'a mut crate::models::biblio::Biblio> {
+    async fn biblios_full_bibliographic_replace<'a>(
+        &self,
+        id: i64,
+        biblio: &'a mut crate::models::biblio::Biblio,
+    ) -> crate::error::AppResult<&'a mut crate::models::biblio::Biblio> {
         Repository::biblios_full_bibliographic_replace(self, id, biblio).await
     }
-    async fn item_withdrawals_create(&self, item_id: i64, agent_id: i64, input: &WithdrawalWrite) -> AppResult<ItemWithdrawal> {
+    async fn item_withdrawals_create(
+        &self,
+        item_id: i64,
+        agent_id: i64,
+        input: &WithdrawalWrite,
+    ) -> AppResult<ItemWithdrawal> {
         Repository::item_withdrawals_create(self, item_id, agent_id, input).await
     }
-    async fn item_withdrawals_create_many(&self, item_ids: &[i64], agent_id: i64, input: &WithdrawalWrite) -> AppResult<Vec<ItemWithdrawal>> {
+    async fn item_withdrawals_create_many(
+        &self,
+        item_ids: &[i64],
+        agent_id: i64,
+        input: &WithdrawalWrite,
+    ) -> AppResult<Vec<ItemWithdrawal>> {
         Repository::item_withdrawals_create_many(self, item_ids, agent_id, input).await
     }
     async fn item_withdrawals_cancel(&self, id: i64, agent_id: i64) -> AppResult<ItemWithdrawal> {
         Repository::item_withdrawals_cancel(self, id, agent_id).await
     }
-    async fn item_withdrawals_dispose(&self, ids: &[i64], agent_id: i64, disposed_at: chrono::DateTime<chrono::Utc>) -> AppResult<Vec<ItemWithdrawal>> {
+    async fn item_withdrawals_dispose(
+        &self,
+        ids: &[i64],
+        agent_id: i64,
+        disposed_at: chrono::DateTime<chrono::Utc>,
+    ) -> AppResult<Vec<ItemWithdrawal>> {
         Repository::item_withdrawals_dispose(self, ids, agent_id, disposed_at).await
     }
-    async fn item_withdrawals_complete(&self, id: i64, input: &WithdrawalWrite) -> AppResult<ItemWithdrawal> {
+    async fn item_withdrawals_complete(
+        &self,
+        id: i64,
+        input: &WithdrawalWrite,
+    ) -> AppResult<ItemWithdrawal> {
         Repository::item_withdrawals_complete(self, id, input).await
     }
     async fn item_withdrawals_list(&self, query: &WithdrawalQuery) -> AppResult<WithdrawalList> {
@@ -245,10 +448,16 @@ impl BibliosRepository for Repository {
     async fn item_withdrawals_active_for_item(&self, item_id: i64) -> AppResult<ItemWithdrawal> {
         Repository::item_withdrawals_active_for_item(self, item_id).await
     }
-    async fn item_withdrawals_export_rows(&self, query: &WithdrawalQuery) -> AppResult<Vec<WithdrawalCsvSource>> {
+    async fn item_withdrawals_export_rows(
+        &self,
+        query: &WithdrawalQuery,
+    ) -> AppResult<Vec<WithdrawalCsvSource>> {
         Repository::item_withdrawals_export_rows(self, query).await
     }
-    async fn weeding_candidates_list(&self, query: &crate::models::dto::weeding::WeedingCandidateQuery) -> AppResult<crate::models::dto::weeding::WeedingCandidateList> {
+    async fn weeding_candidates_list(
+        &self,
+        query: &crate::models::dto::weeding::WeedingCandidateQuery,
+    ) -> AppResult<crate::models::dto::weeding::WeedingCandidateList> {
         Repository::weeding_candidates_list(self, query).await
     }
     async fn user_preferred_language(&self, user_id: i64) -> AppResult<Option<String>> {
@@ -341,7 +550,9 @@ impl From<BiblioShortRow> for BiblioShort {
 
 /// Escape a string for use as a LIKE pattern (ESCAPE '\').
 pub(crate) fn like_escape(s: &str) -> String {
-    s.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
+    s.replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
 }
 
 pub(crate) fn normalize_key(s: &str) -> String {

@@ -167,7 +167,10 @@ pub enum ReclassifyFailure {
 
 impl ReclassifyFailure {
     fn invalid(message: impl Into<String>) -> Self {
-        Self::Invalid(InvalidArgument { code: None, message: message.into() })
+        Self::Invalid(InvalidArgument {
+            code: None,
+            message: message.into(),
+        })
     }
 
     fn invalid_coded(code: &'static str, message: impl Into<String>) -> Self {
@@ -325,7 +328,10 @@ fn decide(facts: &ItemFacts, target_batch_id: Option<i64>, site_id: i64) -> Deci
     if facts.archived || facts.withdrawn {
         return Decision::Refused(LineReason::ItemArchived);
     }
-    if target_batch_id.is_some() && facts.deposit_batch_id == target_batch_id && facts.site_id == Some(site_id) {
+    if target_batch_id.is_some()
+        && facts.deposit_batch_id == target_batch_id
+        && facts.site_id == Some(site_id)
+    {
         return Decision::Already;
     }
     if facts.deposit_batch_id.is_some() && facts.deposit_batch_id != target_batch_id {
@@ -447,11 +453,15 @@ pub async fn run(args: &[String]) -> Result<(), ReclassifyFailure> {
     let invocation = parse_invocation(args)?;
     if let Some(path) = &invocation.config_path {
         if !Path::new(path).is_file() {
-            return Err(ReclassifyFailure::invalid(format!("config file not found: {path}")));
+            return Err(ReclassifyFailure::invalid(format!(
+                "config file not found: {path}"
+            )));
         }
     }
     dotenvy::dotenv().ok();
-    let config = AppConfig::load(invocation.config_path.as_deref()).map_err(|err| ReclassifyFailure::invalid(format!("failed to load configuration: {err}")))?;
+    let config = AppConfig::load(invocation.config_path.as_deref()).map_err(|err| {
+        ReclassifyFailure::invalid(format!("failed to load configuration: {err}"))
+    })?;
     let pool = connect_database(&config.database).await.map_err(failed)?;
     let report = execute(&pool, &invocation.command).await?;
     print!("{}", render_report(&report, invocation.format));
@@ -460,7 +470,11 @@ pub async fn run(args: &[String]) -> Result<(), ReclassifyFailure> {
 }
 
 async fn connect_database(db: &DatabaseConfig) -> Result<PgPool, sqlx::Error> {
-    PgPoolOptions::new().max_connections(db.max_connections).min_connections(db.min_connections).connect(&db.url).await
+    PgPoolOptions::new()
+        .max_connections(db.max_connections)
+        .min_connections(db.min_connections)
+        .connect(&db.url)
+        .await
 }
 
 /// Parse CLI arguments. Does not open the database or the barcode file's parent checks
@@ -486,58 +500,109 @@ pub fn parse_invocation(args: &[String]) -> Result<Invocation, ReclassifyFailure
         match flag {
             "--apply" => {
                 if apply {
-                    return Err(ReclassifyFailure::invalid("--apply was given more than once"));
+                    return Err(ReclassifyFailure::invalid(
+                        "--apply was given more than once",
+                    ));
                 }
                 apply = true;
             }
             "--config" | "-c" => {
-                set_once(&mut config_path, flag, take_value(args, &mut index, flag)?.to_string())?;
+                set_once(
+                    &mut config_path,
+                    flag,
+                    take_value(args, &mut index, flag)?.to_string(),
+                )?;
             }
             "--format" => {
-                set_once(&mut format, flag, parse_format(take_value(args, &mut index, flag)?)?)?;
+                set_once(
+                    &mut format,
+                    flag,
+                    parse_format(take_value(args, &mut index, flag)?)?,
+                )?;
             }
             "--lender" => {
-                set_once(&mut lender_id, flag, parse_id(flag, take_value(args, &mut index, flag)?)?)?;
+                set_once(
+                    &mut lender_id,
+                    flag,
+                    parse_id(flag, take_value(args, &mut index, flag)?)?,
+                )?;
             }
             "--batch-reference" => {
-                set_once(&mut batch_reference, flag, parse_reference(take_value(args, &mut index, flag)?)?)?;
+                set_once(
+                    &mut batch_reference,
+                    flag,
+                    parse_reference(take_value(args, &mut index, flag)?)?,
+                )?;
             }
             "--return-due-on" => {
-                set_once(&mut return_due_on, flag, parse_date(flag, take_value(args, &mut index, flag)?)?)?;
+                set_once(
+                    &mut return_due_on,
+                    flag,
+                    parse_date(flag, take_value(args, &mut index, flag)?)?,
+                )?;
             }
             "--received-on" => {
-                set_once(&mut received_on, flag, parse_date(flag, take_value(args, &mut index, flag)?)?)?;
+                set_once(
+                    &mut received_on,
+                    flag,
+                    parse_date(flag, take_value(args, &mut index, flag)?)?,
+                )?;
             }
             "--notes" => {
-                set_once(&mut notes, flag, parse_notes(take_value(args, &mut index, flag)?)?)?;
+                set_once(
+                    &mut notes,
+                    flag,
+                    parse_notes(take_value(args, &mut index, flag)?)?,
+                )?;
             }
             "--site" => {
-                set_once(&mut site_id, flag, parse_id(flag, take_value(args, &mut index, flag)?)?)?;
+                set_once(
+                    &mut site_id,
+                    flag,
+                    parse_id(flag, take_value(args, &mut index, flag)?)?,
+                )?;
             }
             "--from-site" => {
-                set_once(&mut from_site, flag, parse_id(flag, take_value(args, &mut index, flag)?)?)?;
+                set_once(
+                    &mut from_site,
+                    flag,
+                    parse_id(flag, take_value(args, &mut index, flag)?)?,
+                )?;
             }
             "--barcodes" => {
-                set_once(&mut barcodes_path, flag, take_value(args, &mut index, flag)?.to_string())?;
+                set_once(
+                    &mut barcodes_path,
+                    flag,
+                    take_value(args, &mut index, flag)?.to_string(),
+                )?;
             }
             other if other.starts_with('-') => {
-                return Err(ReclassifyFailure::invalid(format!("unknown option {other}")));
+                return Err(ReclassifyFailure::invalid(format!(
+                    "unknown option {other}"
+                )));
             }
             other => {
-                return Err(ReclassifyFailure::invalid(format!("unexpected argument {other}")));
+                return Err(ReclassifyFailure::invalid(format!(
+                    "unexpected argument {other}"
+                )));
             }
         }
     }
 
     let lender_id = lender_id.ok_or_else(|| ReclassifyFailure::invalid("--lender is required"))?;
-    let batch_reference = batch_reference.ok_or_else(|| ReclassifyFailure::invalid("--batch-reference is required"))?;
+    let batch_reference = batch_reference
+        .ok_or_else(|| ReclassifyFailure::invalid("--batch-reference is required"))?;
     let site_id = site_id.ok_or_else(|| ReclassifyFailure::invalid("--site is required"))?;
     let selection = match (from_site, barcodes_path) {
         (Some(_), Some(_)) => {
-            return Err(ReclassifyFailure::invalid("pass exactly one of --from-site or --barcodes"));
+            return Err(ReclassifyFailure::invalid(
+                "pass exactly one of --from-site or --barcodes",
+            ));
         }
         (None, None) => {
-            return Err(ReclassifyFailure::invalid("pass exactly one of --from-site or --barcodes"));
+            return Err(ReclassifyFailure::invalid(
+                "pass exactly one of --from-site or --barcodes",
+            ));
         }
         (Some(site_id), None) => Selection::FromSource(site_id),
         (None, Some(path)) => Selection::Barcodes(read_barcodes(&path)?),
@@ -559,30 +624,43 @@ pub fn parse_invocation(args: &[String]) -> Result<Invocation, ReclassifyFailure
     })
 }
 
-fn take_value<'a>(args: &'a [String], index: &mut usize, flag: &str) -> Result<&'a str, ReclassifyFailure> {
-    let value = args.get(*index).ok_or_else(|| ReclassifyFailure::invalid(format!("{flag} requires a value")))?;
+fn take_value<'a>(
+    args: &'a [String],
+    index: &mut usize,
+    flag: &str,
+) -> Result<&'a str, ReclassifyFailure> {
+    let value = args
+        .get(*index)
+        .ok_or_else(|| ReclassifyFailure::invalid(format!("{flag} requires a value")))?;
     *index += 1;
     Ok(value.as_str())
 }
 
 fn set_once<T>(slot: &mut Option<T>, flag: &str, value: T) -> Result<(), ReclassifyFailure> {
     if slot.is_some() {
-        return Err(ReclassifyFailure::invalid(format!("{flag} was given more than once")));
+        return Err(ReclassifyFailure::invalid(format!(
+            "{flag} was given more than once"
+        )));
     }
     *slot = Some(value);
     Ok(())
 }
 
 fn parse_id(flag: &str, raw: &str) -> Result<i64, ReclassifyFailure> {
-    let id = raw.parse::<i64>().map_err(|_| ReclassifyFailure::invalid(format!("{flag} must be an integer id")))?;
+    let id = raw
+        .parse::<i64>()
+        .map_err(|_| ReclassifyFailure::invalid(format!("{flag} must be an integer id")))?;
     if id <= 0 {
-        return Err(ReclassifyFailure::invalid(format!("{flag} must be a positive id")));
+        return Err(ReclassifyFailure::invalid(format!(
+            "{flag} must be a positive id"
+        )));
     }
     Ok(id)
 }
 
 fn parse_date(flag: &str, raw: &str) -> Result<NaiveDate, ReclassifyFailure> {
-    NaiveDate::parse_from_str(raw, "%Y-%m-%d").map_err(|_| ReclassifyFailure::invalid(format!("{flag} must be YYYY-MM-DD")))
+    NaiveDate::parse_from_str(raw, "%Y-%m-%d")
+        .map_err(|_| ReclassifyFailure::invalid(format!("{flag} must be YYYY-MM-DD")))
 }
 
 fn parse_format(raw: &str) -> Result<ReportFormat, ReclassifyFailure> {
@@ -596,10 +674,14 @@ fn parse_format(raw: &str) -> Result<ReportFormat, ReclassifyFailure> {
 fn parse_reference(raw: &str) -> Result<String, ReclassifyFailure> {
     let reference = raw.trim();
     if reference.is_empty() {
-        return Err(ReclassifyFailure::invalid("--batch-reference must not be empty"));
+        return Err(ReclassifyFailure::invalid(
+            "--batch-reference must not be empty",
+        ));
     }
     if reference.chars().count() > REFERENCE_MAX_CHARS {
-        return Err(ReclassifyFailure::invalid(format!("--batch-reference must be at most {REFERENCE_MAX_CHARS} characters")));
+        return Err(ReclassifyFailure::invalid(format!(
+            "--batch-reference must be at most {REFERENCE_MAX_CHARS} characters"
+        )));
     }
     Ok(reference.to_string())
 }
@@ -610,16 +692,21 @@ fn parse_notes(raw: &str) -> Result<Option<String>, ReclassifyFailure> {
         return Ok(None);
     }
     if notes.chars().count() > NOTES_MAX_CHARS {
-        return Err(ReclassifyFailure::invalid(format!("--notes must be at most {NOTES_MAX_CHARS} characters")));
+        return Err(ReclassifyFailure::invalid(format!(
+            "--notes must be at most {NOTES_MAX_CHARS} characters"
+        )));
     }
     Ok(Some(notes.to_string()))
 }
 
 fn read_barcodes(path: &str) -> Result<Vec<String>, ReclassifyFailure> {
-    let text = std::fs::read_to_string(path).map_err(|err| ReclassifyFailure::invalid(format!("cannot read {path}: {err}")))?;
+    let text = std::fs::read_to_string(path)
+        .map_err(|err| ReclassifyFailure::invalid(format!("cannot read {path}: {err}")))?;
     let codes = parse_barcode_list(&text);
     if codes.is_empty() {
-        return Err(ReclassifyFailure::invalid(format!("{path} contains no barcodes")));
+        return Err(ReclassifyFailure::invalid(format!(
+            "{path} contains no barcodes"
+        )));
     }
     Ok(codes)
 }
@@ -628,7 +715,11 @@ fn read_barcodes(path: &str) -> Result<Vec<String>, ReclassifyFailure> {
 /// When the first line has a comma and no barcode header, the first column is used.
 fn parse_barcode_list(text: &str) -> Vec<String> {
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
-    let lines: Vec<&str> = text.lines().map(str::trim).filter(|line| !line.is_empty()).collect();
+    let lines: Vec<&str> = text
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect();
     if lines.is_empty() {
         return Vec::new();
     }
@@ -636,10 +727,15 @@ fn parse_barcode_list(text: &str) -> Vec<String> {
     let records: Vec<Vec<String>> = if csv {
         lines.iter().copied().map(split_csv_line).collect()
     } else {
-        lines.iter().copied().map(|line| vec![line.to_string()]).collect()
+        lines
+            .iter()
+            .copied()
+            .map(|line| vec![line.to_string()])
+            .collect()
     };
     let (start, column) = if csv {
-        barcode_column(records.first().map(Vec::as_slice).unwrap_or(&[])).map_or((0, 0), |column| (1, column))
+        barcode_column(records.first().map(Vec::as_slice).unwrap_or(&[]))
+            .map_or((0, 0), |column| (1, column))
     } else {
         (0, 0)
     };
@@ -659,7 +755,9 @@ fn parse_barcode_list(text: &str) -> Vec<String> {
 }
 
 fn barcode_column(fields: &[String]) -> Option<usize> {
-    fields.iter().position(|field| field.trim().eq_ignore_ascii_case("barcode"))
+    fields
+        .iter()
+        .position(|field| field.trim().eq_ignore_ascii_case("barcode"))
 }
 
 fn split_csv_line(line: &str) -> Vec<String> {
@@ -693,7 +791,10 @@ fn split_csv_line(line: &str) -> Vec<String> {
 }
 
 /// Dry-run or apply the command. Apply commits one transaction; a dry run rolls back.
-pub async fn execute(pool: &PgPool, command: &ReclassifyCommand) -> Result<Report, ReclassifyFailure> {
+pub async fn execute(
+    pool: &PgPool,
+    command: &ReclassifyCommand,
+) -> Result<Report, ReclassifyFailure> {
     validate_command(command)?;
     let mut tx = pool.begin().await.map_err(failed)?;
     let result = execute_in_tx(&mut tx, command).await;
@@ -721,25 +822,36 @@ fn validate_command(command: &ReclassifyCommand) -> Result<(), ReclassifyFailure
         return Err(ReclassifyFailure::invalid("--site must be a positive id"));
     }
     if command.batch_reference.trim().is_empty() {
-        return Err(ReclassifyFailure::invalid("--batch-reference must not be empty"));
+        return Err(ReclassifyFailure::invalid(
+            "--batch-reference must not be empty",
+        ));
     }
     if let Selection::FromSource(site_id) = command.selection {
         if site_id <= 0 {
-            return Err(ReclassifyFailure::invalid("--from-site must be a positive id"));
+            return Err(ReclassifyFailure::invalid(
+                "--from-site must be a positive id",
+            ));
         }
         if site_id == command.site_id {
-            return Err(ReclassifyFailure::invalid("--from-site must not equal --site"));
+            return Err(ReclassifyFailure::invalid(
+                "--from-site must not equal --site",
+            ));
         }
     }
     if let Selection::Barcodes(codes) = &command.selection {
         if codes.is_empty() {
-            return Err(ReclassifyFailure::invalid("--barcodes did not contain any barcodes"));
+            return Err(ReclassifyFailure::invalid(
+                "--barcodes did not contain any barcodes",
+            ));
         }
     }
     Ok(())
 }
 
-async fn execute_in_tx(tx: &mut Tx<'_>, command: &ReclassifyCommand) -> Result<Report, ReclassifyFailure> {
+async fn execute_in_tx(
+    tx: &mut Tx<'_>,
+    command: &ReclassifyCommand,
+) -> Result<Report, ReclassifyFailure> {
     ensure_lender(tx, command.lender_id).await?;
     ensure_site(tx, command.site_id).await?;
     if let Selection::FromSource(site_id) = command.selection {
@@ -750,7 +862,9 @@ async fn execute_in_tx(tx: &mut Tx<'_>, command: &ReclassifyCommand) -> Result<R
     let biblio_ids = distinct_biblio_ids(&planned);
     let duplicates = find_duplicates(tx, &biblio_ids).await?;
     if command.apply {
-        let batch_id = batch.id.ok_or_else(|| ReclassifyFailure::failed("batch id missing during apply"))?;
+        let batch_id = batch
+            .id
+            .ok_or_else(|| ReclassifyFailure::failed("batch id missing during apply"))?;
         apply_updates(tx, command, batch_id, &planned).await?;
     }
     let mut warnings = report_warnings(batch.return_due_on.as_ref());
@@ -784,21 +898,31 @@ async fn ensure_lender(tx: &mut Tx<'_>, lender_id: i64) -> Result<(), Reclassify
         .await
         .map_err(failed)?;
     match row {
-        None => Err(ReclassifyFailure::invalid(format!("lender {lender_id} does not exist"))),
-        Some(row) if row.archived_at.is_some() => Err(ReclassifyFailure::invalid(format!("lender {lender_id} is archived"))),
+        None => Err(ReclassifyFailure::invalid(format!(
+            "lender {lender_id} does not exist"
+        ))),
+        Some(row) if row.archived_at.is_some() => Err(ReclassifyFailure::invalid(format!(
+            "lender {lender_id} is archived"
+        ))),
         Some(_) => Ok(()),
     }
 }
 
 async fn ensure_site(tx: &mut Tx<'_>, site_id: i64) -> Result<(), ReclassifyFailure> {
-    let row: Option<SiteRow> = sqlx::query_as("SELECT archived_at, COALESCE(is_archive, 0)::int AS is_archive FROM sites WHERE id = $1")
-        .bind(site_id)
-        .fetch_optional(&mut **tx)
-        .await
-        .map_err(failed)?;
+    let row: Option<SiteRow> = sqlx::query_as(
+        "SELECT archived_at, COALESCE(is_archive, 0)::int AS is_archive FROM sites WHERE id = $1",
+    )
+    .bind(site_id)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(failed)?;
     match row {
-        None => Err(ReclassifyFailure::invalid(format!("site {site_id} does not exist"))),
-        Some(row) if row.archived_at.is_some() || row.is_archive != 0 => Err(ReclassifyFailure::invalid(format!("site {site_id} is archived"))),
+        None => Err(ReclassifyFailure::invalid(format!(
+            "site {site_id} does not exist"
+        ))),
+        Some(row) if row.archived_at.is_some() || row.is_archive != 0 => Err(
+            ReclassifyFailure::invalid(format!("site {site_id} is archived")),
+        ),
         Some(_) => Ok(()),
     }
 }
@@ -812,11 +936,16 @@ async fn ensure_source_exists(tx: &mut Tx<'_>, site_id: i64) -> Result<(), Recla
     if exists {
         Ok(())
     } else {
-        Err(ReclassifyFailure::invalid(format!("--from-site {site_id} does not exist")))
+        Err(ReclassifyFailure::invalid(format!(
+            "--from-site {site_id} does not exist"
+        )))
     }
 }
 
-async fn resolve_batch(tx: &mut Tx<'_>, command: &ReclassifyCommand) -> Result<ResolvedBatch, ReclassifyFailure> {
+async fn resolve_batch(
+    tx: &mut Tx<'_>,
+    command: &ReclassifyCommand,
+) -> Result<ResolvedBatch, ReclassifyFailure> {
     let sql = if command.apply {
         "SELECT id, status, site_id, arrived_on, return_due_on, notes
          FROM deposit_batches
@@ -860,7 +989,11 @@ async fn resolve_batch(tx: &mut Tx<'_>, command: &ReclassifyCommand) -> Result<R
     }
 
     let planned = plan_new_batch(command)?;
-    let id = if command.apply { Some(insert_batch(tx, command, &planned).await?) } else { None };
+    let id = if command.apply {
+        Some(insert_batch(tx, command, &planned).await?)
+    } else {
+        None
+    };
     Ok(ResolvedBatch {
         id,
         action: BatchAction::Create,
@@ -877,7 +1010,10 @@ const FROM_SITE_MIXED: &str = "from_site_mixed";
 /// have an open loan checked out at a site other than `--site`. A null loan
 /// site is unknown and is not a conflict. Archived copies are outside the
 /// selection, so they are not counted.
-async fn from_site_warning(tx: &mut Tx<'_>, command: &ReclassifyCommand) -> Result<Option<ReportWarning>, ReclassifyFailure> {
+async fn from_site_warning(
+    tx: &mut Tx<'_>,
+    command: &ReclassifyCommand,
+) -> Result<Option<ReportWarning>, ReclassifyFailure> {
     let Selection::FromSource(site_id) = command.selection else {
         return Ok(None);
     };
@@ -943,7 +1079,11 @@ fn report_warnings(return_due_on: Option<&NaiveDate>) -> Vec<ReportWarning> {
 /// Every item row still pointing at the old source, including archived rows.
 /// A dry run subtracts the copies this run would move. Apply counts after the
 /// updates, still inside the same transaction.
-async fn remaining_on_old_site(tx: &mut Tx<'_>, command: &ReclassifyCommand, planned: &[PlannedItem]) -> Result<Option<i64>, ReclassifyFailure> {
+async fn remaining_on_old_site(
+    tx: &mut Tx<'_>,
+    command: &ReclassifyCommand,
+    planned: &[PlannedItem],
+) -> Result<Option<i64>, ReclassifyFailure> {
     let Selection::FromSource(site_id) = command.selection else {
         return Ok(None);
     };
@@ -960,7 +1100,9 @@ async fn remaining_on_old_site(tx: &mut Tx<'_>, command: &ReclassifyCommand, pla
 }
 
 fn plan_new_batch(command: &ReclassifyCommand) -> Result<NewBatch, ReclassifyFailure> {
-    let arrived_on = command.received_on.unwrap_or_else(|| Utc::now().date_naive());
+    let arrived_on = command
+        .received_on
+        .unwrap_or_else(|| Utc::now().date_naive());
     if let Some(return_due_on) = command.return_due_on {
         if return_due_on < arrived_on {
             return Err(ReclassifyFailure::invalid("return-due-on must be on or after received-on (today when --received-on is omitted)"));
@@ -973,7 +1115,11 @@ fn plan_new_batch(command: &ReclassifyCommand) -> Result<NewBatch, ReclassifyFai
     })
 }
 
-async fn insert_batch(tx: &mut Tx<'_>, command: &ReclassifyCommand, planned: &NewBatch) -> Result<i64, ReclassifyFailure> {
+async fn insert_batch(
+    tx: &mut Tx<'_>,
+    command: &ReclassifyCommand,
+    planned: &NewBatch,
+) -> Result<i64, ReclassifyFailure> {
     let id = sqlx::query_scalar(
         "INSERT INTO deposit_batches (lender_id, reference, site_id, arrived_on, return_due_on, notes)
          VALUES ($1, $2, $3, $4, $5, $6)
@@ -997,18 +1143,34 @@ fn map_batch_insert(err: sqlx::Error) -> ReclassifyFailure {
         _ => None,
     };
     match code.as_deref() {
-        Some("23505") => ReclassifyFailure::failed("A deposit batch with this reference already exists for that lender"),
-        Some("23514") => ReclassifyFailure::invalid("return-due-on must be on or after received-on (today when --received-on is omitted)"),
+        Some("23505") => ReclassifyFailure::failed(
+            "A deposit batch with this reference already exists for that lender",
+        ),
+        Some("23514") => ReclassifyFailure::invalid(
+            "return-due-on must be on or after received-on (today when --received-on is omitted)",
+        ),
         _ => failed(err),
     }
 }
 
-async fn plan_items(tx: &mut Tx<'_>, command: &ReclassifyCommand, target_batch_id: Option<i64>) -> Result<Vec<PlannedItem>, ReclassifyFailure> {
+async fn plan_items(
+    tx: &mut Tx<'_>,
+    command: &ReclassifyCommand,
+    target_batch_id: Option<i64>,
+) -> Result<Vec<PlannedItem>, ReclassifyFailure> {
     match &command.selection {
         Selection::FromSource(site_id) => {
             let rows = load_from_site(tx, *site_id, command.apply).await?;
-            let mut planned: Vec<PlannedItem> = rows.iter().map(|row| plan_row(row, command.site_id, target_batch_id)).collect();
-            planned.sort_by(|left, right| left.line.barcode.cmp(&right.line.barcode).then(left.line.item_id.cmp(&right.line.item_id)));
+            let mut planned: Vec<PlannedItem> = rows
+                .iter()
+                .map(|row| plan_row(row, command.site_id, target_batch_id))
+                .collect();
+            planned.sort_by(|left, right| {
+                left.line
+                    .barcode
+                    .cmp(&right.line.barcode)
+                    .then(left.line.item_id.cmp(&right.line.item_id))
+            });
             Ok(planned)
         }
         Selection::Barcodes(codes) => {
@@ -1053,7 +1215,11 @@ fn plan_row(row: &Candidate, site_id: i64, target_batch_id: Option<i64>) -> Plan
                 biblio_id: row.biblio_id,
             }),
         ),
-        Decision::Already => (LineDisposition::AlreadyReclassified, Some(LineReason::AlreadyReclassified), None),
+        Decision::Already => (
+            LineDisposition::AlreadyReclassified,
+            Some(LineReason::AlreadyReclassified),
+            None,
+        ),
         Decision::Refused(reason) => (LineDisposition::Refused, Some(reason), None),
     };
     PlannedItem {
@@ -1089,22 +1255,38 @@ fn unknown_line(barcode: &str, site_id: i64) -> ReportLine {
     }
 }
 
-async fn load_from_site(tx: &mut Tx<'_>, site_id: i64, lock: bool) -> Result<Vec<Candidate>, ReclassifyFailure> {
+async fn load_from_site(
+    tx: &mut Tx<'_>,
+    site_id: i64,
+    lock: bool,
+) -> Result<Vec<Candidate>, ReclassifyFailure> {
     let sql = if lock {
         format!("{ITEM_SELECT} WHERE i.site_id = $1 AND i.archived_at IS NULL ORDER BY i.id FOR UPDATE OF i")
     } else {
         format!("{ITEM_SELECT} WHERE i.site_id = $1 AND i.archived_at IS NULL ORDER BY i.id")
     };
-    sqlx::query_as(&sql).bind(site_id).fetch_all(&mut **tx).await.map_err(failed)
+    sqlx::query_as(&sql)
+        .bind(site_id)
+        .fetch_all(&mut **tx)
+        .await
+        .map_err(failed)
 }
 
-async fn load_barcodes(tx: &mut Tx<'_>, codes: &[String], lock: bool) -> Result<Vec<Candidate>, ReclassifyFailure> {
+async fn load_barcodes(
+    tx: &mut Tx<'_>,
+    codes: &[String],
+    lock: bool,
+) -> Result<Vec<Candidate>, ReclassifyFailure> {
     let sql = if lock {
         format!("{ITEM_SELECT} WHERE i.barcode = ANY($1) ORDER BY i.id FOR UPDATE OF i")
     } else {
         format!("{ITEM_SELECT} WHERE i.barcode = ANY($1) ORDER BY i.id")
     };
-    sqlx::query_as(&sql).bind(codes).fetch_all(&mut **tx).await.map_err(failed)
+    sqlx::query_as(&sql)
+        .bind(codes)
+        .fetch_all(&mut **tx)
+        .await
+        .map_err(failed)
 }
 
 fn distinct_biblio_ids(planned: &[PlannedItem]) -> Vec<i64> {
@@ -1114,7 +1296,10 @@ fn distinct_biblio_ids(planned: &[PlannedItem]) -> Vec<i64> {
     ids
 }
 
-async fn find_duplicates(tx: &mut Tx<'_>, biblio_ids: &[i64]) -> Result<Vec<PossibleDuplicateRecord>, ReclassifyFailure> {
+async fn find_duplicates(
+    tx: &mut Tx<'_>,
+    biblio_ids: &[i64],
+) -> Result<Vec<PossibleDuplicateRecord>, ReclassifyFailure> {
     if biblio_ids.is_empty() {
         return Ok(Vec::new());
     }
@@ -1175,7 +1360,12 @@ fn summarize(planned: &[PlannedItem]) -> Summary {
     summary
 }
 
-async fn apply_updates(tx: &mut Tx<'_>, command: &ReclassifyCommand, batch_id: i64, planned: &[PlannedItem]) -> Result<(), ReclassifyFailure> {
+async fn apply_updates(
+    tx: &mut Tx<'_>,
+    command: &ReclassifyCommand,
+    batch_id: i64,
+    planned: &[PlannedItem],
+) -> Result<(), ReclassifyFailure> {
     for item in planned {
         let Some(update) = &item.update else {
             continue;
@@ -1248,17 +1438,41 @@ fn render_text(report: &Report) -> String {
             Some(count) => format!("\tcount={count}"),
             None => String::new(),
         };
-        push_line(&mut out, format!("WARNING\tcode={}\t{}{count}", warning.code, warning.message));
+        push_line(
+            &mut out,
+            format!("WARNING\tcode={}\t{}{count}", warning.code, warning.message),
+        );
     }
     let mode = if report.applied { "apply" } else { "dry-run" };
     push_line(&mut out, format!("mode={mode}"));
     push_line(&mut out, format!("lender_id={}", report.lender_id));
-    push_line(&mut out, format!("batch_reference={}", report.batch_reference));
-    push_line(&mut out, format!("batch_action={}", report.batch_action.as_str()));
-    push_line(&mut out, format!("batch_id={}", report.batch_id.map(|id| id.to_string()).unwrap_or_default()));
+    push_line(
+        &mut out,
+        format!("batch_reference={}", report.batch_reference),
+    );
+    push_line(
+        &mut out,
+        format!("batch_action={}", report.batch_action.as_str()),
+    );
+    push_line(
+        &mut out,
+        format!(
+            "batch_id={}",
+            report.batch_id.map(|id| id.to_string()).unwrap_or_default()
+        ),
+    );
     push_line(&mut out, format!("site_id={}", report.site_id));
     push_line(&mut out, format!("arrived_on={}", report.arrived_on));
-    push_line(&mut out, format!("return_due_on={}", report.return_due_on.map(|date| date.to_string()).unwrap_or_default()));
+    push_line(
+        &mut out,
+        format!(
+            "return_due_on={}",
+            report
+                .return_due_on
+                .map(|date| date.to_string())
+                .unwrap_or_default()
+        ),
+    );
     for line in &report.items {
         push_line(&mut out, format_line(line));
     }
@@ -1300,7 +1514,10 @@ fn format_line(line: &ReportLine) -> String {
     parts.push(format!("barcode={}", line.barcode.as_deref().unwrap_or("")));
     parts.push(format!("item_id={}", fmt_opt_id(line.item_id)));
     parts.push(format!("biblio_id={}", fmt_opt_id(line.biblio_id)));
-    parts.push(format!("title={}", one_line(line.title.as_deref().unwrap_or(""))));
+    parts.push(format!(
+        "title={}",
+        one_line(line.title.as_deref().unwrap_or(""))
+    ));
     parts.push(format!("old_site_id={}", fmt_opt_id(line.old_site_id)));
     parts.push(format!("new_site_id={}", fmt_opt_id(line.new_site_id)));
     parts.push(format!("on_loan={}", line.on_loan));
@@ -1333,7 +1550,10 @@ fn push_line(out: &mut String, line: impl AsRef<str>) {
 
 #[cfg(test)]
 mod tests {
-    use super::{decide, parse_barcode_list, parse_invocation, reason_code, render_report, Decision, ItemFacts, LineReason, ReportFormat, Selection};
+    use super::{
+        decide, parse_barcode_list, parse_invocation, reason_code, render_report, Decision,
+        ItemFacts, LineReason, ReportFormat, Selection,
+    };
     use chrono::NaiveDate;
 
     fn facts(batch: Option<i64>, source: Option<i64>, transit: bool) -> ItemFacts {
@@ -1350,36 +1570,77 @@ mod tests {
     fn decision_covers_each_outcome() {
         let site = 4;
         let target = Some(9);
-        assert_eq!(decide(&facts(None, Some(1), false), target, site), Decision::Reclassify);
-        assert_eq!(decide(&facts(target, Some(site), true), target, site), Decision::Already);
-        assert_eq!(decide(&facts(Some(3), Some(1), false), target, site), Decision::Refused(LineReason::ItemInOtherBatch));
-        assert_eq!(decide(&facts(Some(3), Some(1), false), None, site), Decision::Refused(LineReason::ItemInOtherBatch));
-        assert_eq!(decide(&facts(None, Some(1), true), target, site), Decision::Refused(LineReason::ItemInTransit));
-        assert_eq!(decide(&facts(target, Some(1), false), target, site), Decision::Reclassify);
+        assert_eq!(
+            decide(&facts(None, Some(1), false), target, site),
+            Decision::Reclassify
+        );
+        assert_eq!(
+            decide(&facts(target, Some(site), true), target, site),
+            Decision::Already
+        );
+        assert_eq!(
+            decide(&facts(Some(3), Some(1), false), target, site),
+            Decision::Refused(LineReason::ItemInOtherBatch)
+        );
+        assert_eq!(
+            decide(&facts(Some(3), Some(1), false), None, site),
+            Decision::Refused(LineReason::ItemInOtherBatch)
+        );
+        assert_eq!(
+            decide(&facts(None, Some(1), true), target, site),
+            Decision::Refused(LineReason::ItemInTransit)
+        );
+        assert_eq!(
+            decide(&facts(target, Some(1), false), target, site),
+            Decision::Reclassify
+        );
         let archived = ItemFacts {
             archived: true,
             ..facts(None, Some(1), false)
         };
-        assert_eq!(decide(&archived, target, site), Decision::Refused(LineReason::ItemArchived));
+        assert_eq!(
+            decide(&archived, target, site),
+            Decision::Refused(LineReason::ItemArchived)
+        );
         let withdrawn = ItemFacts {
             withdrawn: true,
             ..facts(target, Some(site), false)
         };
-        assert_eq!(decide(&withdrawn, target, site), Decision::Refused(LineReason::ItemArchived));
+        assert_eq!(
+            decide(&withdrawn, target, site),
+            Decision::Refused(LineReason::ItemArchived)
+        );
         assert_eq!(reason_code(LineReason::ItemInTransit), "item_in_transit");
     }
 
     #[test]
     fn barcode_list_accepts_lines_csv_and_dedupes() {
-        assert_eq!(parse_barcode_list(" ABC \n\nABC\nDEF\n"), vec!["ABC".to_string(), "DEF".to_string()]);
-        assert_eq!(parse_barcode_list("title,barcode\nTale,\"ABC\"\nTale,ABC\nTale,XYZ\n"), vec!["ABC".to_string(), "XYZ".to_string()]);
-        assert_eq!(parse_barcode_list("ABC,ignored\nDEF,also\n"), vec!["ABC".to_string(), "DEF".to_string()]);
+        assert_eq!(
+            parse_barcode_list(" ABC \n\nABC\nDEF\n"),
+            vec!["ABC".to_string(), "DEF".to_string()]
+        );
+        assert_eq!(
+            parse_barcode_list("title,barcode\nTale,\"ABC\"\nTale,ABC\nTale,XYZ\n"),
+            vec!["ABC".to_string(), "XYZ".to_string()]
+        );
+        assert_eq!(
+            parse_barcode_list("ABC,ignored\nDEF,also\n"),
+            vec!["ABC".to_string(), "DEF".to_string()]
+        );
         assert!(parse_barcode_list("   \n").is_empty());
     }
 
     #[test]
     fn parse_requires_one_selection_and_keeps_dry_run_default() {
-        let missing = parse_invocation(&["--lender".into(), "1".into(), "--batch-reference".into(), " REF ".into(), "--site".into(), "2".into()]).unwrap_err();
+        let missing = parse_invocation(&[
+            "--lender".into(),
+            "1".into(),
+            "--batch-reference".into(),
+            " REF ".into(),
+            "--site".into(),
+            "2".into(),
+        ])
+        .unwrap_err();
         assert_eq!(missing.exit_code(), 2);
 
         let both = parse_invocation(&[
@@ -1397,7 +1658,8 @@ mod tests {
         .unwrap_err();
         assert!(both.to_string().contains("exactly one"));
 
-        let path = std::env::temp_dir().join(format!("elidune-reclassify-{}.txt", std::process::id()));
+        let path =
+            std::env::temp_dir().join(format!("elidune-reclassify-{}.txt", std::process::id()));
         std::fs::write(&path, "B1\nB1\nB2\n").unwrap();
         let invocation = parse_invocation(&[
             "--lender".into(),
@@ -1423,8 +1685,14 @@ mod tests {
         assert_eq!(invocation.format, ReportFormat::Json);
         assert_eq!(invocation.command.batch_reference, "CITY-2024");
         assert_eq!(invocation.command.notes.as_deref(), Some("spring"));
-        assert_eq!(invocation.command.return_due_on, Some(NaiveDate::from_ymd_opt(2026, 9, 1).unwrap()));
-        assert_eq!(invocation.command.selection, Selection::Barcodes(vec!["B1".into(), "B2".into()]));
+        assert_eq!(
+            invocation.command.return_due_on,
+            Some(NaiveDate::from_ymd_opt(2026, 9, 1).unwrap())
+        );
+        assert_eq!(
+            invocation.command.selection,
+            Selection::Barcodes(vec!["B1".into(), "B2".into()])
+        );
     }
 
     #[test]
@@ -1495,7 +1763,9 @@ mod tests {
             notes: None,
             warnings: vec![super::ReportWarning {
                 code: "return_due_on_past".into(),
-                message: "copies will immediately be refused for loans (deposit_return_due) and holds".into(),
+                message:
+                    "copies will immediately be refused for loans (deposit_return_due) and holds"
+                        .into(),
                 count: None,
             }],
             remaining_on_old_site: Some(0),
@@ -1507,7 +1777,9 @@ mod tests {
         assert!(text.starts_with("WARNING\tcode=return_due_on_past\t"));
         assert!(text.contains("deposit_return_due"));
         assert!(text.find("WARNING").unwrap() < text.find("mode=").unwrap());
-        assert!(text.trim_end().ends_with("old source can be archived manually"));
+        assert!(text
+            .trim_end()
+            .ends_with("old source can be archived manually"));
         assert!(text.find("summary\t").unwrap() < text.find("remaining_on_old_site=0").unwrap());
         let json = render_report(&report, ReportFormat::Json);
         assert!(json.contains("\"code\": \"return_due_on_past\""));

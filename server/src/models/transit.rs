@@ -67,7 +67,9 @@ impl sqlx::Type<sqlx::Postgres> for TransitStatus {
 }
 
 impl<'r> sqlx::Decode<'r, sqlx::Postgres> for TransitStatus {
-    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    fn decode(
+        value: sqlx::postgres::PgValueRef<'r>,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let s: String = sqlx::Decode::<sqlx::Postgres>::decode(value)?;
         Ok(Self::from(s))
     }
@@ -237,7 +239,12 @@ mod tests {
 
     #[test]
     fn users_read_still_yields_card_and_initials_only() {
-        let mut patron = partial_user_short(7, Some("CARD".into()), Some("Helene".into()), Some("Holder".into()));
+        let mut patron = partial_user_short(
+            7,
+            Some("CARD".into()),
+            Some("Helene".into()),
+            Some("Holder".into()),
+        );
         patron.login = Some("helene".into());
         let rights = UserRights {
             holds_rights: Rights::Write,
@@ -248,7 +255,12 @@ mod tests {
         assert_eq!(shown.card_number.as_deref(), Some("CARD"));
         assert_eq!(shown.initials, "HH");
         let value = serde_json::to_value(&shown).expect("json");
-        let mut keys: Vec<&str> = value.as_object().expect("object").keys().map(String::as_str).collect();
+        let mut keys: Vec<&str> = value
+            .as_object()
+            .expect("object")
+            .keys()
+            .map(String::as_str)
+            .collect();
         keys.sort_unstable();
         assert_eq!(keys, ["cardNumber", "initials"]);
         assert!(!value.to_string().contains("Helene"));
@@ -257,14 +269,22 @@ mod tests {
 
     #[test]
     fn own_or_no_holds_rights_hides_the_patron_even_with_users_read() {
-        let patron = partial_user_short(7, Some("CARD".into()), Some("Helene".into()), Some("Holder".into()));
+        let patron = partial_user_short(
+            7,
+            Some("CARD".into()),
+            Some("Helene".into()),
+            Some("Holder".into()),
+        );
         for holds_rights in [Rights::None, Rights::Own] {
             let rights = UserRights {
                 holds_rights,
                 users_rights: Rights::Write,
                 ..UserRights::default()
             };
-            assert!(transit_patron(&rights, patron.clone()).is_none(), "{holds_rights:?}");
+            assert!(
+                transit_patron(&rights, patron.clone()).is_none(),
+                "{holds_rights:?}"
+            );
         }
     }
 

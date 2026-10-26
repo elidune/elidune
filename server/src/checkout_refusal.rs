@@ -31,8 +31,12 @@ use crate::{
 #[must_use]
 pub fn checkout_refusal_forceable(code: &str, caller_rights: &UserRights) -> bool {
     match code {
-        error_code::SUBSCRIPTION_EXPIRED | error_code::ITEM_HELD_FOR_OTHER => caller_rights.circulation_override_rights.rank() >= Rights::Write.rank(),
-        error_code::FINES_OVER_THRESHOLD => caller_rights.loans_rights.rank() >= Rights::Write.rank(),
+        error_code::SUBSCRIPTION_EXPIRED | error_code::ITEM_HELD_FOR_OTHER => {
+            caller_rights.circulation_override_rights.rank() >= Rights::Write.rank()
+        }
+        error_code::FINES_OVER_THRESHOLD => {
+            caller_rights.loans_rights.rank() >= Rights::Write.rank()
+        }
         error_code::MAX_LOANS | error_code::MAX_MEDIA_LOANS | error_code::ITEM_NOT_LOANABLE => true,
         _ => false,
     }
@@ -41,7 +45,10 @@ pub fn checkout_refusal_forceable(code: &str, caller_rights: &UserRights) -> boo
 /// Gates whose `force` skip requires a non-blank `overrideReason`.
 #[must_use]
 pub fn checkout_override_reason_required(code: &str) -> bool {
-    matches!(code, error_code::SUBSCRIPTION_EXPIRED | error_code::ITEM_HELD_FOR_OTHER)
+    matches!(
+        code,
+        error_code::SUBSCRIPTION_EXPIRED | error_code::ITEM_HELD_FOR_OTHER
+    )
 }
 
 /// Trimmed staff reason, or `None` when missing or blank.
@@ -59,7 +66,11 @@ pub fn normalized_override_reason(raw: Option<&str>) -> Option<String> {
 /// and `overrideReason` is missing or blank.
 #[must_use]
 pub fn override_reason_required() -> AppError {
-    AppError::coded(422, error_code::OVERRIDE_REASON_REQUIRED, error_code::OVERRIDE_REASON_REQUIRED_MESSAGE)
+    AppError::coded(
+        422,
+        error_code::OVERRIDE_REASON_REQUIRED,
+        error_code::OVERRIDE_REASON_REQUIRED_MESSAGE,
+    )
 }
 
 /// Checkout gates collected for one `POST /loans`.
@@ -77,7 +88,10 @@ pub struct CheckoutProgress {
 impl CheckoutProgress {
     #[must_use]
     pub fn new(override_reason: Option<String>) -> Self {
-        Self { override_reason, ..Self::default() }
+        Self {
+            override_reason,
+            ..Self::default()
+        }
     }
 }
 
@@ -129,7 +143,10 @@ impl CheckoutRefusal {
     pub fn status_action(status: CirculationStatus, caller_rights: &UserRights) -> Self {
         Self {
             code: error_code::ITEM_STATUS_ACTION_REQUIRED,
-            message: format!("Item circulation status is {}. Resolve it before checkout.", status.as_api_str()),
+            message: format!(
+                "Item circulation status is {}. Resolve it before checkout.",
+                status.as_api_str()
+            ),
             item_status: Some(status),
             to_pick: None,
             caller_rights: caller_rights.clone(),
@@ -159,11 +176,14 @@ impl CheckoutRefusal {
             error: "Business Rule Violation".to_string(),
             message: self.message.clone(),
             forceable: self.forceable(),
-            reason_required: (self.forceable() && checkout_override_reason_required(self.code)).then_some(true),
+            reason_required: (self.forceable() && checkout_override_reason_required(self.code))
+                .then_some(true),
             item_status: self.item_status,
             details: self.to_pick.as_ref().map(|patron| {
                 if self.code == error_code::ITEM_HELD_FOR_OTHER {
-                    CheckoutRefusalDetails::Held(ItemHeldForOtherDetails { hold_id: patron.hold_id.to_string() })
+                    CheckoutRefusalDetails::Held(ItemHeldForOtherDetails {
+                        hold_id: patron.hold_id.to_string(),
+                    })
                 } else {
                     CheckoutRefusalDetails::ToPick(ItemToPickDetails {
                         hold_id: patron.hold_id.to_string(),
@@ -235,7 +255,10 @@ pub fn select_checkout_refusal(refusals: Vec<CheckoutRefusal>) -> Option<Checkou
     if refusals.is_empty() {
         return None;
     }
-    let index = refusals.iter().position(|refusal| !refusal.forceable()).unwrap_or(0);
+    let index = refusals
+        .iter()
+        .position(|refusal| !refusal.forceable())
+        .unwrap_or(0);
     refusals.into_iter().nth(index)
 }
 
@@ -243,7 +266,11 @@ pub fn select_checkout_refusal(refusals: Vec<CheckoutRefusal>) -> Option<Checkou
 /// A skipped `subscription_expired` or `item_held_for_other` without `overrideReason`
 /// is remembered and returned from [`finish_checkout_refusals`] unless a later
 /// non-forceable refusal wins. A non-forceable refusal is returned immediately.
-pub fn push_checkout_refusal(progress: &mut CheckoutProgress, force: bool, refusal: CheckoutRefusal) -> Result<(), AppError> {
+pub fn push_checkout_refusal(
+    progress: &mut CheckoutProgress,
+    force: bool,
+    refusal: CheckoutRefusal,
+) -> Result<(), AppError> {
     if force_skips_checkout_refusal(force, refusal.code, &refusal.caller_rights) {
         if checkout_override_reason_required(refusal.code) && progress.override_reason.is_none() {
             progress.missing_override_reason = true;
@@ -285,7 +312,11 @@ mod tests {
 
     fn rights(override_write: bool) -> UserRights {
         UserRights {
-            circulation_override_rights: if override_write { Rights::Write } else { Rights::None },
+            circulation_override_rights: if override_write {
+                Rights::Write
+            } else {
+                Rights::None
+            },
             settings_rights: Rights::Write,
             ..UserRights::default()
         }
@@ -306,24 +337,60 @@ mod tests {
         let desk = UserRights::default();
         assert!(settings.settings_rights.rank() >= Rights::Write.rank());
         assert!(admin.circulation_override_rights.rank() >= Rights::Write.rank());
-        for code in [error_code::SUBSCRIPTION_EXPIRED, error_code::ITEM_HELD_FOR_OTHER] {
+        for code in [
+            error_code::SUBSCRIPTION_EXPIRED,
+            error_code::ITEM_HELD_FOR_OTHER,
+        ] {
             assert!(checkout_refusal_forceable(code, &admin), "{code}");
             assert!(!checkout_refusal_forceable(code, &settings), "{code}");
             assert!(!checkout_refusal_forceable(code, &loans), "{code}");
             assert!(!checkout_refusal_forceable(code, &desk), "{code}");
             assert!(force_skips_checkout_refusal(true, code, &admin), "{code}");
-            assert!(!force_skips_checkout_refusal(true, code, &settings), "{code}");
+            assert!(
+                !force_skips_checkout_refusal(true, code, &settings),
+                "{code}"
+            );
             assert!(checkout_override_reason_required(code), "{code}");
         }
-        assert!(checkout_refusal_forceable(error_code::FINES_OVER_THRESHOLD, &loans));
-        assert!(!checkout_refusal_forceable(error_code::FINES_OVER_THRESHOLD, &settings));
-        assert!(!checkout_refusal_forceable(error_code::FINES_OVER_THRESHOLD, &admin));
-        assert!(!checkout_refusal_forceable(error_code::FINES_OVER_THRESHOLD, &desk));
-        assert!(force_skips_checkout_refusal(true, error_code::FINES_OVER_THRESHOLD, &loans));
-        assert!(!force_skips_checkout_refusal(true, error_code::FINES_OVER_THRESHOLD, &settings));
-        assert!(!force_skips_checkout_refusal(false, error_code::FINES_OVER_THRESHOLD, &loans));
-        assert!(!checkout_override_reason_required(error_code::FINES_OVER_THRESHOLD));
-        for code in [error_code::MAX_LOANS, error_code::MAX_MEDIA_LOANS, error_code::ITEM_NOT_LOANABLE] {
+        assert!(checkout_refusal_forceable(
+            error_code::FINES_OVER_THRESHOLD,
+            &loans
+        ));
+        assert!(!checkout_refusal_forceable(
+            error_code::FINES_OVER_THRESHOLD,
+            &settings
+        ));
+        assert!(!checkout_refusal_forceable(
+            error_code::FINES_OVER_THRESHOLD,
+            &admin
+        ));
+        assert!(!checkout_refusal_forceable(
+            error_code::FINES_OVER_THRESHOLD,
+            &desk
+        ));
+        assert!(force_skips_checkout_refusal(
+            true,
+            error_code::FINES_OVER_THRESHOLD,
+            &loans
+        ));
+        assert!(!force_skips_checkout_refusal(
+            true,
+            error_code::FINES_OVER_THRESHOLD,
+            &settings
+        ));
+        assert!(!force_skips_checkout_refusal(
+            false,
+            error_code::FINES_OVER_THRESHOLD,
+            &loans
+        ));
+        assert!(!checkout_override_reason_required(
+            error_code::FINES_OVER_THRESHOLD
+        ));
+        for code in [
+            error_code::MAX_LOANS,
+            error_code::MAX_MEDIA_LOANS,
+            error_code::ITEM_NOT_LOANABLE,
+        ] {
             assert!(checkout_refusal_forceable(code, &settings), "{code}");
             assert!(checkout_refusal_forceable(code, &desk), "{code}");
             assert!(force_skips_checkout_refusal(true, code, &desk), "{code}");
@@ -349,8 +416,15 @@ mod tests {
             loans_rights: Rights::Write,
             ..UserRights::default()
         };
-        assert!(!checkout_refusal_forceable(error_code::ITEM_TO_PICK_FOR_OTHER, &caller));
-        assert!(!force_skips_checkout_refusal(true, error_code::ITEM_TO_PICK_FOR_OTHER, &caller));
+        assert!(!checkout_refusal_forceable(
+            error_code::ITEM_TO_PICK_FOR_OTHER,
+            &caller
+        ));
+        assert!(!force_skips_checkout_refusal(
+            true,
+            error_code::ITEM_TO_PICK_FOR_OTHER,
+            &caller
+        ));
         let body = CheckoutRefusal::to_pick(
             ToPickPatron {
                 hold_id: 9,
@@ -398,14 +472,23 @@ mod tests {
 
     #[test]
     fn non_forceable_refusal_wins_over_an_earlier_forceable_one() {
-        let selected = select_checkout_refusal(vec![refusal(error_code::SUBSCRIPTION_EXPIRED, "expired", true), refusal(error_code::CARD_LOST, "lost", true)]).expect("refusal");
+        let selected = select_checkout_refusal(vec![
+            refusal(error_code::SUBSCRIPTION_EXPIRED, "expired", true),
+            refusal(error_code::CARD_LOST, "lost", true),
+        ])
+        .expect("refusal");
         assert_eq!(selected.code, error_code::CARD_LOST);
         assert!(!selected.forceable());
     }
 
     #[test]
     fn subscription_expired_without_override_right_is_itself_non_forceable() {
-        let selected = select_checkout_refusal(vec![refusal(error_code::SUBSCRIPTION_EXPIRED, "expired", false)]).expect("refusal");
+        let selected = select_checkout_refusal(vec![refusal(
+            error_code::SUBSCRIPTION_EXPIRED,
+            "expired",
+            false,
+        )])
+        .expect("refusal");
         assert_eq!(selected.code, error_code::SUBSCRIPTION_EXPIRED);
         assert!(!selected.forceable());
     }
@@ -413,7 +496,12 @@ mod tests {
     #[test]
     fn missing_reason_is_returned_when_force_skips_a_reason_required_gate() {
         let mut progress = CheckoutProgress::new(None);
-        push_checkout_refusal(&mut progress, true, refusal(error_code::SUBSCRIPTION_EXPIRED, "expired", true)).expect("skipped");
+        push_checkout_refusal(
+            &mut progress,
+            true,
+            refusal(error_code::SUBSCRIPTION_EXPIRED, "expired", true),
+        )
+        .expect("skipped");
         assert!(progress.missing_override_reason);
         match finish_checkout_refusals(&progress) {
             Err(AppError::Coded { status, code, .. }) => {
@@ -427,8 +515,18 @@ mod tests {
     #[test]
     fn non_forceable_gate_wins_over_a_missing_override_reason() {
         let mut progress = CheckoutProgress::new(None);
-        push_checkout_refusal(&mut progress, true, refusal(error_code::ITEM_HELD_FOR_OTHER, "held", true)).expect("skipped");
-        let err = push_checkout_refusal(&mut progress, true, refusal(error_code::CARD_LOST, "lost", true)).expect_err("lost card");
+        push_checkout_refusal(
+            &mut progress,
+            true,
+            refusal(error_code::ITEM_HELD_FOR_OTHER, "held", true),
+        )
+        .expect("skipped");
+        let err = push_checkout_refusal(
+            &mut progress,
+            true,
+            refusal(error_code::CARD_LOST, "lost", true),
+        )
+        .expect_err("lost card");
         match err {
             AppError::CheckoutRefused(refusal) => {
                 assert_eq!(refusal.code, error_code::CARD_LOST);
@@ -450,20 +548,26 @@ mod tests {
             loans_rights: Rights::Write,
             ..UserRights::default()
         };
-        let fines = CheckoutRefusal::new(error_code::FINES_OVER_THRESHOLD, "fines", &loans_write).to_body();
+        let fines =
+            CheckoutRefusal::new(error_code::FINES_OVER_THRESHOLD, "fines", &loans_write).to_body();
         assert!(fines.forceable);
         assert_eq!(fines.reason_required, None);
     }
 
     #[test]
     fn first_forceable_wins_when_every_refusal_is_forceable() {
-        let selected = select_checkout_refusal(vec![refusal(error_code::SUBSCRIPTION_EXPIRED, "expired", true), refusal(error_code::MAX_LOANS, "quota", true)]).expect("refusal");
+        let selected = select_checkout_refusal(vec![
+            refusal(error_code::SUBSCRIPTION_EXPIRED, "expired", true),
+            refusal(error_code::MAX_LOANS, "quota", true),
+        ])
+        .expect("refusal");
         assert_eq!(selected.code, error_code::SUBSCRIPTION_EXPIRED);
     }
 
     #[test]
     fn status_action_body_carries_the_api_status() {
-        let body = CheckoutRefusal::status_action(CirculationStatus::ToSearch, &rights(false)).to_body();
+        let body =
+            CheckoutRefusal::status_action(CirculationStatus::ToSearch, &rights(false)).to_body();
         assert_eq!(body.code, error_code::ITEM_STATUS_ACTION_REQUIRED);
         assert!(!body.forceable);
         assert_eq!(body.item_status, Some(CirculationStatus::ToSearch));

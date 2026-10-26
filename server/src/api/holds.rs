@@ -13,9 +13,16 @@ use utoipa::{IntoParams, ToSchema};
 use crate::{
     error::{AppError, AppResult},
     models::{
-        catalog_view::{partial_user_short, sees_internal_catalog, HoldDetailsPublic, HoldDetailsStaff, HoldListStaff, LoanBorrowerMinimized},
+        catalog_view::{
+            partial_user_short, sees_internal_catalog, HoldDetailsPublic, HoldDetailsStaff,
+            HoldListStaff, LoanBorrowerMinimized,
+        },
         dto::holds::{HoldPickListItem, HoldQuota, HoldsPolicy},
-        hold::{deserialize_legacy_hold_notes, normalize_hold_note, validate_hold_note, CreateHold, Hold, HoldPublic, MaybeHoldNote, INTERNAL_HOLD_NOTE_FORBIDDEN, LEGACY_HOLD_NOTES_MESSAGE},
+        hold::{
+            deserialize_legacy_hold_notes, normalize_hold_note, validate_hold_note, CreateHold,
+            Hold, HoldPublic, MaybeHoldNote, INTERNAL_HOLD_NOTE_FORBIDDEN,
+            LEGACY_HOLD_NOTES_MESSAGE,
+        },
         my_account::MyHoldView,
         user::Rights,
     },
@@ -31,7 +38,10 @@ pub fn router() -> axum::Router<crate::AppState> {
         .route("/holds", get(list_holds).post(create_hold))
         .route("/holds/pick-list", get(list_pick_list))
         .route("/holds/:id/pick-not-found", post(pick_not_found))
-        .route("/holds/policy", get(get_holds_policy).put(update_holds_policy))
+        .route(
+            "/holds/policy",
+            get(get_holds_policy).put(update_holds_policy),
+        )
         .route("/holds/quota", get(get_hold_quota))
         .route("/holds/:id", delete(cancel_hold))
         .route("/items/:id/holds", get(list_holds_for_item))
@@ -62,12 +72,17 @@ pub struct PickListQuery {
         (status = 403, description = "Staff access required", body = crate::error::ErrorResponse)
     )
 )]
-pub async fn list_pick_list(State(state): State<crate::AppState>, StaffUser(_claims): StaffUser, Query(query): Query<PickListQuery>) -> AppResult<Json<Vec<HoldPickListItem>>> {
+pub async fn list_pick_list(
+    State(state): State<crate::AppState>,
+    StaffUser(_claims): StaffUser,
+    Query(query): Query<PickListQuery>,
+) -> AppResult<Json<Vec<HoldPickListItem>>> {
     let rows = state.services.holds.list_pick(query.site_id).await?;
     let items = rows
         .into_iter()
         .map(|row| {
-            let user = partial_user_short(row.user_id, row.card_number, row.firstname, row.lastname);
+            let user =
+                partial_user_short(row.user_id, row.card_number, row.firstname, row.lastname);
             HoldPickListItem {
                 hold_id: row.hold_id,
                 item_id: row.item_id,
@@ -103,7 +118,12 @@ pub async fn list_pick_list(State(state): State<crate::AppState>, StaffUser(_cla
         (status = 422, description = "Hold is not to_pick", body = crate::error::ErrorResponse)
     )
 )]
-pub async fn pick_not_found(State(state): State<crate::AppState>, StaffUser(claims): StaffUser, ClientIp(ip): ClientIp, Path(id): Path<i64>) -> AppResult<Json<Hold>> {
+pub async fn pick_not_found(
+    State(state): State<crate::AppState>,
+    StaffUser(claims): StaffUser,
+    ClientIp(ip): ClientIp,
+    Path(id): Path<i64>,
+) -> AppResult<Json<Hold>> {
     match state.services.holds.pick_not_found(id).await {
         Ok(outcome) => {
             state.services.audit.log(
@@ -160,11 +180,19 @@ pub struct ListHoldsQuery {
         (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse)
     )
 )]
-pub async fn list_my_holds(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Query(query): Query<ListHoldsQuery>) -> AppResult<Json<PaginatedResponse<MyHoldView>>> {
+pub async fn list_my_holds(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    Query(query): Query<ListHoldsQuery>,
+) -> AppResult<Json<PaginatedResponse<MyHoldView>>> {
     let page = query.page.unwrap_or(1).max(1);
     let per_page = query.per_page.unwrap_or(50).clamp(1, 200);
     let active_only = query.active_only.unwrap_or(false);
-    let (items, total) = state.services.repository.holds_list_for_owner(claims.user_id, page, per_page, active_only).await?;
+    let (items, total) = state
+        .services
+        .repository
+        .holds_list_for_owner(claims.user_id, page, per_page, active_only)
+        .await?;
     Ok(Json(PaginatedResponse::new(items, total, page, per_page)))
 }
 
@@ -188,7 +216,11 @@ pub enum HoldListResponse {
         (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse)
     )
 )]
-pub async fn list_holds(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Query(query): Query<ListHoldsQuery>) -> AppResult<Json<HoldListResponse>> {
+pub async fn list_holds(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    Query(query): Query<ListHoldsQuery>,
+) -> AppResult<Json<HoldListResponse>> {
     claims.require_list_holds()?;
 
     let page = query.page.unwrap_or(1).max(1);
@@ -196,19 +228,35 @@ pub async fn list_holds(State(state): State<crate::AppState>, AuthenticatedUser(
     let active_only = query.active_only.unwrap_or(false);
 
     let (items, total) = if claims.rights.holds_rights.rank() >= Rights::Read.rank() {
-        state.services.holds.list_all(page, per_page, active_only).await?
+        state
+            .services
+            .holds
+            .list_all(page, per_page, active_only)
+            .await?
     } else {
-        state.services.holds.list_for_user_paginated(claims.user_id, page, per_page, active_only).await?
+        state
+            .services
+            .holds
+            .list_for_user_paginated(claims.user_id, page, per_page, active_only)
+            .await?
     };
     let body = if sees_internal_catalog(&claims) {
         HoldListResponse::Staff(PaginatedResponse::new(
-            items.into_iter().map(|hold| HoldListStaff::for_caller(hold, &claims)).collect(),
+            items
+                .into_iter()
+                .map(|hold| HoldListStaff::for_caller(hold, &claims))
+                .collect(),
             total,
             page,
             per_page,
         ))
     } else {
-        HoldListResponse::Public(PaginatedResponse::new(items.into_iter().map(HoldDetailsPublic::from).collect(), total, page, per_page))
+        HoldListResponse::Public(PaginatedResponse::new(
+            items.into_iter().map(HoldDetailsPublic::from).collect(),
+            total,
+            page,
+            per_page,
+        ))
     };
     Ok(Json(body))
 }
@@ -260,7 +308,11 @@ struct CreateHoldBody {
     patron_note: Option<String>,
     #[serde(default)]
     internal_note: MaybeHoldNote,
-    #[serde(default, rename = "notes", deserialize_with = "deserialize_legacy_hold_notes")]
+    #[serde(
+        default,
+        rename = "notes",
+        deserialize_with = "deserialize_legacy_hold_notes"
+    )]
     legacy_notes_present: bool,
     force: Option<bool>,
 }
@@ -308,14 +360,20 @@ pub async fn create_hold(
 ) -> AppResult<(StatusCode, Json<HoldWriteResponse>)> {
     claims.require_create_hold()?;
     if claims.rights.holds_rights.rank() < Rights::Write.rank() && req.user_id != claims.user_id {
-        return Err(AppError::Authorization("Insufficient rights to place a hold for another user".into()));
+        return Err(AppError::Authorization(
+            "Insufficient rights to place a hold for another user".into(),
+        ));
     }
     let force = req.force.unwrap_or(false);
     if force && claims.rights.holds_rights.rank() < Rights::Write.rank() {
-        return Err(AppError::Authorization("Staff rights required to override the holds cap".into()));
+        return Err(AppError::Authorization(
+            "Staff rights required to override the holds cap".into(),
+        ));
     }
     if req.item_id.is_none() && req.biblio_id.is_none() {
-        return Err(AppError::Validation("itemId or biblioId is required".into()));
+        return Err(AppError::Validation(
+            "itemId or biblioId is required".into(),
+        ));
     }
     if req.legacy_notes_present {
         return Err(AppError::Validation(LEGACY_HOLD_NOTES_MESSAGE.into()));
@@ -324,7 +382,8 @@ pub async fn create_hold(
         return Err(AppError::Authorization(INTERNAL_HOLD_NOTE_FORBIDDEN.into()));
     }
     validate_hold_note("Patron note", req.patron_note.as_deref()).map_err(AppError::Validation)?;
-    validate_hold_note("Internal note", req.internal_note.value.as_deref()).map_err(AppError::Validation)?;
+    validate_hold_note("Internal note", req.internal_note.value.as_deref())
+        .map_err(AppError::Validation)?;
     let data = CreateHold {
         user_id: req.user_id,
         item_id: req.item_id,
@@ -334,7 +393,12 @@ pub async fn create_hold(
         internal_note: normalize_hold_note(req.internal_note.value.clone()),
         force,
     };
-    match state.services.holds.place_hold(data, Some(claims.user_id), ip.clone()).await {
+    match state
+        .services
+        .holds
+        .place_hold(data, Some(claims.user_id), ip.clone())
+        .await
+    {
         Ok(hold) => {
             state.services.audit.log(
                 audit::event::HOLD_CREATED,
@@ -350,7 +414,10 @@ pub async fn create_hold(
                 })),
                 audit::AuditLogMeta::success(),
             );
-            Ok((StatusCode::CREATED, Json(project_written_hold(&claims, hold))))
+            Ok((
+                StatusCode::CREATED,
+                Json(project_written_hold(&claims, hold)),
+            ))
         }
         Err(e) => {
             state.services.audit.log(
@@ -393,7 +460,10 @@ pub struct HoldQuotaQuery {
         (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse)
     )
 )]
-pub async fn get_holds_policy(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser) -> AppResult<Json<HoldsPolicy>> {
+pub async fn get_holds_policy(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+) -> AppResult<Json<HoldsPolicy>> {
     claims.require_list_holds()?;
     Ok(Json(state.services.holds.get_policy().await?))
 }
@@ -412,9 +482,19 @@ pub async fn get_holds_policy(State(state): State<crate::AppState>, Authenticate
         (status = 403, description = "Staff access required", body = crate::error::ErrorResponse)
     )
 )]
-pub async fn update_holds_policy(State(state): State<crate::AppState>, StaffUser(claims): StaffUser, ClientIp(ip): ClientIp, Json(req): Json<HoldsPolicy>) -> AppResult<Json<HoldsPolicy>> {
+pub async fn update_holds_policy(
+    State(state): State<crate::AppState>,
+    StaffUser(claims): StaffUser,
+    ClientIp(ip): ClientIp,
+    Json(req): Json<HoldsPolicy>,
+) -> AppResult<Json<HoldsPolicy>> {
     claims.require_write_settings()?;
-    match state.services.holds.set_policy(req.max_active_holds, req.pick_delay_days).await {
+    match state
+        .services
+        .holds
+        .set_policy(req.max_active_holds, req.pick_delay_days)
+        .await
+    {
         Ok(policy) => {
             state.services.audit.log(
                 audit::event::HOLD_POLICY_UPDATED,
@@ -461,7 +541,11 @@ pub async fn update_holds_policy(State(state): State<crate::AppState>, StaffUser
         (status = 403, description = "Cannot read another user's quota", body = crate::error::ErrorResponse)
     )
 )]
-pub async fn get_hold_quota(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Query(query): Query<HoldQuotaQuery>) -> AppResult<Json<HoldQuota>> {
+pub async fn get_hold_quota(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    Query(query): Query<HoldQuotaQuery>,
+) -> AppResult<Json<HoldQuota>> {
     claims.require_list_holds()?;
     let user_id = query.user_id.unwrap_or(claims.user_id);
     claims.require_self_or_staff(user_id)?;
@@ -480,10 +564,18 @@ pub async fn get_hold_quota(State(state): State<crate::AppState>, AuthenticatedU
         (status = 404, description = "Item not found", body = crate::error::ErrorResponse)
     )
 )]
-pub async fn list_holds_for_item(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Path(item_id): Path<i64>) -> AppResult<Json<Vec<HoldDetailsStaff>>> {
+pub async fn list_holds_for_item(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    Path(item_id): Path<i64>,
+) -> AppResult<Json<Vec<HoldDetailsStaff>>> {
     claims.require_read_holds_staff()?;
     let list = state.services.holds.get_for_item(item_id).await?;
-    Ok(Json(list.into_iter().map(|hold| HoldDetailsStaff::for_caller(hold, &claims)).collect()))
+    Ok(Json(
+        list.into_iter()
+            .map(|hold| HoldDetailsStaff::for_caller(hold, &claims))
+            .collect(),
+    ))
 }
 
 #[utoipa::path(
@@ -498,10 +590,18 @@ pub async fn list_holds_for_item(State(state): State<crate::AppState>, Authentic
         (status = 404, description = "Biblio not found", body = crate::error::ErrorResponse)
     )
 )]
-pub async fn list_holds_for_biblio(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Path(biblio_id): Path<i64>) -> AppResult<Json<Vec<HoldDetailsStaff>>> {
+pub async fn list_holds_for_biblio(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    Path(biblio_id): Path<i64>,
+) -> AppResult<Json<Vec<HoldDetailsStaff>>> {
     claims.require_read_holds_staff()?;
     let list = state.services.holds.get_for_biblio(biblio_id).await?;
-    Ok(Json(list.into_iter().map(|hold| HoldDetailsStaff::for_caller(hold, &claims)).collect()))
+    Ok(Json(
+        list.into_iter()
+            .map(|hold| HoldDetailsStaff::for_caller(hold, &claims))
+            .collect(),
+    ))
 }
 
 #[utoipa::path(
@@ -516,11 +616,19 @@ pub async fn list_holds_for_biblio(State(state): State<crate::AppState>, Authent
         (status = 404, description = "User not found", body = crate::error::ErrorResponse)
     )
 )]
-pub async fn list_holds_for_user(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Path(user_id): Path<i64>) -> AppResult<Json<Vec<HoldDetailsStaff>>> {
+pub async fn list_holds_for_user(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    Path(user_id): Path<i64>,
+) -> AppResult<Json<Vec<HoldDetailsStaff>>> {
     claims.require_read_holds_staff()?;
     claims.require_read_users()?;
     let list = state.services.holds.get_for_user(user_id).await?;
-    Ok(Json(list.into_iter().map(|hold| HoldDetailsStaff::for_caller(hold, &claims)).collect()))
+    Ok(Json(
+        list.into_iter()
+            .map(|hold| HoldDetailsStaff::for_caller(hold, &claims))
+            .collect(),
+    ))
 }
 
 #[utoipa::path(
@@ -536,10 +644,20 @@ pub async fn list_holds_for_user(State(state): State<crate::AppState>, Authentic
         (status = 404, description = "Hold not found", body = crate::error::ErrorResponse)
     )
 )]
-pub async fn cancel_hold(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, ClientIp(ip): ClientIp, Path(id): Path<i64>) -> AppResult<Json<HoldWriteResponse>> {
+pub async fn cancel_hold(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    ClientIp(ip): ClientIp,
+    Path(id): Path<i64>,
+) -> AppResult<Json<HoldWriteResponse>> {
     claims.require_cancel_hold()?;
     let can_manage_others = claims.rights.holds_rights.rank() >= Rights::Write.rank();
-    match state.services.holds.cancel(id, claims.user_id, can_manage_others).await {
+    match state
+        .services
+        .holds
+        .cancel(id, claims.user_id, can_manage_others)
+        .await
+    {
         Ok(hold) => {
             state.services.audit.log(
                 audit::event::HOLD_CANCELLED,

@@ -5,11 +5,24 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use chrono::NaiveDate;
+use elidune_server::{
+    error::AppError,
+    models::{
+        dto::library_info::UpdateLibraryInfoRequest,
+        secret::plaintext_password,
+        user::{AccountTypeSlug, EventsConsentSource, UserPayload},
+        Sex,
+    },
+};
 use serde_json::json;
 
 /// Parse a snowflake ID from JSON (string or number).
 pub fn json_id(value: &serde_json::Value) -> i64 {
-    value.as_str().and_then(|s| s.parse().ok()).or_else(|| value.as_i64()).expect("expected numeric id in JSON")
+    value
+        .as_str()
+        .and_then(|s| s.parse().ok())
+        .or_else(|| value.as_i64())
+        .expect("expected numeric id in JSON")
 }
 
 /// `POST /api/v1/first_setup` payload for a fresh database.
@@ -36,32 +49,130 @@ pub fn first_setup_payload() -> serde_json::Value {
 /// Run first setup when the database is empty; returns JWT token.
 ///
 /// Parallel integration tests share one database, so first-setup can race.
-/// If another test already completed bootstrap, fall through to admin login.
+/// A test that inserts a user directly makes `needFirstSetup` false before
+/// `POST /first_setup` can run, and that route then refuses because `users`
+/// is no longer empty. In that case create `testadmin` through the user
+/// service so later binaries can log in.
 /// Login waits until `must_change_password` is cleared: a login in that window
 /// returns a password-change token that cannot create patrons.
 pub async fn ensure_first_setup(app: &super::TestApp) -> String {
     let (_, health) = app.get_json("/api/v1/health").await;
     if health["setup"]["needFirstSetup"].as_bool() == Some(true) {
-        let (status, body) = app.post_json("/api/v1/first_setup", &first_setup_payload(), None).await;
+        let (status, body) = app
+            .post_json("/api/v1/first_setup", &first_setup_payload(), None)
+            .await;
         if status == axum::http::StatusCode::CREATED {
-            return body["token"].as_str().expect("token in first_setup response").to_string();
+            return body["token"]
+                .as_str()
+                .expect("token in first_setup response")
+                .to_string();
         }
+    }
+
+    if admin_password_flag(app).await.is_none() {
+        bootstrap_testadmin(app).await;
     }
 
     wait_until_admin_can_authenticate(app).await;
 
-    let (status, body) = app.post_json("/api/v1/auth/login", &json!({ "username": "testadmin", "password": "testadmin1234" }), None).await;
+    let (status, body) = app
+        .post_json(
+            "/api/v1/auth/login",
+            &json!({ "username": "testadmin", "password": "testadmin1234" }),
+            None,
+        )
+        .await;
     assert_eq!(status, axum::http::StatusCode::OK, "login failed: {body}");
-    body["token"].as_str().expect("token in login response").to_string()
+    body["token"]
+        .as_str()
+        .expect("token in login response")
+        .to_string()
+}
+
+async fn admin_password_flag(app: &super::TestApp) -> Option<bool> {
+    sqlx::query_scalar("SELECT must_change_password FROM users WHERE login = 'testadmin'")
+        .fetch_optional(app.state.services.repository.pool())
+        .await
+        .expect("read admin password flag")
+}
+
+/// Insert the shared admin when another test already wrote a user row.
+async fn bootstrap_testadmin(app: &super::TestApp) {
+    let repo = &app.state.services.repository;
+    let public_type = match repo.public_types_find_id_by_name("adult").await {
+        Ok(Some(id)) => id,
+        Ok(None) => repo
+            .public_types_first_id()
+            .await
+            .expect("public types")
+            .expect("seeded public type"),
+        Err(error) => panic!("public types: {error}"),
+    };
+
+    let payload = UserPayload {
+        login: Some("testadmin".into()),
+        password: Some(plaintext_password("testadmin1234")),
+        firstname: Some("Test".into()),
+        lastname: Some("Admin".into()),
+        email: Some("admin@test.local".into()),
+        account_type: Some(AccountTypeSlug::Admin),
+        sex: Some(Sex::M),
+        birthdate: Some(NaiveDate::from_ymd_opt(1980, 1, 15).expect("date")),
+        public_type: Some(public_type),
+        addr_city: Some("Paris".into()),
+        language: Some("french".into()),
+        ..Default::default()
+    };
+
+    match app
+        .state
+        .services
+        .users
+        .create_user(payload, EventsConsentSource::Desk)
+        .await
+    {
+        Ok(user) => app
+            .state
+            .services
+            .users
+            .set_must_change_password(user.id, false)
+            .await
+            .expect("clear must_change_password"),
+        Err(AppError::Conflict(_)) => {}
+        Err(error) => panic!("bootstrap testadmin: {error}"),
+    }
+
+    let library = app
+        .state
+        .services
+        .library_info
+        .get()
+        .await
+        .expect("library info");
+    if library.name.as_deref().unwrap_or("").trim().is_empty() {
+        app.state
+            .services
+            .library_info
+            .update(UpdateLibraryInfoRequest {
+                name: Some("Test Library".into()),
+                addr_line1: None,
+                addr_line2: None,
+                addr_postcode: None,
+                addr_city: Some("Paris".into()),
+                addr_country: Some("FR".into()),
+                phones: None,
+                email: None,
+                timezone: None,
+                language: None,
+            })
+            .await
+            .expect("library info");
+    }
 }
 
 async fn wait_until_admin_can_authenticate(app: &super::TestApp) {
     for _ in 0..50 {
-        let pending: Option<bool> = sqlx::query_scalar("SELECT must_change_password FROM users WHERE login = 'testadmin'")
-            .fetch_optional(app.state.services.repository.pool())
-            .await
-            .expect("read admin password flag");
-        if pending == Some(false) {
+        if admin_password_flag(app).await == Some(false) {
             return;
         }
         tokio::time::sleep(std::time::Duration::from_millis(20)).await;
@@ -75,16 +186,28 @@ async fn first_public_type_id(app: &super::TestApp, admin_token: &str) -> i64 {
 
 /// Resolve a seeded public type id by `name` (`child`, `adult`, `school`, …).
 pub async fn public_type_id_by_name(app: &super::TestApp, admin_token: &str, name: &str) -> i64 {
-    let (status, body) = app.get_json_with_auth("/api/v1/public-types", admin_token).await;
-    assert_eq!(status, axum::http::StatusCode::OK, "list public types: {body}");
+    let (status, body) = app
+        .get_json_with_auth("/api/v1/public-types", admin_token)
+        .await;
+    assert_eq!(
+        status,
+        axum::http::StatusCode::OK,
+        "list public types: {body}"
+    );
     let types = body.as_array().expect("public types array");
-    let chosen = types.iter().find(|t| t["name"] == name).unwrap_or_else(|| panic!("expected public type {name}"));
+    let chosen = types
+        .iter()
+        .find(|t| t["name"] == name)
+        .unwrap_or_else(|| panic!("expected public type {name}"));
     json_id(&chosen["id"])
 }
 
 /// Suffix so parallel / rerun tests do not collide on a shared database.
 pub fn unique_suffix() -> u128 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("clock").as_nanos()
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("clock")
+        .as_nanos()
 }
 
 /// Fragment for an account-type `code` (letters, digits, underscore; 50 chars max with a short prefix).
@@ -94,7 +217,10 @@ pub fn unique_suffix() -> u128 {
 pub fn unique_token() -> String {
     static N: AtomicU64 = AtomicU64::new(0);
     let n = N.fetch_add(1, Ordering::Relaxed);
-    let millis = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("clock").as_millis();
+    let millis = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("clock")
+        .as_millis();
     format!("p{}t{millis}n{n}", std::process::id())
 }
 
@@ -113,7 +239,12 @@ pub async fn create_reader(app: &super::TestApp, admin_token: &str, login: &str)
 }
 
 /// Create a reader assigned to `public_type_id` (or the seeded adult type when `None`).
-pub async fn create_reader_with_public_type(app: &super::TestApp, admin_token: &str, login: &str, public_type_id: Option<i64>) -> (i64, String) {
+pub async fn create_reader_with_public_type(
+    app: &super::TestApp,
+    admin_token: &str,
+    login: &str,
+    public_type_id: Option<i64>,
+) -> (i64, String) {
     let login = format!("{login}_{}", unique_suffix());
     let public_type_id = match public_type_id {
         Some(id) => id,
@@ -132,17 +263,38 @@ pub async fn create_reader_with_public_type(app: &super::TestApp, admin_token: &
         "addrCity": "Paris"
     });
 
-    let (status, body) = app.post_json("/api/v1/users", &payload, Some(admin_token)).await;
-    assert_eq!(status, axum::http::StatusCode::CREATED, "create user: {body}");
+    let (status, body) = app
+        .post_json("/api/v1/users", &payload, Some(admin_token))
+        .await;
+    assert_eq!(
+        status,
+        axum::http::StatusCode::CREATED,
+        "create user: {body}"
+    );
 
     let user_id = json_id(&body["id"]);
     // The API ignores `publicType` for readers and derives it from the birth date.
     // Circulation tests still need a chosen audience, so the harness writes it after create.
     assign_public_type(app, user_id, public_type_id).await;
-    app.state.services.users.set_must_change_password(user_id, false).await.expect("clear must_change_password for tests");
+    app.state
+        .services
+        .users
+        .set_must_change_password(user_id, false)
+        .await
+        .expect("clear must_change_password for tests");
 
-    let (login_status, login_body) = app.post_json("/api/v1/auth/login", &json!({ "username": login, "password": "readerpass1234" }), None).await;
-    assert_eq!(login_status, axum::http::StatusCode::OK, "reader login: {login_body}");
+    let (login_status, login_body) = app
+        .post_json(
+            "/api/v1/auth/login",
+            &json!({ "username": login, "password": "readerpass1234" }),
+            None,
+        )
+        .await;
+    assert_eq!(
+        login_status,
+        axum::http::StatusCode::OK,
+        "reader login: {login_body}"
+    );
 
     let token = login_body["token"].as_str().unwrap().to_string();
     (user_id, token)

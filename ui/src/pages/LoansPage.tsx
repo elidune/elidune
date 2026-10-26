@@ -16,7 +16,6 @@ import {
   ChevronDown,
   ClipboardList,
   ArrowLeftRight,
-  Icon,
 } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useDeskPatronLoansQuery } from '@/hooks/loans/useDeskPatronLoansQuery';

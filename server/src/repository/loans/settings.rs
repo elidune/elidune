@@ -13,9 +13,14 @@ impl Repository {
     ///
     /// `nb_max_total_all_media` comes from `nb_max` on the default rows (audience / global), not per-media rows.
     /// `nb_max_media` applies only to the current `media_type`; it does not use default rows' `nb_max`.
-    pub(crate) async fn resolve_loan_settings(&self, user_public_type: Option<i64>, media_type: Option<&str>) -> AppResult<(i16, i16, i16, i16, LoanSettingsRenewAt)> {
+    pub(crate) async fn resolve_loan_settings(
+        &self,
+        user_public_type: Option<i64>,
+        media_type: Option<&str>,
+    ) -> AppResult<(i16, i16, i16, i16, LoanSettingsRenewAt)> {
         let mut conn = self.pool.acquire().await?;
-        self.resolve_loan_settings_conn(&mut conn, user_public_type, media_type).await
+        self.resolve_loan_settings_conn(&mut conn, user_public_type, media_type)
+            .await
     }
 
     /// Same as [`Self::resolve_loan_settings`] on an existing connection.
@@ -33,8 +38,10 @@ impl Repository {
         let default_nb_max_total = 5i16;
         let default_nb_renews = 2i16;
 
-        let pick_renew =
-            |row: Option<&sqlx::postgres::PgRow>| -> Option<LoanSettingsRenewAt> { row.and_then(|r| r.get::<Option<String>, _>("renew_at")).map(|s| LoanSettingsRenewAt::from(s.as_str())) };
+        let pick_renew = |row: Option<&sqlx::postgres::PgRow>| -> Option<LoanSettingsRenewAt> {
+            row.and_then(|r| r.get::<Option<String>, _>("renew_at"))
+                .map(|s| LoanSettingsRenewAt::from(s.as_str()))
+        };
 
         let ptls_spec = if let (Some(pt_id), Some(mt)) = (user_public_type, media_type) {
             sqlx::query("SELECT duration, nb_max, nb_renews, renew_at FROM public_type_loan_settings WHERE public_type_id = $1 AND media_type = $2")
@@ -71,29 +78,61 @@ impl Repository {
         let duration = ptls_spec
             .as_ref()
             .and_then(|r| r.get::<Option<i16>, _>("duration"))
-            .or_else(|| ptls_default.as_ref().and_then(|r| r.get::<Option<i16>, _>("duration")))
-            .or_else(|| ls_spec.as_ref().and_then(|r| r.get::<Option<i16>, _>("duration")))
-            .or_else(|| ls_default.as_ref().and_then(|r| r.get::<Option<i16>, _>("duration")))
+            .or_else(|| {
+                ptls_default
+                    .as_ref()
+                    .and_then(|r| r.get::<Option<i16>, _>("duration"))
+            })
+            .or_else(|| {
+                ls_spec
+                    .as_ref()
+                    .and_then(|r| r.get::<Option<i16>, _>("duration"))
+            })
+            .or_else(|| {
+                ls_default
+                    .as_ref()
+                    .and_then(|r| r.get::<Option<i16>, _>("duration"))
+            })
             .unwrap_or(default_duration);
 
         let nb_max_media = ptls_spec
             .as_ref()
             .and_then(|r| r.get::<Option<i16>, _>("nb_max"))
-            .or_else(|| ls_spec.as_ref().and_then(|r| r.get::<Option<i16>, _>("nb_max")))
+            .or_else(|| {
+                ls_spec
+                    .as_ref()
+                    .and_then(|r| r.get::<Option<i16>, _>("nb_max"))
+            })
             .unwrap_or(default_nb_max_media);
 
         let nb_max_total = ptls_default
             .as_ref()
             .and_then(|r| r.get::<Option<i16>, _>("nb_max"))
-            .or_else(|| ls_default.as_ref().and_then(|r| r.get::<Option<i16>, _>("nb_max")))
+            .or_else(|| {
+                ls_default
+                    .as_ref()
+                    .and_then(|r| r.get::<Option<i16>, _>("nb_max"))
+            })
             .unwrap_or(default_nb_max_total);
 
         let nb_renews = ptls_spec
             .as_ref()
             .and_then(|r| r.get::<Option<i16>, _>("nb_renews"))
-            .or_else(|| ptls_default.as_ref().and_then(|r| r.get::<Option<i16>, _>("nb_renews")))
-            .or_else(|| ls_spec.as_ref().and_then(|r| r.get::<Option<i16>, _>("nb_renews")))
-            .or_else(|| ls_default.as_ref().and_then(|r| r.get::<Option<i16>, _>("nb_renews")))
+            .or_else(|| {
+                ptls_default
+                    .as_ref()
+                    .and_then(|r| r.get::<Option<i16>, _>("nb_renews"))
+            })
+            .or_else(|| {
+                ls_spec
+                    .as_ref()
+                    .and_then(|r| r.get::<Option<i16>, _>("nb_renews"))
+            })
+            .or_else(|| {
+                ls_default
+                    .as_ref()
+                    .and_then(|r| r.get::<Option<i16>, _>("nb_renews"))
+            })
             .unwrap_or(default_nb_renews);
 
         let renew_at_policy = pick_renew(ptls_spec.as_ref())
@@ -102,50 +141,80 @@ impl Repository {
             .or_else(|| pick_renew(ls_default.as_ref()))
             .unwrap_or(LoanSettingsRenewAt::AtDueDate);
 
-        Ok((duration, nb_max_media, nb_max_total, nb_renews, renew_at_policy))
+        Ok((
+            duration,
+            nb_max_media,
+            nb_max_total,
+            nb_renews,
+            renew_at_policy,
+        ))
     }
 
     /// Days before the due date when renewal is allowed.
     ///
     /// Per-media `loans_settings` row, then the global row (`media_type IS NULL`), else [`super::mutations`] default 7.
-    pub(crate) async fn resolve_renew_window_days(&self, media_type: Option<&str>) -> AppResult<i16> {
+    pub(crate) async fn resolve_renew_window_days(
+        &self,
+        media_type: Option<&str>,
+    ) -> AppResult<i16> {
         let mut conn = self.pool.acquire().await?;
-        self.resolve_renew_window_days_conn(&mut conn, media_type).await
+        self.resolve_renew_window_days_conn(&mut conn, media_type)
+            .await
     }
 
     /// Same as [`Self::resolve_renew_window_days`] on an existing connection.
-    pub(crate) async fn resolve_renew_window_days_conn(&self, conn: &mut sqlx::PgConnection, media_type: Option<&str>) -> AppResult<i16> {
+    pub(crate) async fn resolve_renew_window_days_conn(
+        &self,
+        conn: &mut sqlx::PgConnection,
+        media_type: Option<&str>,
+    ) -> AppResult<i16> {
         if let Some(mt) = media_type {
-            let spec: Option<i16> = sqlx::query_scalar("SELECT renew_window_days FROM loans_settings WHERE media_type = $1")
-                .bind(mt)
-                .fetch_optional(&mut *conn)
-                .await?;
+            let spec: Option<i16> = sqlx::query_scalar(
+                "SELECT renew_window_days FROM loans_settings WHERE media_type = $1",
+            )
+            .bind(mt)
+            .fetch_optional(&mut *conn)
+            .await?;
             if let Some(days) = spec {
                 return Ok(days);
             }
         }
-        let global: Option<i16> = sqlx::query_scalar("SELECT renew_window_days FROM loans_settings WHERE media_type IS NULL")
-            .fetch_optional(&mut *conn)
-            .await?;
+        let global: Option<i16> = sqlx::query_scalar(
+            "SELECT renew_window_days FROM loans_settings WHERE media_type IS NULL",
+        )
+        .fetch_optional(&mut *conn)
+        .await?;
         Ok(global.unwrap_or(crate::renewal::DEFAULT_RENEW_WINDOW_DAYS))
     }
 
     /// Get loan settings
     pub async fn loans_get_settings(&self) -> AppResult<Vec<LoanSettings>> {
-        sqlx::query_as::<_, LoanSettings>(r#"SELECT * FROM loans_settings ORDER BY (media_type IS NOT NULL), media_type"#)
-            .fetch_all(&self.pool)
-            .await
-            .map_err(Into::into)
+        sqlx::query_as::<_, LoanSettings>(
+            r#"SELECT * FROM loans_settings ORDER BY (media_type IS NOT NULL), media_type"#,
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(Into::into)
     }
 
     /// Delete all rows in `loans_settings`.
     pub async fn loans_settings_delete_rows(&self) -> AppResult<()> {
-        sqlx::query("DELETE FROM loans_settings").execute(&self.pool).await?;
+        sqlx::query("DELETE FROM loans_settings")
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 
     /// Upsert one row in `loans_settings`. `media_type == None` is the global default row (`media_type` IS NULL).
-    pub async fn loans_settings_upsert_row(&self, media_type: Option<String>, nb_max: i16, nb_renews: i16, duration: i16, renew_at: LoanSettingsRenewAt, renew_window_days: i16) -> AppResult<()> {
+    pub async fn loans_settings_upsert_row(
+        &self,
+        media_type: Option<String>,
+        nb_max: i16,
+        nb_renews: i16,
+        duration: i16,
+        renew_at: LoanSettingsRenewAt,
+        renew_window_days: i16,
+    ) -> AppResult<()> {
         let rows_affected = if let Some(ref mt) = media_type {
             sqlx::query(
                 r#"

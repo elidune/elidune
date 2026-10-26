@@ -378,6 +378,44 @@ export function parseReplacementRateEuros(raw: string): ReplacementRateParse {
   return { ok: true, cents };
 }
 
+export interface LenderFormWrite {
+  name: string;
+  contact: string | null;
+  notes: string | null;
+  /** JSON null clears the rate. A positive integer sets it. Never zero. */
+  replacementRateCents: number | null;
+}
+
+/**
+ * Lender create and edit always send `replacementRateCents`.
+ * An empty field is JSON `null` (clears the stored rate on edit).
+ * Callers must reject zero before calling this.
+ */
+export function buildLenderWrite(input: {
+  name: string;
+  contact: string;
+  notes: string;
+  replacementRateCents: number | null;
+}): LenderFormWrite {
+  return {
+    name: input.name.trim(),
+    contact: input.contact.trim() || null,
+    notes: input.notes.trim() || null,
+    replacementRateCents: input.replacementRateCents,
+  };
+}
+
+/** Staff line when the lender was told this copy was lost or damaged. */
+export function depositLossNotifiedText(
+  deposit: { depositLossNotifiedAt?: string | null } | null | undefined,
+  t: TFunction,
+  language: string,
+): string | null {
+  const iso = deposit?.depositLossNotifiedAt?.trim();
+  if (!iso) return null;
+  return t('deposits.losses.notifiedOn', { date: formatLocaleDate(iso, language) });
+}
+
 /** Editable euro string for a stored rate. Empty when there is no rate. */
 export function replacementRateInputValue(cents: number | null | undefined): string {
   if (cents == null || !Number.isFinite(cents) || cents <= 0) return '';

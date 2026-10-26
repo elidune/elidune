@@ -17,7 +17,11 @@ use crate::{
     models::{
         dto::card::{CardLostReason, ReplaceCardResponse, ReportedLostCard},
         secret::{ExposeSecret, PlaintextPassword},
-        user::{AccountTypeSlug, EventsConsentSource, GuardianIdPatch, UpdateProfile, User, UserClaims, UserErasureResult, UserPayload, UserQuery, UserShort, UserStatus, SCOPE_CHANGE_PASSWORD},
+        user::{
+            AccountTypeSlug, EventsConsentSource, GuardianIdPatch, UpdateProfile, User, UserClaims,
+            UserErasureResult, UserPayload, UserQuery, UserShort, UserStatus,
+            SCOPE_CHANGE_PASSWORD,
+        },
     },
     public_type_age::{age_years_on_date, resolve_public_type_for_age, PublicTypeAgeBand},
     repository::Repository,
@@ -43,14 +47,27 @@ struct PasswordResetClaims {
 }
 
 impl UsersService {
-    pub fn new(repository: Repository, config: UsersConfig, redis: crate::services::redis::RedisService) -> Self {
-        Self { repository, config, redis }
+    pub fn new(
+        repository: Repository,
+        config: UsersConfig,
+        redis: crate::services::redis::RedisService,
+    ) -> Self {
+        Self {
+            repository,
+            config,
+            redis,
+        }
     }
 
     /// Authenticate user by login and return JWT token
     /// Returns (token, user) if 2FA is not enabled, or (None, user) if 2FA is required
     #[tracing::instrument(skip(self), err)]
-    pub async fn authenticate(&self, login: &str, password: &PlaintextPassword, device_id: Option<&str>) -> AppResult<(Option<String>, User)> {
+    pub async fn authenticate(
+        &self,
+        login: &str,
+        password: &PlaintextPassword,
+        device_id: Option<&str>,
+    ) -> AppResult<(Option<String>, User)> {
         // Authenticate by login (primary method)
         let user = self
             .repository
@@ -64,14 +81,18 @@ impl UsersService {
                 return Err(AppError::Authentication("Account is blocked".to_string()));
             }
             if status == UserStatus::Deleted {
-                return Err(AppError::Authentication("Invalid login or password".to_string()));
+                return Err(AppError::Authentication(
+                    "Invalid login or password".to_string(),
+                ));
             }
         }
 
         // Check password
         let password_valid = self.verify_password(&user, password)?;
         if !password_valid {
-            return Err(AppError::Authentication("Invalid login or password".to_string()));
+            return Err(AppError::Authentication(
+                "Invalid login or password".to_string(),
+            ));
         }
 
         // Check if 2FA is enabled
@@ -95,11 +116,19 @@ impl UsersService {
 
     /// Verify 2FA code and return JWT token
     #[tracing::instrument(skip(self), err)]
-    pub async fn verify_2fa(&self, user_id: i64, code: &str, device_id: Option<&str>, trust_device: bool) -> AppResult<String> {
+    pub async fn verify_2fa(
+        &self,
+        user_id: i64,
+        code: &str,
+        device_id: Option<&str>,
+        trust_device: bool,
+    ) -> AppResult<String> {
         let user = self.repository.users_get_by_id(user_id).await?;
 
         if !user.two_factor_enabled.unwrap_or(false) {
-            return Err(AppError::Validation("2FA is not enabled for this user".to_string()));
+            return Err(AppError::Validation(
+                "2FA is not enabled for this user".to_string(),
+            ));
         }
 
         let method = user.two_factor_method.as_deref().unwrap_or("totp");
@@ -108,7 +137,11 @@ impl UsersService {
             "totp" => {
                 if let Some(ref secret) = user.totp_secret {
                     // Decode base32 secret to get original bytes
-                    let secret_bytes = base32::decode(base32::Alphabet::RFC4648 { padding: false }, secret).ok_or_else(|| AppError::Internal("Invalid TOTP secret format".to_string()))?;
+                    let secret_bytes =
+                        base32::decode(base32::Alphabet::RFC4648 { padding: false }, secret)
+                            .ok_or_else(|| {
+                                AppError::Internal("Invalid TOTP secret format".to_string())
+                            })?;
 
                     let now = Utc::now().timestamp();
                     // totp_custom(step, digits, secret, time)
@@ -147,27 +180,44 @@ impl UsersService {
         let user = self.repository.users_get_by_id(user_id).await?;
 
         if !user.two_factor_enabled.unwrap_or(false) {
-            return Err(AppError::Validation("2FA is not enabled for this user".to_string()));
+            return Err(AppError::Validation(
+                "2FA is not enabled for this user".to_string(),
+            ));
         }
 
-        let recovery_codes: Vec<String> = user.recovery_codes.as_ref().and_then(|s| serde_json::from_str(s).ok()).unwrap_or_default();
+        let recovery_codes: Vec<String> = user
+            .recovery_codes
+            .as_ref()
+            .and_then(|s| serde_json::from_str(s).ok())
+            .unwrap_or_default();
 
-        let used_codes: HashSet<String> = user.recovery_codes_used.as_ref().and_then(|s| serde_json::from_str(s).ok()).unwrap_or_default();
+        let used_codes: HashSet<String> = user
+            .recovery_codes_used
+            .as_ref()
+            .and_then(|s| serde_json::from_str(s).ok())
+            .unwrap_or_default();
 
         if !recovery_codes.contains(&code.to_string()) {
-            return Err(AppError::Authentication("Invalid recovery code".to_string()));
+            return Err(AppError::Authentication(
+                "Invalid recovery code".to_string(),
+            ));
         }
 
         if used_codes.contains(code) {
-            return Err(AppError::Authentication("Recovery code has already been used".to_string()));
+            return Err(AppError::Authentication(
+                "Recovery code has already been used".to_string(),
+            ));
         }
 
         // Mark code as used
         let mut new_used_codes = used_codes;
         new_used_codes.insert(code.to_string());
-        let used_codes_json = serde_json::to_string(&new_used_codes).map_err(|e| AppError::Internal(format!("Failed to serialize used codes: {}", e)))?;
+        let used_codes_json = serde_json::to_string(&new_used_codes)
+            .map_err(|e| AppError::Internal(format!("Failed to serialize used codes: {}", e)))?;
 
-        self.repository.users_mark_recovery_code_used(user_id, &used_codes_json).await?;
+        self.repository
+            .users_mark_recovery_code_used(user_id, &used_codes_json)
+            .await?;
 
         // Create token (scoped if must_change_password)
         self.token_respecting_password_policy(&user).await
@@ -209,13 +259,16 @@ impl UsersService {
             scope: scope.map(str::to_owned),
         };
 
-        claims.create_token(&self.config.jwt_secret).map_err(|e| AppError::Internal(format!("Failed to create token: {}", e)))
+        claims
+            .create_token(&self.config.jwt_secret)
+            .map_err(|e| AppError::Internal(format!("Failed to create token: {}", e)))
     }
 
     /// Return a scoped token if the user must change their password, otherwise a full token.
     async fn token_respecting_password_policy(&self, user: &User) -> AppResult<String> {
         if user.must_change_password {
-            self.create_token_with_scope(user, Some(SCOPE_CHANGE_PASSWORD)).await
+            self.create_token_with_scope(user, Some(SCOPE_CHANGE_PASSWORD))
+                .await
         } else {
             self.create_token_for_user(user).await
         }
@@ -242,7 +295,10 @@ impl UsersService {
         } else {
             format!("{}:{}", issuer, account_name)
         };
-        let uri = format!("otpauth://totp/{}?secret={}&issuer={}", label, secret, issuer);
+        let uri = format!(
+            "otpauth://totp/{}?secret={}&issuer={}",
+            label, secret, issuer
+        );
 
         Ok((secret, uri))
     }
@@ -261,22 +317,39 @@ impl UsersService {
 
     /// Enable 2FA for a user
     #[tracing::instrument(skip(self), err)]
-    pub async fn enable_2fa(&self, user_id: i64, method: &str, totp_secret: Option<String>) -> AppResult<Vec<String>> {
+    pub async fn enable_2fa(
+        &self,
+        user_id: i64,
+        method: &str,
+        totp_secret: Option<String>,
+    ) -> AppResult<Vec<String>> {
         if method != "totp" && method != "email" {
-            return Err(AppError::Validation("Invalid 2FA method. Must be 'totp' or 'email'".to_string()));
+            return Err(AppError::Validation(
+                "Invalid 2FA method. Must be 'totp' or 'email'".to_string(),
+            ));
         }
 
         let user = self.get_by_id(user_id).await?;
 
         if method == "email" && user.email.is_none() {
-            return Err(AppError::Validation("Email is required for email-based 2FA".to_string()));
+            return Err(AppError::Validation(
+                "Email is required for email-based 2FA".to_string(),
+            ));
         }
 
         let recovery_codes = self.generate_recovery_codes(10);
-        let recovery_codes_json = serde_json::to_string(&recovery_codes).map_err(|e| AppError::Internal(format!("Failed to serialize recovery codes: {}", e)))?;
+        let recovery_codes_json = serde_json::to_string(&recovery_codes).map_err(|e| {
+            AppError::Internal(format!("Failed to serialize recovery codes: {}", e))
+        })?;
 
         self.repository
-            .users_update_2fa_settings(user_id, true, Some(method), totp_secret.as_deref(), Some(&recovery_codes_json))
+            .users_update_2fa_settings(
+                user_id,
+                true,
+                Some(method),
+                totp_secret.as_deref(),
+                Some(&recovery_codes_json),
+            )
             .await?;
 
         Ok(recovery_codes)
@@ -287,9 +360,13 @@ impl UsersService {
     pub async fn disable_2fa(&self, user_id: i64, password: &PlaintextPassword) -> AppResult<()> {
         let user = self.repository.users_get_by_id(user_id).await?;
         if !self.verify_password(&user, password)? {
-            return Err(AppError::Authentication("Invalid login or password".to_string()));
+            return Err(AppError::Authentication(
+                "Invalid login or password".to_string(),
+            ));
         }
-        self.repository.users_update_2fa_settings(user_id, false, None, None, None).await?;
+        self.repository
+            .users_update_2fa_settings(user_id, false, None, None, None)
+            .await?;
 
         Ok(())
     }
@@ -299,8 +376,11 @@ impl UsersService {
         let password = password.expose_secret().as_str();
         // First try the new hashed password
         if let Some(ref hash) = user.password {
-            let parsed_hash = PasswordHash::new(hash).map_err(|_| AppError::Internal("Invalid password hash".to_string()))?;
-            return Ok(Argon2::default().verify_password(password.as_bytes(), &parsed_hash).is_ok());
+            let parsed_hash = PasswordHash::new(hash)
+                .map_err(|_| AppError::Internal("Invalid password hash".to_string()))?;
+            return Ok(Argon2::default()
+                .verify_password(password.as_bytes(), &parsed_hash)
+                .is_ok());
         }
 
         Ok(false)
@@ -345,7 +425,11 @@ impl UsersService {
     /// `language` omitted or null is stored as NULL. A value outside
     /// `english`, `french`, `german`, and `spanish` is HTTP 422.
     #[tracing::instrument(skip(self), err)]
-    pub async fn create_user(&self, mut user: UserPayload, consent_source: EventsConsentSource) -> AppResult<User> {
+    pub async fn create_user(
+        &self,
+        mut user: UserPayload,
+        consent_source: EventsConsentSource,
+    ) -> AppResult<User> {
         let account_type = user.account_type.clone().unwrap_or(AccountTypeSlug::Guest);
         if account_type.derives_public_type_from_birthdate() && user.birthdate.is_none() {
             return Err(birth_date_required());
@@ -360,7 +444,9 @@ impl UsersService {
             .filter(|s| !s.is_empty())
             .ok_or_else(|| AppError::Validation("Login is required".to_string()))?;
         if login.len() < 3 {
-            return Err(AppError::Validation("Login must be at least 3 characters".to_string()));
+            return Err(AppError::Validation(
+                "Login must be at least 3 characters".to_string(),
+            ));
         }
 
         if self.repository.users_login_exists(&login, None).await? {
@@ -385,14 +471,16 @@ impl UsersService {
 
         user.login = Some(login);
 
-        self.assign_reader_public_type(&account_type, user.birthdate, &mut user.public_type).await?;
+        self.assign_reader_public_type(&account_type, user.birthdate, &mut user.public_type)
+            .await?;
 
         self.ensure_guardian_on_create(&user).await?;
 
         let requested_consent = user.events_consent;
         let public_type = user.public_type;
         let created = self.repository.users_create(&user, password).await?;
-        self.record_events_consent(created.id, public_type, requested_consent, consent_source).await?;
+        self.record_events_consent(created.id, public_type, requested_consent, consent_source)
+            .await?;
         self.repository.users_get_by_id(created.id).await
     }
 
@@ -401,14 +489,22 @@ impl UsersService {
     /// Child accounts do not store announcement consent. The field is ignored
     /// (the request still succeeds) because the guardian's consent is what the
     /// recipient query checks.
-    async fn record_events_consent(&self, user_id: i64, public_type_id: Option<i64>, requested: Option<bool>, source: EventsConsentSource) -> AppResult<()> {
+    async fn record_events_consent(
+        &self,
+        user_id: i64,
+        public_type_id: Option<i64>,
+        requested: Option<bool>,
+        source: EventsConsentSource,
+    ) -> AppResult<()> {
         let Some(granted) = requested else {
             return Ok(());
         };
         if self.public_type_requires_guardian(public_type_id).await? {
             return Ok(());
         }
-        self.repository.users_set_events_consent(user_id, granted, source.as_db_str()).await
+        self.repository
+            .users_set_events_consent(user_id, granted, source.as_db_str())
+            .await
     }
 
     async fn public_type_requires_guardian(&self, public_type_id: Option<i64>) -> AppResult<bool> {
@@ -421,22 +517,33 @@ impl UsersService {
 
     async fn validate_guardian(&self, child_id: Option<i64>, guardian_id: i64) -> AppResult<()> {
         if child_id == Some(guardian_id) {
-            return Err(AppError::Validation("guardianId cannot be the same patron".into()));
+            return Err(AppError::Validation(
+                "guardianId cannot be the same patron".into(),
+            ));
         }
         let guardian = match self.repository.users_get_by_id(guardian_id).await {
             Ok(u) => u,
             Err(AppError::NotFound(_)) => {
-                return Err(AppError::Validation("guardianId does not refer to an existing patron".into()));
+                return Err(AppError::Validation(
+                    "guardianId does not refer to an existing patron".into(),
+                ));
             }
             Err(e) => return Err(e),
         };
         if !guardian.is_active() {
-            return Err(AppError::Validation("guardian must be an active patron".into()));
+            return Err(AppError::Validation(
+                "guardian must be an active patron".into(),
+            ));
         }
         if let Some(public_type_id) = guardian.public_type {
-            let pt = self.repository.public_types_get_by_id(public_type_id).await?;
+            let pt = self
+                .repository
+                .public_types_get_by_id(public_type_id)
+                .await?;
             if !crate::models::public_type::PublicType::can_be_legal_guardian(&pt.name) {
-                return Err(AppError::Validation("guardian must be a major patron (not child or school)".into()));
+                return Err(AppError::Validation(
+                    "guardian must be a major patron (not child or school)".into(),
+                ));
             }
         }
         Ok(())
@@ -445,7 +552,9 @@ impl UsersService {
     async fn ensure_guardian_on_create(&self, user: &UserPayload) -> AppResult<()> {
         if self.public_type_requires_guardian(user.public_type).await? {
             let Some(guardian_id) = user.guardian_id.as_id() else {
-                return Err(AppError::Validation("guardianId is required for child patrons".into()));
+                return Err(AppError::Validation(
+                    "guardianId is required for child patrons".into(),
+                ));
             };
             self.validate_guardian(None, guardian_id).await?;
         } else if let Some(guardian_id) = user.guardian_id.as_id() {
@@ -454,7 +563,12 @@ impl UsersService {
         Ok(())
     }
 
-    async fn ensure_guardian_on_update(&self, id: i64, existing: &User, user: &UserPayload) -> AppResult<()> {
+    async fn ensure_guardian_on_update(
+        &self,
+        id: i64,
+        existing: &User,
+        user: &UserPayload,
+    ) -> AppResult<()> {
         let resulting_type = user.public_type.or(existing.public_type);
         let requires = self.public_type_requires_guardian(resulting_type).await?;
 
@@ -463,10 +577,14 @@ impl UsersService {
                 self.validate_guardian(Some(id), guardian_id).await?;
             }
             GuardianIdPatch::Clear if requires => {
-                return Err(AppError::Validation("guardianId is required for child patrons".into()));
+                return Err(AppError::Validation(
+                    "guardianId is required for child patrons".into(),
+                ));
             }
             GuardianIdPatch::Unspecified if requires && existing.guardian_id.is_none() => {
-                return Err(AppError::Validation("guardianId is required for child patrons".into()));
+                return Err(AppError::Validation(
+                    "guardianId is required for child patrons".into(),
+                ));
             }
             GuardianIdPatch::Clear | GuardianIdPatch::Unspecified => {}
         }
@@ -478,7 +596,12 @@ impl UsersService {
     /// A reader with no birth date keeps the stored type (`public_type` is cleared so the
     /// update does not write the client value). A reader with a birth date gets the band
     /// for their completed years. No matching band is `422 no_public_type_for_age`.
-    async fn assign_reader_public_type(&self, account_type: &AccountTypeSlug, birthdate: Option<NaiveDate>, public_type: &mut Option<i64>) -> AppResult<()> {
+    async fn assign_reader_public_type(
+        &self,
+        account_type: &AccountTypeSlug,
+        birthdate: Option<NaiveDate>,
+        public_type: &mut Option<i64>,
+    ) -> AppResult<()> {
         if !account_type.derives_public_type_from_birthdate() {
             return Ok(());
         }
@@ -488,7 +611,10 @@ impl UsersService {
 
     /// `None` when the reader has no birth date (caller keeps the stored type).
     /// `Some` is the computed id. No matching band is an error.
-    async fn public_type_for_birthdate(&self, birthdate: Option<NaiveDate>) -> AppResult<Option<i64>> {
+    async fn public_type_for_birthdate(
+        &self,
+        birthdate: Option<NaiveDate>,
+    ) -> AppResult<Option<i64>> {
         let Some(birthdate) = birthdate else {
             return Ok(None);
         };
@@ -498,31 +624,49 @@ impl UsersService {
             return Err(no_public_type_for_age(age));
         }
         let bands = self.public_type_age_bands().await?;
-        resolve_public_type_for_age(&bands, age).map(Some).ok_or_else(|| no_public_type_for_age(age))
+        resolve_public_type_for_age(&bands, age)
+            .map(Some)
+            .ok_or_else(|| no_public_type_for_age(age))
     }
 
     /// Recompute on a reader modification. A type change into `child` still needs a guardian.
-    async fn reader_public_type_for_modification(&self, existing: &User, birthdate: Option<NaiveDate>) -> AppResult<Option<i64>> {
+    async fn reader_public_type_for_modification(
+        &self,
+        existing: &User,
+        birthdate: Option<NaiveDate>,
+    ) -> AppResult<Option<i64>> {
         if !existing.account_type.derives_public_type_from_birthdate() {
             return Ok(None);
         }
         let resolved = self.public_type_for_birthdate(birthdate).await?;
         if let Some(id) = resolved {
-            if Some(id) != existing.public_type && self.public_type_requires_guardian(Some(id)).await? && existing.guardian_id.is_none() {
-                return Err(AppError::Validation("guardianId is required for child patrons".into()));
+            if Some(id) != existing.public_type
+                && self.public_type_requires_guardian(Some(id)).await?
+                && existing.guardian_id.is_none()
+            {
+                return Err(AppError::Validation(
+                    "guardianId is required for child patrons".into(),
+                ));
             }
         }
         Ok(resolved)
     }
 
-    async fn persist_resolved_public_type(&self, user_id: i64, current: Option<i64>, resolved: Option<i64>) -> AppResult<()> {
+    async fn persist_resolved_public_type(
+        &self,
+        user_id: i64,
+        current: Option<i64>,
+        resolved: Option<i64>,
+    ) -> AppResult<()> {
         let Some(resolved) = resolved else {
             return Ok(());
         };
         if current == Some(resolved) {
             return Ok(());
         }
-        self.repository.users_set_public_type(user_id, resolved).await
+        self.repository
+            .users_set_public_type(user_id, resolved)
+            .await
     }
 
     async fn public_type_age_bands(&self) -> AppResult<Vec<PublicTypeAgeBand>> {
@@ -543,7 +687,12 @@ impl UsersService {
     ///
     /// `consent_source` is `desk` for staff `PUT /users/{id}`.
     #[tracing::instrument(skip(self), err)]
-    pub async fn update_user(&self, id: i64, mut user: UserPayload, consent_source: EventsConsentSource) -> AppResult<User> {
+    pub async fn update_user(
+        &self,
+        id: i64,
+        mut user: UserPayload,
+        consent_source: EventsConsentSource,
+    ) -> AppResult<User> {
         // user.validate_required_patron_fields()?;
 
         // Check if user exists
@@ -559,13 +708,18 @@ impl UsersService {
 
         if let Some(raw) = user.barcode.clone() {
             let barcode = normalize_barcode(&raw)?;
-            self.ensure_card_number_available(&barcode, Some(id)).await?;
+            self.ensure_card_number_available(&barcode, Some(id))
+                .await?;
             user.barcode = Some(barcode);
         }
 
-        let account_type = user.account_type.clone().unwrap_or_else(|| existing.account_type.clone());
+        let account_type = user
+            .account_type
+            .clone()
+            .unwrap_or_else(|| existing.account_type.clone());
         let birthdate = user.birthdate.or(existing.birthdate);
-        self.assign_reader_public_type(&account_type, birthdate, &mut user.public_type).await?;
+        self.assign_reader_public_type(&account_type, birthdate, &mut user.public_type)
+            .await?;
 
         self.ensure_guardian_on_update(id, &existing, &user).await?;
 
@@ -581,13 +735,19 @@ impl UsersService {
         };
 
         self.repository.users_update(id, &user, password).await?;
-        self.record_events_consent(id, resulting_type, requested_consent, consent_source).await?;
+        self.record_events_consent(id, resulting_type, requested_consent, consent_source)
+            .await?;
         self.repository.users_get_by_id(id).await
     }
 
     /// Mark the patron's library card lost or stolen. Checkout stays blocked until replacement.
     #[tracing::instrument(skip(self, detail), err)]
-    pub async fn report_card_lost(&self, user_id: i64, reason: CardLostReason, detail: Option<String>) -> AppResult<ReportedLostCard> {
+    pub async fn report_card_lost(
+        &self,
+        user_id: i64,
+        reason: CardLostReason,
+        detail: Option<String>,
+    ) -> AppResult<ReportedLostCard> {
         let detail = normalize_card_lost_detail(detail)?;
         self.repository.users_set_card_lost(user_id, true).await?;
         let user = self.repository.users_get_by_id(user_id).await?;
@@ -603,10 +763,19 @@ impl UsersService {
 
     /// Assign a new library card number, clear `card_lost`, and retire the previous number.
     #[tracing::instrument(skip(self), err)]
-    pub async fn replace_card(&self, user_id: i64, barcode: &str, actor_id: i64) -> AppResult<ReplaceCardResponse> {
+    pub async fn replace_card(
+        &self,
+        user_id: i64,
+        barcode: &str,
+        actor_id: i64,
+    ) -> AppResult<ReplaceCardResponse> {
         let barcode = normalize_barcode(barcode)?;
-        self.ensure_card_number_available(&barcode, Some(user_id)).await?;
-        let replaced = self.repository.users_replace_card(user_id, &barcode, actor_id).await?;
+        self.ensure_card_number_available(&barcode, Some(user_id))
+            .await?;
+        let replaced = self
+            .repository
+            .users_replace_card(user_id, &barcode, actor_id)
+            .await?;
         Ok(ReplaceCardResponse {
             user: replaced.user,
             card_lost: false,
@@ -615,12 +784,22 @@ impl UsersService {
         })
     }
 
-    async fn ensure_card_number_available(&self, barcode: &str, exclude_user_id: Option<i64>) -> AppResult<()> {
+    async fn ensure_card_number_available(
+        &self,
+        barcode: &str,
+        exclude_user_id: Option<i64>,
+    ) -> AppResult<()> {
         if self.repository.retired_card_number_exists(barcode).await? {
             return Err(retired_card_error(barcode));
         }
-        if self.repository.users_barcode_taken(barcode, exclude_user_id).await? {
-            return Err(AppError::Conflict(format!("Card number {barcode} is already assigned")));
+        if self
+            .repository
+            .users_barcode_taken(barcode, exclude_user_id)
+            .await?
+        {
+            return Err(AppError::Conflict(format!(
+                "Card number {barcode} is already assigned"
+            )));
         }
         Ok(())
     }
@@ -638,13 +817,19 @@ impl UsersService {
         if years_after_expiry == 0 {
             return Ok(0);
         }
-        let ids = self.repository.users_list_due_for_auto_erasure(years_after_expiry).await?;
+        let ids = self
+            .repository
+            .users_list_due_for_auto_erasure(years_after_expiry)
+            .await?;
         let mut erased = 0_u64;
         for id in ids {
             match self.repository.users_delete(id, false).await {
                 Ok(_) => erased += 1,
                 Err(AppError::BusinessRule(_)) => {
-                    tracing::info!(user_id = id, "Skipping auto-erasure: patron still has active loans");
+                    tracing::info!(
+                        user_id = id,
+                        "Skipping auto-erasure: patron still has active loans"
+                    );
                 }
                 Err(e) => return Err(e),
             }
@@ -654,18 +839,32 @@ impl UsersService {
 
     /// Update user's own profile (name, password)
     #[tracing::instrument(skip(self), err)]
-    pub async fn update_profile(&self, user_id: i64, mut profile: UpdateProfile, submitted_birthdate: &crate::models::own_contact::SubmittedBirthdate) -> AppResult<User> {
+    pub async fn update_profile(
+        &self,
+        user_id: i64,
+        mut profile: UpdateProfile,
+        submitted_birthdate: &crate::models::own_contact::SubmittedBirthdate,
+    ) -> AppResult<User> {
         // Get current user
         let user = self.repository.users_get_by_id(user_id).await?;
-        if crate::models::own_contact::self_service_birthdate_differs(submitted_birthdate, user.birthdate) {
-            return Err(AppError::Authorization("Birth date cannot be changed on your own record".into()));
+        if crate::models::own_contact::self_service_birthdate_differs(
+            submitted_birthdate,
+            user.birthdate,
+        ) {
+            return Err(AppError::Authorization(
+                "Birth date cannot be changed on your own record".into(),
+            ));
         }
         // A repeated date is a no-op. Self-service never writes `birthdate`.
         profile.birthdate = None;
 
         // Check if login already exists for another user (login is required and unique)
         if let Some(ref login) = profile.login {
-            if self.repository.users_login_exists(login, Some(user_id)).await? {
+            if self
+                .repository
+                .users_login_exists(login, Some(user_id))
+                .await?
+            {
                 return Err(AppError::Conflict("Login already exists".to_string()));
             }
         }
@@ -673,19 +872,22 @@ impl UsersService {
 
         // If changing password, verify current password
         if profile.new_password.is_some() {
-            let current_password = profile
-                .current_password
-                .as_ref()
-                .ok_or_else(|| AppError::Validation("Current password required to change password".to_string()))?;
+            let current_password = profile.current_password.as_ref().ok_or_else(|| {
+                AppError::Validation("Current password required to change password".to_string())
+            })?;
 
             if !self.verify_password(&user, current_password)? {
-                return Err(AppError::Authentication("Current password is incorrect".to_string()));
+                return Err(AppError::Authentication(
+                    "Current password is incorrect".to_string(),
+                ));
             }
         }
 
         let requested_consent = profile.events_consent;
         let birthdate = user.birthdate;
-        let resolved_public_type = self.reader_public_type_for_modification(&user, birthdate).await?;
+        let resolved_public_type = self
+            .reader_public_type_for_modification(&user, birthdate)
+            .await?;
 
         // Hash new password if provided
         let password = if let Some(ref new_password) = profile.new_password {
@@ -696,10 +898,18 @@ impl UsersService {
         };
 
         // Update only allowed fields
-        self.repository.users_update_profile(user_id, &profile, password).await?;
-        self.persist_resolved_public_type(user_id, user.public_type, resolved_public_type).await?;
-        self.record_events_consent(user_id, resolved_public_type.or(user.public_type), requested_consent, EventsConsentSource::Profile)
+        self.repository
+            .users_update_profile(user_id, &profile, password)
             .await?;
+        self.persist_resolved_public_type(user_id, user.public_type, resolved_public_type)
+            .await?;
+        self.record_events_consent(
+            user_id,
+            resolved_public_type.or(user.public_type),
+            requested_consent,
+            EventsConsentSource::Profile,
+        )
+        .await?;
         self.repository.users_get_by_id(user_id).await
     }
 
@@ -707,28 +917,56 @@ impl UsersService {
     ///
     /// Account type, rights, card number, status, and fines are not accepted here.
     #[tracing::instrument(skip(self, patch), err)]
-    pub async fn update_own_contact(&self, user_id: i64, patch: crate::models::own_contact::OwnContactPatch, submitted_birthdate: &crate::models::own_contact::SubmittedBirthdate) -> AppResult<User> {
+    pub async fn update_own_contact(
+        &self,
+        user_id: i64,
+        patch: crate::models::own_contact::OwnContactPatch,
+        submitted_birthdate: &crate::models::own_contact::SubmittedBirthdate,
+    ) -> AppResult<User> {
         let existing = self.repository.users_get_by_id(user_id).await?;
-        if crate::models::own_contact::self_service_birthdate_differs(submitted_birthdate, existing.birthdate) {
-            return Err(AppError::Authorization("Birth date cannot be changed on your own record".into()));
+        if crate::models::own_contact::self_service_birthdate_differs(
+            submitted_birthdate,
+            existing.birthdate,
+        ) {
+            return Err(AppError::Authorization(
+                "Birth date cannot be changed on your own record".into(),
+            ));
         }
-        let resolved_public_type = self.reader_public_type_for_modification(&existing, existing.birthdate).await?;
-        self.repository.users_update_own_contact(user_id, &patch).await?;
-        self.persist_resolved_public_type(user_id, existing.public_type, resolved_public_type).await?;
-        self.record_events_consent(user_id, resolved_public_type.or(existing.public_type), patch.events_consent, EventsConsentSource::Profile)
+        let resolved_public_type = self
+            .reader_public_type_for_modification(&existing, existing.birthdate)
             .await?;
+        self.repository
+            .users_update_own_contact(user_id, &patch)
+            .await?;
+        self.persist_resolved_public_type(user_id, existing.public_type, resolved_public_type)
+            .await?;
+        self.record_events_consent(
+            user_id,
+            resolved_public_type.or(existing.public_type),
+            patch.events_consent,
+            EventsConsentSource::Profile,
+        )
+        .await?;
         self.repository.users_get_by_id(user_id).await
     }
 
     /// Update user's account type (admin only)
     #[tracing::instrument(skip(self), err)]
-    pub async fn update_account_type(&self, user_id: i64, account_type: &AccountTypeSlug) -> AppResult<User> {
+    pub async fn update_account_type(
+        &self,
+        user_id: i64,
+        account_type: &AccountTypeSlug,
+    ) -> AppResult<User> {
         let existing = self.repository.users_get_by_id(user_id).await?;
         let resolved_public_type = if account_type.derives_public_type_from_birthdate() {
             let resolved = self.public_type_for_birthdate(existing.birthdate).await?;
             if let Some(id) = resolved {
-                if self.public_type_requires_guardian(Some(id)).await? && existing.guardian_id.is_none() {
-                    return Err(AppError::Validation("guardianId is required for child patrons".into()));
+                if self.public_type_requires_guardian(Some(id)).await?
+                    && existing.guardian_id.is_none()
+                {
+                    return Err(AppError::Validation(
+                        "guardianId is required for child patrons".into(),
+                    ));
                 }
             }
             resolved
@@ -736,8 +974,11 @@ impl UsersService {
             None
         };
 
-        self.repository.users_update_account_type(user_id, account_type).await?;
-        self.persist_resolved_public_type(user_id, existing.public_type, resolved_public_type).await?;
+        self.repository
+            .users_update_account_type(user_id, account_type)
+            .await?;
+        self.persist_resolved_public_type(user_id, existing.public_type, resolved_public_type)
+            .await?;
         self.repository.users_get_by_id(user_id).await
     }
 
@@ -746,13 +987,18 @@ impl UsersService {
     /// `Ok(None)` when no account matches. Blank input is a validation error.
     #[tracing::instrument(skip(self), err)]
     pub async fn find_user_id_by_login_or_email(&self, identifier: &str) -> AppResult<Option<i64>> {
-        Ok(self.user_by_login_or_email(identifier).await?.map(|user| user.id))
+        Ok(self
+            .user_by_login_or_email(identifier)
+            .await?
+            .map(|user| user.id))
     }
 
     async fn user_by_login_or_email(&self, identifier: &str) -> AppResult<Option<User>> {
         let id = identifier.trim();
         if id.is_empty() {
-            return Err(AppError::Validation("identifier must not be empty".to_string()));
+            return Err(AppError::Validation(
+                "identifier must not be empty".to_string(),
+            ));
         }
         if let Some(user) = self.repository.users_get_by_login(id).await? {
             return Ok(Some(user));
@@ -763,19 +1009,32 @@ impl UsersService {
     /// Request password reset by login or email.
     /// Returns destination email, reset token, and user language for email template.
     #[tracing::instrument(skip(self), err)]
-    pub async fn request_password_reset(&self, identifier: &str) -> AppResult<(String, String, Option<crate::models::Language>, i64)> {
+    pub async fn request_password_reset(
+        &self,
+        identifier: &str,
+    ) -> AppResult<(String, String, Option<crate::models::Language>, i64)> {
         let user = self
             .user_by_login_or_email(identifier)
             .await?
-            .ok_or_else(|| AppError::NotFound("No account found for this login or email".to_string()))?;
+            .ok_or_else(|| {
+                AppError::NotFound("No account found for this login or email".to_string())
+            })?;
 
-        let email = user.email.as_deref().ok_or_else(|| AppError::Validation("No email configured for this account".to_string()))?;
+        let email = user.email.as_deref().ok_or_else(|| {
+            AppError::Validation("No email configured for this account".to_string())
+        })?;
 
         let now = Utc::now().timestamp();
         let exp = now + (30 * 60); // 30 minutes
-        let reset_nonce = self.repository.users_bump_password_reset_nonce(user.id).await?;
+        let reset_nonce = self
+            .repository
+            .users_bump_password_reset_nonce(user.id)
+            .await?;
         let claims = PasswordResetClaims {
-            sub: user.login.clone().unwrap_or_else(|| format!("user_{}", user.id)),
+            sub: user
+                .login
+                .clone()
+                .unwrap_or_else(|| format!("user_{}", user.id)),
             user_id: user.id,
             purpose: "password_reset".to_string(),
             exp,
@@ -783,8 +1042,12 @@ impl UsersService {
             reset_nonce,
         };
 
-        let token =
-            encode(&Header::default(), &claims, &EncodingKey::from_secret(self.config.jwt_secret.as_bytes())).map_err(|e| AppError::Internal(format!("Failed to create reset token: {}", e)))?;
+        let token = encode(
+            &Header::default(),
+            &claims,
+            &EncodingKey::from_secret(self.config.jwt_secret.as_bytes()),
+        )
+        .map_err(|e| AppError::Internal(format!("Failed to create reset token: {}", e)))?;
 
         Ok((email.to_string(), token, user.language, user.id))
     }
@@ -792,7 +1055,12 @@ impl UsersService {
     /// Login (`sub`) carried by a valid password-reset token, when the signature checks out.
     #[must_use]
     pub fn reset_token_login(&self, token: &str) -> Option<String> {
-        let token_data = decode::<PasswordResetClaims>(token, &DecodingKey::from_secret(self.config.jwt_secret.as_bytes()), &Validation::default()).ok()?;
+        let token_data = decode::<PasswordResetClaims>(
+            token,
+            &DecodingKey::from_secret(self.config.jwt_secret.as_bytes()),
+            &Validation::default(),
+        )
+        .ok()?;
         if token_data.claims.purpose != "password_reset" {
             return None;
         }
@@ -806,23 +1074,40 @@ impl UsersService {
 
     /// Reset password using a reset token and a new password.
     #[tracing::instrument(skip(self), err)]
-    pub async fn reset_password(&self, token: &str, new_password: &PlaintextPassword) -> AppResult<()> {
-        let token_data = decode::<PasswordResetClaims>(token, &DecodingKey::from_secret(self.config.jwt_secret.as_bytes()), &Validation::default())
-            .map_err(|_| AppError::Authentication("Invalid or expired reset token".to_string()))?;
+    pub async fn reset_password(
+        &self,
+        token: &str,
+        new_password: &PlaintextPassword,
+    ) -> AppResult<()> {
+        let token_data = decode::<PasswordResetClaims>(
+            token,
+            &DecodingKey::from_secret(self.config.jwt_secret.as_bytes()),
+            &Validation::default(),
+        )
+        .map_err(|_| AppError::Authentication("Invalid or expired reset token".to_string()))?;
 
         let claims = token_data.claims;
         if claims.purpose != "password_reset" {
-            return Err(AppError::Authentication("Invalid reset token purpose".to_string()));
+            return Err(AppError::Authentication(
+                "Invalid reset token purpose".to_string(),
+            ));
         }
 
-        let current_nonce = self.repository.users_get_password_reset_nonce(claims.user_id).await?;
+        let current_nonce = self
+            .repository
+            .users_get_password_reset_nonce(claims.user_id)
+            .await?;
         if current_nonce != claims.reset_nonce {
-            return Err(AppError::Authentication("Invalid or expired reset token".to_string()));
+            return Err(AppError::Authentication(
+                "Invalid or expired reset token".to_string(),
+            ));
         }
 
         validate_password_strength(new_password.expose_secret().as_str())?;
         let hash = self.hash_password(new_password)?;
-        self.repository.users_update_password(claims.user_id, &hash).await
+        self.repository
+            .users_update_password(claims.user_id, &hash)
+            .await
     }
 
     /// Change the password for a user who has a `change_password_only` scoped token.
@@ -832,11 +1117,17 @@ impl UsersService {
     /// must_change_password flag is cleared by the repository layer and a full JWT
     /// is returned.
     #[tracing::instrument(skip(self), err)]
-    pub async fn change_password_first_login(&self, user_id: i64, new_password: &PlaintextPassword) -> AppResult<String> {
+    pub async fn change_password_first_login(
+        &self,
+        user_id: i64,
+        new_password: &PlaintextPassword,
+    ) -> AppResult<String> {
         validate_password_strength(new_password.expose_secret().as_str())?;
         let hash = self.hash_password(new_password)?;
         // users_update_password also resets must_change_password = false
-        self.repository.users_update_password(user_id, &hash).await?;
+        self.repository
+            .users_update_password(user_id, &hash)
+            .await?;
 
         let user = self.repository.users_get_by_id(user_id).await?;
         // Issue a full JWT now that the password has been changed
@@ -852,7 +1143,9 @@ impl UsersService {
     pub async fn set_must_change_password(&self, user_id: i64, value: bool) -> AppResult<()> {
         // Ensure user exists before updating
         self.repository.users_get_by_id(user_id).await?;
-        self.repository.users_set_must_change_password(user_id, value).await
+        self.repository
+            .users_set_must_change_password(user_id, value)
+            .await
     }
 
     /// Generate a cryptographically random alphanumeric password of the given length.
@@ -871,7 +1164,11 @@ impl UsersService {
 }
 
 fn birth_date_required() -> AppError {
-    AppError::coded(422, error_code::BIRTH_DATE_REQUIRED, error_code::BIRTH_DATE_REQUIRED_MESSAGE)
+    AppError::coded(
+        422,
+        error_code::BIRTH_DATE_REQUIRED,
+        error_code::BIRTH_DATE_REQUIRED_MESSAGE,
+    )
 }
 
 fn no_public_type_for_age(age: i32) -> AppError {
@@ -892,17 +1189,24 @@ fn validate_create_language(language: Option<&str>) -> AppResult<()> {
     Err(AppError::coded(
         422,
         error_code::VALIDATION,
-        format!("Unsupported language '{language}'. Allowed: {}", crate::email_templates::SUPPORTED_LANGUAGES.join(", ")),
+        format!(
+            "Unsupported language '{language}'. Allowed: {}",
+            crate::email_templates::SUPPORTED_LANGUAGES.join(", ")
+        ),
     ))
 }
 
 fn normalize_barcode(raw: &str) -> AppResult<String> {
     let barcode = raw.trim();
     if barcode.is_empty() {
-        return Err(AppError::Validation("barcode must not be empty".to_string()));
+        return Err(AppError::Validation(
+            "barcode must not be empty".to_string(),
+        ));
     }
     if barcode.len() > 100 {
-        return Err(AppError::Validation("barcode must be at most 100 characters".to_string()));
+        return Err(AppError::Validation(
+            "barcode must be at most 100 characters".to_string(),
+        ));
     }
     Ok(barcode.to_string())
 }
@@ -916,11 +1220,17 @@ fn normalize_card_lost_detail(detail: Option<String>) -> AppResult<Option<String
         return Ok(None);
     }
     if detail.len() > 500 {
-        return Err(AppError::Validation("detail must be at most 500 characters".to_string()));
+        return Err(AppError::Validation(
+            "detail must be at most 500 characters".to_string(),
+        ));
     }
     Ok(Some(detail.to_string()))
 }
 
 fn retired_card_error(barcode: &str) -> AppError {
-    AppError::coded(409, error_code::CARD_NUMBER_RETIRED, format!("Card number {barcode} was retired and cannot be assigned again"))
+    AppError::coded(
+        409,
+        error_code::CARD_NUMBER_RETIRED,
+        format!("Card number {barcode} was retired and cannot be assigned again"),
+    )
 }

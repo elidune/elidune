@@ -37,9 +37,13 @@ pub async fn gather_handler(repository: &Repository) -> AppResult<String> {
     metrics::gauge!("elidune_active_loans").set(snapshot.active_loans as f64);
     metrics::gauge!("elidune_pending_holds").set(snapshot.pending_holds as f64);
     metrics::gauge!("elidune_outbox_pending_count").set(snapshot.outbox_pending_count as f64);
-    metrics::gauge!("elidune_outbox_oldest_pending_seconds").set(snapshot.outbox_oldest_pending_seconds as f64);
+    metrics::gauge!("elidune_outbox_oldest_pending_seconds")
+        .set(snapshot.outbox_oldest_pending_seconds as f64);
 
-    let rendered = PROMETHEUS_HANDLE.get().ok_or_else(|| AppError::Internal("prometheus recorder not initialized".to_string()))?.render();
+    let rendered = PROMETHEUS_HANDLE
+        .get()
+        .ok_or_else(|| AppError::Internal("prometheus recorder not initialized".to_string()))?
+        .render();
 
     Ok(rendered)
 }

@@ -34,7 +34,15 @@ pub trait TransitsRepository: Send + Sync {
     async fn transits_get_by_id(&self, id: i64) -> AppResult<ItemTransit>;
     async fn transits_get_active_for_item(&self, item_id: i64) -> AppResult<Option<ItemTransit>>;
     async fn transits_get_active_for_hold(&self, hold_id: i64) -> AppResult<Option<ItemTransit>>;
-    async fn transits_list(&self, status: Option<TransitStatus>, item_id: Option<i64>, hold_id: Option<i64>, to_site_id: Option<i64>, page: i64, per_page: i64) -> AppResult<(Vec<ItemTransit>, i64)>;
+    async fn transits_list(
+        &self,
+        status: Option<TransitStatus>,
+        item_id: Option<i64>,
+        hold_id: Option<i64>,
+        to_site_id: Option<i64>,
+        page: i64,
+        per_page: i64,
+    ) -> AppResult<(Vec<ItemTransit>, i64)>;
 }
 
 #[async_trait::async_trait]
@@ -48,15 +56,27 @@ impl TransitsRepository for Repository {
     async fn transits_get_active_for_hold(&self, hold_id: i64) -> AppResult<Option<ItemTransit>> {
         Repository::transits_get_active_for_hold(self, hold_id).await
     }
-    async fn transits_list(&self, status: Option<TransitStatus>, item_id: Option<i64>, hold_id: Option<i64>, to_site_id: Option<i64>, page: i64, per_page: i64) -> AppResult<(Vec<ItemTransit>, i64)> {
+    async fn transits_list(
+        &self,
+        status: Option<TransitStatus>,
+        item_id: Option<i64>,
+        hold_id: Option<i64>,
+        to_site_id: Option<i64>,
+        page: i64,
+        per_page: i64,
+    ) -> AppResult<(Vec<ItemTransit>, i64)> {
         Repository::transits_list(self, status, item_id, hold_id, to_site_id, page, per_page).await
     }
 }
 
-static SNOWFLAKE: std::sync::LazyLock<std::sync::Mutex<Generator>> = std::sync::LazyLock::new(|| std::sync::Mutex::new(Generator::new(2)));
+static SNOWFLAKE: std::sync::LazyLock<std::sync::Mutex<Generator>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(Generator::new(2)));
 
 fn next_id() -> i64 {
-    SNOWFLAKE.lock().unwrap_or_else(|e| e.into_inner()).generate::<i64>()
+    SNOWFLAKE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .generate::<i64>()
 }
 
 #[derive(sqlx::FromRow)]
@@ -77,7 +97,10 @@ impl Repository {
     }
 
     #[tracing::instrument(skip(self), err)]
-    pub async fn transits_get_active_for_item(&self, item_id: i64) -> AppResult<Option<ItemTransit>> {
+    pub async fn transits_get_active_for_item(
+        &self,
+        item_id: i64,
+    ) -> AppResult<Option<ItemTransit>> {
         sqlx::query_as::<_, ItemTransit>(
             r#"
             SELECT * FROM item_transits
@@ -91,7 +114,10 @@ impl Repository {
     }
 
     #[tracing::instrument(skip(self), err)]
-    pub async fn transits_get_active_for_hold(&self, hold_id: i64) -> AppResult<Option<ItemTransit>> {
+    pub async fn transits_get_active_for_hold(
+        &self,
+        hold_id: i64,
+    ) -> AppResult<Option<ItemTransit>> {
         sqlx::query_as::<_, ItemTransit>(
             r#"
             SELECT * FROM item_transits
@@ -157,7 +183,10 @@ impl Repository {
     ///
     /// The hold join follows `item_transits.hold_id`, including a cancelled or
     /// expired hold. It does not look up a different active hold on the copy.
-    pub(crate) async fn transits_copy_context(&self, ids: &[i64]) -> AppResult<Vec<TransitCopyContext>> {
+    pub(crate) async fn transits_copy_context(
+        &self,
+        ids: &[i64],
+    ) -> AppResult<Vec<TransitCopyContext>> {
         if ids.is_empty() {
             return Ok(Vec::new());
         }
@@ -190,7 +219,11 @@ impl Repository {
         .map_err(Into::into)
     }
 
-    pub async fn transits_active_for_item_tx(&self, tx: &mut sqlx::Transaction<'_, Postgres>, item_id: i64) -> AppResult<Option<ItemTransit>> {
+    pub async fn transits_active_for_item_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, Postgres>,
+        item_id: i64,
+    ) -> AppResult<Option<ItemTransit>> {
         sqlx::query_as::<_, ItemTransit>(
             r#"
             SELECT * FROM item_transits
@@ -204,7 +237,12 @@ impl Repository {
         .map_err(Into::into)
     }
 
-    pub async fn transits_cancel_active_for_item_tx(&self, tx: &mut sqlx::Transaction<'_, Postgres>, item_id: i64, cancelled_by: Option<i64>) -> AppResult<u64> {
+    pub async fn transits_cancel_active_for_item_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, Postgres>,
+        item_id: i64,
+        cancelled_by: Option<i64>,
+    ) -> AppResult<u64> {
         let r = sqlx::query(
             r#"
             UPDATE item_transits
@@ -221,7 +259,12 @@ impl Repository {
 
     /// Staff-driven request (and optional ship) of a copy toward a hold's pickup site.
     #[tracing::instrument(skip(self), err)]
-    pub async fn transits_request(&self, hold_id: i64, data: &CreateTransit, actor_id: i64) -> AppResult<(ItemTransit, Hold)> {
+    pub async fn transits_request(
+        &self,
+        hold_id: i64,
+        data: &CreateTransit,
+        actor_id: i64,
+    ) -> AppResult<(ItemTransit, Hold)> {
         let mut tx = self.pool.begin().await?;
         let hold = sqlx::query_as::<_, Hold>("SELECT * FROM holds WHERE id = $1 FOR UPDATE")
             .bind(hold_id)
@@ -230,7 +273,9 @@ impl Repository {
             .ok_or_else(|| AppError::NotFound(format!("Hold {hold_id} not found")))?;
 
         if !matches!(hold.status, HoldStatus::Pending | HoldStatus::ToPick) {
-            return Err(AppError::BusinessRule("Transit can only start from a pending or to_pick hold".to_string()));
+            return Err(AppError::BusinessRule(
+                "Transit can only start from a pending or to_pick hold".to_string(),
+            ));
         }
 
         let existing = sqlx::query_as::<_, ItemTransit>(
@@ -244,20 +289,28 @@ impl Repository {
         .fetch_optional(&mut *tx)
         .await?;
         if let Some(existing) = existing {
-            return Err(AppError::Conflict(format!("Hold already has an active transit ({})", existing.status.as_str())));
+            return Err(AppError::Conflict(format!(
+                "Hold already has an active transit ({})",
+                existing.status.as_str()
+            )));
         }
 
-        let item_id = data
-            .item_id
-            .or(hold.item_id)
-            .ok_or_else(|| AppError::Validation("itemId is required to start transit for a title-level hold".into()))?;
+        let item_id = data.item_id.or(hold.item_id).ok_or_else(|| {
+            AppError::Validation(
+                "itemId is required to start transit for a title-level hold".into(),
+            )
+        })?;
 
         let item = Self::transits_lock_item(&mut tx, item_id).await?;
         if item.biblio_id != hold.biblio_id {
-            return Err(AppError::Validation("itemId does not belong to this hold's bibliographic record".to_string()));
+            return Err(AppError::Validation(
+                "itemId does not belong to this hold's bibliographic record".to_string(),
+            ));
         }
         if item.on_loan {
-            return Err(AppError::BusinessRule("Item is currently on loan and cannot be placed in transit".to_string()));
+            return Err(AppError::BusinessRule(
+                "Item is currently on loan and cannot be placed in transit".to_string(),
+            ));
         }
 
         let item_active = sqlx::query_as::<_, ItemTransit>(
@@ -271,23 +324,30 @@ impl Repository {
         .fetch_optional(&mut *tx)
         .await?;
         if item_active.is_some() {
-            return Err(AppError::Conflict("Item already has an active transit".to_string()));
+            return Err(AppError::Conflict(
+                "Item already has an active transit".to_string(),
+            ));
         }
 
-        let from_site_id = data
-            .from_site_id
-            .or(item.site_id)
-            .ok_or_else(|| AppError::Validation("fromSourceId is required when the item has no current site".into()))?;
+        let from_site_id = data.from_site_id.or(item.site_id).ok_or_else(|| {
+            AppError::Validation("fromSiteId is required when the item has no current site".into())
+        })?;
         // Destination is the hold's pickup site — transit is copy movement, not a
         // second reservation. A missing pickup site may be set once, then lives on the hold.
         let to_site_id = match (hold.pickup_site_id, data.to_site_id) {
             (Some(pickup), Some(requested)) if requested != pickup => {
-                return Err(AppError::Validation("toSourceId must match the hold pickupSiteId — pickup lives on the reservation".to_string()));
+                return Err(AppError::Validation(
+                    "toSiteId must match the hold pickupSiteId — pickup lives on the reservation"
+                        .to_string(),
+                ));
             }
             (Some(pickup), _) => pickup,
             (None, Some(requested)) => requested,
             (None, None) => {
-                return Err(AppError::Validation("pickupSiteId is required on the hold (or toSourceId to set it) before transit".to_string()));
+                return Err(AppError::Validation(
+                    "pickupSiteId is required on the hold (or toSiteId to set it) before transit"
+                        .to_string(),
+                ));
             }
         };
         self.transits_ensure_source(&mut tx, from_site_id).await?;
@@ -325,35 +385,54 @@ impl Repository {
                 Some(hold_id),
                 from_site_id,
                 to_site_id,
-                if data.ship { TransitStatus::InTransit } else { TransitStatus::Requested },
+                if data.ship {
+                    TransitStatus::InTransit
+                } else {
+                    TransitStatus::Requested
+                },
                 data.notes.as_deref(),
                 if data.ship { Some(actor_id) } else { None },
                 None,
             )
             .await?;
 
-        let hold = sqlx::query_as::<_, Hold>("SELECT * FROM holds WHERE id = $1").bind(hold_id).fetch_one(&mut *tx).await?;
+        let hold = sqlx::query_as::<_, Hold>("SELECT * FROM holds WHERE id = $1")
+            .bind(hold_id)
+            .fetch_one(&mut *tx)
+            .await?;
 
         tx.commit().await?;
         Ok((transit, hold))
     }
 
     #[tracing::instrument(skip(self), err)]
-    pub async fn transits_ship(&self, transit_id: i64, actor_id: i64, notes: Option<&str>) -> AppResult<ItemTransit> {
+    pub async fn transits_ship(
+        &self,
+        transit_id: i64,
+        actor_id: i64,
+        notes: Option<&str>,
+    ) -> AppResult<ItemTransit> {
         let mut tx = self.pool.begin().await?;
-        let current = sqlx::query_as::<_, ItemTransit>("SELECT * FROM item_transits WHERE id = $1 FOR UPDATE")
-            .bind(transit_id)
-            .fetch_optional(&mut *tx)
-            .await?
-            .ok_or_else(|| AppError::NotFound(format!("Transit {transit_id} not found")))?;
+        let current = sqlx::query_as::<_, ItemTransit>(
+            "SELECT * FROM item_transits WHERE id = $1 FOR UPDATE",
+        )
+        .bind(transit_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Transit {transit_id} not found")))?;
 
         if current.status != TransitStatus::Requested {
-            return Err(AppError::BusinessRule(format!("Transit must be requested to ship (current: {})", current.status.as_str())));
+            return Err(AppError::BusinessRule(format!(
+                "Transit must be requested to ship (current: {})",
+                current.status.as_str()
+            )));
         }
 
         let item = Self::transits_lock_item(&mut tx, current.item_id).await?;
         if item.on_loan {
-            return Err(AppError::BusinessRule("Item is currently on loan and cannot be shipped".to_string()));
+            return Err(AppError::BusinessRule(
+                "Item is currently on loan and cannot be shipped".to_string(),
+            ));
         }
 
         let notes = notes.or(current.notes.as_deref());
@@ -381,16 +460,26 @@ impl Repository {
 
     /// Receive at the pickup site: move the copy, mark the linked hold ready.
     #[tracing::instrument(skip(self), err)]
-    pub async fn transits_receive(&self, transit_id: i64, actor_id: i64, notes: Option<&str>) -> AppResult<(ItemTransit, Option<Hold>)> {
+    pub async fn transits_receive(
+        &self,
+        transit_id: i64,
+        actor_id: i64,
+        notes: Option<&str>,
+    ) -> AppResult<(ItemTransit, Option<Hold>)> {
         let mut tx = self.pool.begin().await?;
-        let current = sqlx::query_as::<_, ItemTransit>("SELECT * FROM item_transits WHERE id = $1 FOR UPDATE")
-            .bind(transit_id)
-            .fetch_optional(&mut *tx)
-            .await?
-            .ok_or_else(|| AppError::NotFound(format!("Transit {transit_id} not found")))?;
+        let current = sqlx::query_as::<_, ItemTransit>(
+            "SELECT * FROM item_transits WHERE id = $1 FOR UPDATE",
+        )
+        .bind(transit_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Transit {transit_id} not found")))?;
 
         if current.status != TransitStatus::InTransit {
-            return Err(AppError::BusinessRule(format!("Transit must be in transit to receive (current: {})", current.status.as_str())));
+            return Err(AppError::BusinessRule(format!(
+                "Transit must be in transit to receive (current: {})",
+                current.status.as_str()
+            )));
         }
 
         let _item = Self::transits_lock_item(&mut tx, current.item_id).await?;
@@ -421,7 +510,10 @@ impl Repository {
         .ok_or_else(|| AppError::Conflict("Transit was updated concurrently".to_string()))?;
 
         let hold = if let Some(hold_id) = current.hold_id {
-            let hold = sqlx::query_as::<_, Hold>("SELECT * FROM holds WHERE id = $1 FOR UPDATE").bind(hold_id).fetch_optional(&mut *tx).await?;
+            let hold = sqlx::query_as::<_, Hold>("SELECT * FROM holds WHERE id = $1 FOR UPDATE")
+                .bind(hold_id)
+                .fetch_optional(&mut *tx)
+                .await?;
             match hold {
                 Some(h) if h.status == HoldStatus::Pending => {
                     let expiry_days = self.hold_ready_expiry_days();
@@ -445,22 +537,30 @@ impl Repository {
                     {
                         Ok(ready) => ready,
                         Err(e) if super::holds::is_exclusive_assignment_violation(&e) => {
-                            return Err(AppError::Conflict("This copy is already assigned to another hold".to_string()));
+                            return Err(AppError::Conflict(
+                                "This copy is already assigned to another hold".to_string(),
+                            ));
                         }
                         Err(e) => return Err(e.into()),
                     }
                 }
                 Some(h) if !h.status.is_active() => {
                     if h.item_id == Some(current.item_id) {
-                        sqlx::query("UPDATE holds SET item_id = NULL WHERE id = $1 AND item_id = $2")
-                            .bind(h.id)
-                            .bind(current.item_id)
-                            .execute(&mut *tx)
-                            .await?;
+                        sqlx::query(
+                            "UPDATE holds SET item_id = NULL WHERE id = $1 AND item_id = $2",
+                        )
+                        .bind(h.id)
+                        .bind(current.item_id)
+                        .execute(&mut *tx)
+                        .await?;
                     }
-                    self.transits_allocate_arrived_copy_tx(&mut tx, current.item_id).await?
+                    self.transits_allocate_arrived_copy_tx(&mut tx, current.item_id)
+                        .await?
                 }
-                None => self.transits_allocate_arrived_copy_tx(&mut tx, current.item_id).await?,
+                None => {
+                    self.transits_allocate_arrived_copy_tx(&mut tx, current.item_id)
+                        .await?
+                }
                 other => other,
             }
         } else {
@@ -473,8 +573,14 @@ impl Repository {
 
     /// Copy arrived and its linked hold is gone. Offer it to the next pending
     /// hold, or leave it on the shelf at the arrival site.
-    async fn transits_allocate_arrived_copy_tx(&self, tx: &mut sqlx::Transaction<'_, Postgres>, item_id: i64) -> AppResult<Option<Hold>> {
-        let ready = self.holds_notify_next_tx(tx, item_id, self.hold_ready_expiry_days()).await?;
+    async fn transits_allocate_arrived_copy_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, Postgres>,
+        item_id: i64,
+    ) -> AppResult<Option<Hold>> {
+        let ready = self
+            .holds_notify_next_tx(tx, item_id, self.hold_ready_expiry_days())
+            .await?;
         if ready.is_some() {
             return Ok(ready);
         }
@@ -494,16 +600,27 @@ impl Repository {
     }
 
     #[tracing::instrument(skip(self), err)]
-    pub async fn transits_cancel(&self, transit_id: i64, actor_id: i64, reverse: bool, notes: Option<&str>) -> AppResult<(ItemTransit, Option<ItemTransit>)> {
+    pub async fn transits_cancel(
+        &self,
+        transit_id: i64,
+        actor_id: i64,
+        reverse: bool,
+        notes: Option<&str>,
+    ) -> AppResult<(ItemTransit, Option<ItemTransit>)> {
         let mut tx = self.pool.begin().await?;
-        let current = sqlx::query_as::<_, ItemTransit>("SELECT * FROM item_transits WHERE id = $1 FOR UPDATE")
-            .bind(transit_id)
-            .fetch_optional(&mut *tx)
-            .await?
-            .ok_or_else(|| AppError::NotFound(format!("Transit {transit_id} not found")))?;
+        let current = sqlx::query_as::<_, ItemTransit>(
+            "SELECT * FROM item_transits WHERE id = $1 FOR UPDATE",
+        )
+        .bind(transit_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Transit {transit_id} not found")))?;
 
         if !current.status.is_active() {
-            return Err(AppError::BusinessRule(format!("Transit is not active (current: {})", current.status.as_str())));
+            return Err(AppError::BusinessRule(format!(
+                "Transit is not active (current: {})",
+                current.status.as_str()
+            )));
         }
 
         let notes = notes.or(current.notes.as_deref());
@@ -552,7 +669,13 @@ impl Repository {
     ///
     /// Returns the hold only when it became `ready` (same-site). Cross-site
     /// allocation creates a `requested` transit and returns `None`.
-    pub async fn transits_maybe_request_for_notify_tx(&self, tx: &mut sqlx::Transaction<'_, Postgres>, hold: &Hold, item_id: i64, item_site_id: Option<i64>) -> AppResult<bool> {
+    pub async fn transits_maybe_request_for_notify_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, Postgres>,
+        hold: &Hold,
+        item_id: i64,
+        item_site_id: Option<i64>,
+    ) -> AppResult<bool> {
         let Some(pickup) = hold.pickup_site_id else {
             return Ok(false);
         };
@@ -607,7 +730,11 @@ impl Repository {
         reversed_from_id: Option<i64>,
     ) -> AppResult<ItemTransit> {
         let id = next_id();
-        let shipped_at = if status == TransitStatus::InTransit { Some(chrono::Utc::now()) } else { None };
+        let shipped_at = if status == TransitStatus::InTransit {
+            Some(chrono::Utc::now())
+        } else {
+            None
+        };
         sqlx::query_as::<_, ItemTransit>(
             r#"
             INSERT INTO item_transits (
@@ -633,18 +760,29 @@ impl Repository {
         .map_err(Into::into)
     }
 
-    async fn transits_ensure_source(&self, tx: &mut sqlx::Transaction<'_, Postgres>, site_id: i64) -> AppResult<()> {
-        let found: Option<i64> = sqlx::query_scalar("SELECT id FROM sites WHERE id = $1 AND COALESCE(is_archive, 0) = 0")
-            .bind(site_id)
-            .fetch_optional(&mut **tx)
-            .await?;
+    async fn transits_ensure_source(
+        &self,
+        tx: &mut sqlx::Transaction<'_, Postgres>,
+        site_id: i64,
+    ) -> AppResult<()> {
+        let found: Option<i64> = sqlx::query_scalar(
+            "SELECT id FROM sites WHERE id = $1 AND COALESCE(is_archive, 0) = 0",
+        )
+        .bind(site_id)
+        .fetch_optional(&mut **tx)
+        .await?;
         if found.is_none() {
-            return Err(AppError::Validation(format!("Pickup site {site_id} not found or archived")));
+            return Err(AppError::Validation(format!(
+                "Pickup site {site_id} not found or archived"
+            )));
         }
         Ok(())
     }
 
-    async fn transits_lock_item(tx: &mut sqlx::Transaction<'_, Postgres>, item_id: i64) -> AppResult<ItemSiteRow> {
+    async fn transits_lock_item(
+        tx: &mut sqlx::Transaction<'_, Postgres>,
+        item_id: i64,
+    ) -> AppResult<ItemSiteRow> {
         sqlx::query_as::<_, ItemSiteRow>(
             r#"
             SELECT it.biblio_id, it.site_id,

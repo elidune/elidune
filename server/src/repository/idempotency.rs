@@ -33,7 +33,14 @@ impl Repository {
     }
 
     /// Insert a reserved (in-flight) row. Returns `None` if the key is already held.
-    pub async fn idempotency_try_reserve(&self, actor_id: i64, key: &str, operation: &str, request_hash: &str, expires_at: DateTime<Utc>) -> AppResult<Option<IdempotencyRow>> {
+    pub async fn idempotency_try_reserve(
+        &self,
+        actor_id: i64,
+        key: &str,
+        operation: &str,
+        request_hash: &str,
+        expires_at: DateTime<Utc>,
+    ) -> AppResult<Option<IdempotencyRow>> {
         let row = sqlx::query_as::<_, IdempotencyRow>(
             r#"
             INSERT INTO idempotency_keys (
@@ -54,7 +61,11 @@ impl Repository {
         Ok(row)
     }
 
-    pub async fn idempotency_get(&self, actor_id: i64, key: &str) -> AppResult<Option<IdempotencyRow>> {
+    pub async fn idempotency_get(
+        &self,
+        actor_id: i64,
+        key: &str,
+    ) -> AppResult<Option<IdempotencyRow>> {
         let row = sqlx::query_as::<_, IdempotencyRow>(
             r#"
             SELECT request_hash, status_code, response_body
@@ -71,7 +82,13 @@ impl Repository {
         Ok(row)
     }
 
-    pub async fn idempotency_store_success(&self, actor_id: i64, key: &str, status_code: i16, response_body: &Value) -> AppResult<()> {
+    pub async fn idempotency_store_success(
+        &self,
+        actor_id: i64,
+        key: &str,
+        status_code: i16,
+        response_body: &Value,
+    ) -> AppResult<()> {
         sqlx::query(
             r#"
             UPDATE idempotency_keys

@@ -48,7 +48,10 @@ pub fn router() -> axum::Router<crate::AppState> {
         (status = 200, description = "Catalog search results. Copies are `ItemShortPublic`. Lost, declared missing, weeding-in-progress, and withdrawn copies are omitted; the public count is the length of `items`. Each remaining copy has `availability` of `available`, `onLoan`, `onSiteOnly`, or `unavailable`, plus `canHoldItem`. List rows omit copy notes. No `holdFor`, borrower, login, `publicNote`, `internalNote`, bibliographic notes, or weeding fields.", body = PaginatedResponse<BiblioShortPublic>)
     )
 )]
-pub async fn opac_search(State(state): State<crate::AppState>, Query(mut query): Query<BiblioQuery>) -> AppResult<Json<PaginatedResponse<BiblioShortPublic>>> {
+pub async fn opac_search(
+    State(state): State<crate::AppState>,
+    Query(mut query): Query<BiblioQuery>,
+) -> AppResult<Json<PaginatedResponse<BiblioShortPublic>>> {
     // Cap per_page to prevent abuse on public endpoint
     let per_page = query.per_page.unwrap_or(20).min(50);
     let page = query.page.unwrap_or(1).max(1);
@@ -57,7 +60,12 @@ pub async fn opac_search(State(state): State<crate::AppState>, Query(mut query):
     query.exclude_fully_withdrawn = Some(true);
 
     let (biblios, total) = state.services.catalog.search_biblios(&query).await?;
-    Ok(Json(PaginatedResponse::new(biblios.into_iter().map(BiblioShortPublic::from).collect(), total, page, per_page)))
+    Ok(Json(PaginatedResponse::new(
+        biblios.into_iter().map(BiblioShortPublic::from).collect(),
+        total,
+        page,
+        per_page,
+    )))
 }
 
 /// Get a single bibliographic record by ID — public
@@ -71,7 +79,10 @@ pub async fn opac_search(State(state): State<crate::AppState>, Query(mut query):
         (status = 404, description = "Biblio not found", body = crate::error::ErrorResponse)
     )
 )]
-pub async fn opac_get_biblio(State(state): State<crate::AppState>, Path(biblio_id): Path<i64>) -> AppResult<Json<BiblioPublicView>> {
+pub async fn opac_get_biblio(
+    State(state): State<crate::AppState>,
+    Path(biblio_id): Path<i64>,
+) -> AppResult<Json<BiblioPublicView>> {
     let biblio = state.services.catalog.get_biblio(biblio_id).await?;
     if biblio.is_fully_withdrawn() {
         return Err(AppError::NotFound("Bibliographic record not found".into()));
@@ -89,13 +100,24 @@ pub async fn opac_get_biblio(State(state): State<crate::AppState>, Path(biblio_i
         (status = 200, description = "Availability count", body = serde_json::Value)
     )
 )]
-pub async fn opac_availability(State(state): State<crate::AppState>, Path(biblio_id): Path<i64>) -> AppResult<Json<serde_json::Value>> {
+pub async fn opac_availability(
+    State(state): State<crate::AppState>,
+    Path(biblio_id): Path<i64>,
+) -> AppResult<Json<serde_json::Value>> {
     let biblio = state.services.catalog.get_biblio(biblio_id).await?;
     if biblio.is_fully_withdrawn() {
         return Err(AppError::NotFound("Bibliographic record not found".into()));
     }
-    let active_loans = state.services.loans.count_active_for_biblio(biblio_id).await?;
-    let hold_count = state.services.holds.count_active_for_biblio(biblio_id).await?;
+    let active_loans = state
+        .services
+        .loans
+        .count_active_for_biblio(biblio_id)
+        .await?;
+    let hold_count = state
+        .services
+        .holds
+        .count_active_for_biblio(biblio_id)
+        .await?;
     Ok(Json(serde_json::json!({
         "biblioId": biblio_id.to_string(),
         "activeLoans": active_loans,

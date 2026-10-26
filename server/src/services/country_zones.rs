@@ -15,7 +15,10 @@ use std::sync::OnceLock;
 
 use serde::Deserialize;
 
-const ZONES_JSON: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/data/countryTimezones.json"));
+const ZONES_JSON: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/data/countryTimezones.json"
+));
 
 #[derive(Deserialize)]
 struct ZoneEntry {
@@ -25,8 +28,11 @@ struct ZoneEntry {
 fn zones_by_country() -> &'static HashMap<String, Vec<String>> {
     static ZONES: OnceLock<HashMap<String, Vec<String>>> = OnceLock::new();
     ZONES.get_or_init(|| {
-        let raw: HashMap<String, Vec<ZoneEntry>> = serde_json::from_str(ZONES_JSON).expect("country time zone table");
-        raw.into_iter().map(|(code, zones)| (code, zones.into_iter().map(|zone| zone.id).collect())).collect()
+        let raw: HashMap<String, Vec<ZoneEntry>> =
+            serde_json::from_str(ZONES_JSON).expect("country time zone table");
+        raw.into_iter()
+            .map(|(code, zones)| (code, zones.into_iter().map(|zone| zone.id).collect()))
+            .collect()
     })
 }
 
@@ -42,14 +48,19 @@ pub fn is_known_country_code(code: &str) -> bool {
 pub fn timezone_belongs_to_country(timezone: &str, country: &str) -> bool {
     let country = country.trim().to_ascii_uppercase();
     let timezone = timezone.trim();
-    zones_by_country().get(&country).is_some_and(|zones| zones.iter().any(|zone| zone == timezone))
+    zones_by_country()
+        .get(&country)
+        .is_some_and(|zones| zones.iter().any(|zone| zone == timezone))
 }
 
 /// Zones listed for `country`, in `zone.tab` order. Empty when the code is unknown.
 #[must_use]
 pub fn zones_for_country(country: &str) -> &'static [String] {
     let country = country.trim().to_ascii_uppercase();
-    zones_by_country().get(&country).map(Vec::as_slice).unwrap_or(&[])
+    zones_by_country()
+        .get(&country)
+        .map(Vec::as_slice)
+        .unwrap_or(&[])
 }
 
 /// The only zone of a single-zone country.
@@ -92,9 +103,11 @@ mod tests {
         for (country, zones) in zones_by_country() {
             assert!(!zones.is_empty(), "{country} has no zones");
             for zone in zones {
-                assert!(zone.parse::<chrono_tz::Tz>().is_ok(), "{zone} ({country}) is not a chrono-tz timezone");
+                assert!(
+                    zone.parse::<chrono_tz::Tz>().is_ok(),
+                    "{zone} ({country}) is not a chrono-tz timezone"
+                );
             }
         }
     }
-
 }

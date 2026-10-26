@@ -24,7 +24,8 @@ use super::ClientIp;
 
 use super::{AuthenticatedUser, PasswordChangeUser, StaffUser, ValidatedJson};
 
-static AUTH_2FA_METHOD_RE: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| regex::Regex::new("^(totp|email)$").expect("valid 2FA regex"));
+static AUTH_2FA_METHOD_RE: std::sync::LazyLock<regex::Regex> =
+    std::sync::LazyLock::new(|| regex::Regex::new("^(totp|email)$").expect("valid 2FA regex"));
 
 /// Unauthenticated credential routes. Mounted behind the strict per-IP limiter.
 pub fn sensitive_router() -> axum::Router<crate::AppState> {
@@ -187,7 +188,10 @@ impl UserInfo {
     }
 }
 
-pub(crate) async fn user_info_for(state: &crate::AppState, user: &crate::models::user::User) -> AppResult<UserInfo> {
+pub(crate) async fn user_info_for(
+    state: &crate::AppState,
+    user: &crate::models::user::User,
+) -> AppResult<UserInfo> {
     let public_type = match user.public_type {
         Some(id) => match state.services.public_types.get_by_id(id).await {
             Ok(public_type) => Some(public_type.name),
@@ -222,7 +226,15 @@ pub async fn login(
         return Err(AppError::RateLimited { retry_after });
     }
 
-    let login_result = state.services.users.authenticate(&request.username, &request.password, request.device_id.as_deref()).await;
+    let login_result = state
+        .services
+        .users
+        .authenticate(
+            &request.username,
+            &request.password,
+            request.device_id.as_deref(),
+        )
+        .await;
 
     match &login_result {
         Ok((_, user)) => {
@@ -233,7 +245,9 @@ pub async fn login(
                 Some("user"),
                 Some(user.id),
                 ip.clone(),
-                Some(LoginIdentifierAudit { login: request.username.as_str() }),
+                Some(LoginIdentifierAudit {
+                    login: request.username.as_str(),
+                }),
                 audit::AuditLogMeta::success(),
             );
         }
@@ -247,7 +261,9 @@ pub async fn login(
                 None,
                 None,
                 ip.clone(),
-                Some(LoginIdentifierAudit { login: request.username.as_str() }),
+                Some(LoginIdentifierAudit {
+                    login: request.username.as_str(),
+                }),
                 audit::AuditLogMeta::from_app_error(e),
             );
         }
@@ -256,7 +272,11 @@ pub async fn login(
     let (token, user) = login_result?;
 
     let requires_2fa = token.is_none() && user.two_factor_enabled.unwrap_or(false);
-    let two_factor_method = if requires_2fa { user.two_factor_method.clone() } else { None };
+    let two_factor_method = if requires_2fa {
+        user.two_factor_method.clone()
+    } else {
+        None
+    };
 
     // Generate device_id if 2FA is required (client will store and reuse it)
     // reuse request.device_id if provided or generate a new one if not provided
@@ -280,10 +300,19 @@ pub async fn login(
             };
 
             // Store code in Redis with 10 minutes expiration
-            state.services.redis.store_2fa_code(user.id, &code, 600).await?;
+            state
+                .services
+                .redis
+                .store_2fa_code(user.id, &code, 600)
+                .await?;
 
             // Send code via email
-            match state.services.email.send_2fa_code(email, &code, user.language).await {
+            match state
+                .services
+                .email
+                .send_2fa_code(email, &code, user.language)
+                .await
+            {
                 Ok(()) => {
                     state.services.audit.log(
                         audit::event::EMAIL_2FA_CODE_SENT,
@@ -361,7 +390,12 @@ pub async fn clear_auth_rate_limit(
     }
     attempts.clear(&identifier);
     resets.clear(&identifier);
-    if let Some(user_id) = state.services.users.find_user_id_by_login_or_email(&login).await? {
+    if let Some(user_id) = state
+        .services
+        .users
+        .find_user_id_by_login_or_email(&login)
+        .await?
+    {
         resets.clear_user(user_id);
     }
     state.services.audit.log(
@@ -387,7 +421,10 @@ pub async fn clear_auth_rate_limit(
         (status = 401, description = "Not authenticated", body = ErrorResponse)
     )
 )]
-pub async fn me(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser) -> AppResult<Json<UserInfo>> {
+pub async fn me(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+) -> AppResult<Json<UserInfo>> {
     let user = state.services.users.get_by_id(claims.user_id).await?;
     Ok(Json(user_info_for(&state, &user).await?))
 }
@@ -433,13 +470,26 @@ pub struct Verify2FAResponse {
         (status = 401, description = "Invalid 2FA code", body = ErrorResponse)
     )
 )]
-pub async fn verify_2fa(State(state): State<crate::AppState>, ClientIp(ip): ClientIp, ValidatedJson(request): ValidatedJson<Verify2FARequest>) -> AppResult<Json<Verify2FAResponse>> {
+pub async fn verify_2fa(
+    State(state): State<crate::AppState>,
+    ClientIp(ip): ClientIp,
+    ValidatedJson(request): ValidatedJson<Verify2FARequest>,
+) -> AppResult<Json<Verify2FAResponse>> {
     let trust_device = request.trust_device.unwrap_or(false);
     let verify_ctx = TwoFaVerifyAttemptAudit {
         trust_device,
         has_device_id: request.device_id.is_some(),
     };
-    let result = state.services.users.verify_2fa(request.user_id, &request.code, request.device_id.as_deref(), trust_device).await;
+    let result = state
+        .services
+        .users
+        .verify_2fa(
+            request.user_id,
+            &request.code,
+            request.device_id.as_deref(),
+            trust_device,
+        )
+        .await;
 
     match &result {
         Ok(_) => state.services.audit.log(
@@ -544,8 +594,15 @@ pub struct ResetPasswordRequest {
         (status = 401, description = "Invalid recovery code", body = ErrorResponse)
     )
 )]
-pub async fn verify_recovery(State(state): State<crate::AppState>, ValidatedJson(request): ValidatedJson<VerifyRecoveryRequest>) -> AppResult<Json<Verify2FAResponse>> {
-    let token = state.services.users.verify_recovery_code(request.user_id, &request.code).await?;
+pub async fn verify_recovery(
+    State(state): State<crate::AppState>,
+    ValidatedJson(request): ValidatedJson<VerifyRecoveryRequest>,
+) -> AppResult<Json<Verify2FAResponse>> {
+    let token = state
+        .services
+        .users
+        .verify_recovery_code(request.user_id, &request.code)
+        .await?;
 
     Ok(Json(Verify2FAResponse {
         token,
@@ -574,7 +631,11 @@ pub async fn request_password_reset(
     // Sign-in failures are not counted here. `request.reset_url` is ignored.
     // Resolve before counting so login and email for one account share a window.
     // Unknown identifiers stay on their own key. Both paths return the same body.
-    let resolved_user_id = state.services.users.find_user_id_by_login_or_email(&request.identifier).await?;
+    let resolved_user_id = state
+        .services
+        .users
+        .find_user_id_by_login_or_email(&request.identifier)
+        .await?;
     let over_quota = match resolved_user_id {
         Some(user_id) => resets.retry_after_user(user_id).is_some(),
         None => resets.retry_after(&request.identifier).is_some(),
@@ -587,8 +648,14 @@ pub async fn request_password_reset(
         None => resets.record(&request.identifier),
     }
 
-    let public_base = crate::password_reset_link::password_reset_public_base(&state.config.users, &state.config.server);
-    let link = match crate::password_reset_link::plan_password_reset_link(state.config.users.password_reset_url_template.as_deref(), public_base.as_deref()) {
+    let public_base = crate::password_reset_link::password_reset_public_base(
+        &state.config.users,
+        &state.config.server,
+    );
+    let link = match crate::password_reset_link::plan_password_reset_link(
+        state.config.users.password_reset_url_template.as_deref(),
+        public_base.as_deref(),
+    ) {
         Ok(link) => link,
         Err(reason) => {
             crate::password_reset_link::log_unavailable(reason);
@@ -596,7 +663,12 @@ pub async fn request_password_reset(
         }
     };
 
-    let (email, token, lang, user_id) = match state.services.users.request_password_reset(&request.identifier).await {
+    let (email, token, lang, user_id) = match state
+        .services
+        .users
+        .request_password_reset(&request.identifier)
+        .await
+    {
         Ok(issued) => issued,
         // Same body as success so the route does not reveal whether the account exists.
         Err(AppError::NotFound(_)) => return Ok(password_reset_accepted()),
@@ -618,7 +690,12 @@ pub async fn request_password_reset(
         audit::AuditLogMeta::success(),
     );
 
-    match state.services.email.send_password_reset(&email, &token, lang, Some(&reset_url)).await {
+    match state
+        .services
+        .email
+        .send_password_reset(&email, &token, lang, Some(&reset_url))
+        .await
+    {
         Ok(outbox_id) => {
             state.services.audit.log(
                 audit::event::EMAIL_PASSWORD_RESET_SENT,
@@ -670,12 +747,22 @@ pub async fn reset_password(
     Extension(attempts): Extension<Arc<AuthAttemptLimiter>>,
     ValidatedJson(request): ValidatedJson<ResetPasswordRequest>,
 ) -> AppResult<Json<ResetPasswordResponse>> {
-    let identifier = state.services.users.reset_token_login(&request.token).map(|login| normalize_identifier(&login)).unwrap_or_default();
+    let identifier = state
+        .services
+        .users
+        .reset_token_login(&request.token)
+        .map(|login| normalize_identifier(&login))
+        .unwrap_or_default();
     if let Some(retry_after) = attempts.retry_after(&identifier) {
         return Err(AppError::RateLimited { retry_after });
     }
 
-    if let Err(err) = state.services.users.reset_password(&request.token, &request.new_password).await {
+    if let Err(err) = state
+        .services
+        .users
+        .reset_password(&request.token, &request.new_password)
+        .await
+    {
         if matches!(err, AppError::Authentication(_)) {
             attempts.record_failure(&identifier);
         }
@@ -689,7 +776,9 @@ pub async fn reset_password(
         None,
         None,
         ip,
-        Some(PasswordChangedViaResetAudit { source: "reset_token" }),
+        Some(PasswordChangedViaResetAudit {
+            source: "reset_token",
+        }),
         audit::AuditLogMeta::success(),
     );
 
@@ -743,7 +832,11 @@ pub async fn setup_2fa(
         (None, None)
     };
 
-    let recovery_codes = state.services.users.enable_2fa(claims.user_id, &request.method, totp_secret).await?;
+    let recovery_codes = state
+        .services
+        .users
+        .enable_2fa(claims.user_id, &request.method, totp_secret)
+        .await?;
 
     state.services.audit.log(
         audit::event::AUTH_2FA_ENABLED,
@@ -755,7 +848,10 @@ pub async fn setup_2fa(
         audit::AuditLogMeta::success(),
     );
 
-    Ok(Json(Setup2FAResponse { provisioning_uri, recovery_codes }))
+    Ok(Json(Setup2FAResponse {
+        provisioning_uri,
+        recovery_codes,
+    }))
 }
 
 #[derive(Deserialize, Validate, ToSchema)]
@@ -784,7 +880,11 @@ pub async fn disable_2fa(
     ClientIp(ip): ClientIp,
     ValidatedJson(request): ValidatedJson<Disable2FARequest>,
 ) -> AppResult<Json<serde_json::Value>> {
-    state.services.users.disable_2fa(claims.user_id, &request.password).await?;
+    state
+        .services
+        .users
+        .disable_2fa(claims.user_id, &request.password)
+        .await?;
 
     state.services.audit.log(
         audit::event::AUTH_2FA_DISABLED,
@@ -792,11 +892,15 @@ pub async fn disable_2fa(
         Some("user"),
         Some(claims.user_id),
         ip,
-        Some(UserIdAudit { user_id: claims.user_id }),
+        Some(UserIdAudit {
+            user_id: claims.user_id,
+        }),
         audit::AuditLogMeta::success(),
     );
 
-    Ok(Json(serde_json::json!({"message": "2FA disabled successfully"})))
+    Ok(Json(
+        serde_json::json!({"message": "2FA disabled successfully"}),
+    ))
 }
 
 /// First-login password change request
@@ -832,7 +936,11 @@ pub async fn change_password(
     ClientIp(ip): ClientIp,
     ValidatedJson(request): ValidatedJson<ChangePasswordRequest>,
 ) -> AppResult<Json<Verify2FAResponse>> {
-    let token = state.services.users.change_password_first_login(claims.user_id, &request.new_password).await?;
+    let token = state
+        .services
+        .users
+        .change_password_first_login(claims.user_id, &request.new_password)
+        .await?;
 
     state.services.audit.log(
         audit::event::AUTH_PASSWORD_CHANGED,
@@ -840,7 +948,9 @@ pub async fn change_password(
         Some("user"),
         Some(claims.user_id),
         ip,
-        Some(PasswordChangedViaResetAudit { source: "first_login" }),
+        Some(PasswordChangedViaResetAudit {
+            source: "first_login",
+        }),
         audit::AuditLogMeta::success(),
     );
 

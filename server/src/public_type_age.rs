@@ -47,7 +47,11 @@ pub fn age_years_on_date(birth: NaiveDate, on: NaiveDate) -> i32 {
 
 /// `age_min` and `age_max` are both inclusive. A missing bound does not constrain that side.
 #[must_use]
-pub fn age_matches_public_type_bounds(age: i32, age_min: Option<i16>, age_max: Option<i16>) -> bool {
+pub fn age_matches_public_type_bounds(
+    age: i32,
+    age_min: Option<i16>,
+    age_max: Option<i16>,
+) -> bool {
     if let Some(m) = age_min {
         if age < i32::from(m) {
             return false;
@@ -97,7 +101,10 @@ pub fn resolve_public_type_for_age(bands: &[PublicTypeAgeBand], age: i32) -> Opt
 /// other band; overlaps that do not involve `candidate` are ignored so a legacy
 /// conflict does not block an unrelated save.
 #[must_use]
-pub fn conflicting_age_band<'a>(candidate: &PublicTypeAgeBand, others: &'a [PublicTypeAgeBand]) -> Option<&'a PublicTypeAgeBand> {
+pub fn conflicting_age_band<'a>(
+    candidate: &PublicTypeAgeBand,
+    others: &'a [PublicTypeAgeBand],
+) -> Option<&'a PublicTypeAgeBand> {
     if !candidate.is_age_band() || age_band_range_inverted(candidate.age_min, candidate.age_max) {
         return None;
     }
@@ -106,7 +113,10 @@ pub fn conflicting_age_band<'a>(candidate: &PublicTypeAgeBand, others: &'a [Publ
         .iter()
         .filter(|band| band.id != candidate.id && band.is_age_band())
         .filter(|band| !age_band_range_inverted(band.age_min, band.age_max))
-        .filter(|band| age_span(band.age_min, band.age_max).is_some_and(|span| spans_overlap(candidate_span, span)))
+        .filter(|band| {
+            age_span(band.age_min, band.age_max)
+                .is_some_and(|span| spans_overlap(candidate_span, span))
+        })
         .min_by_key(|band| band.id)
 }
 
@@ -127,7 +137,10 @@ fn spans_overlap(left: (i32, i32), right: (i32, i32)) -> bool {
 mod tests {
     use chrono::NaiveDate;
 
-    use super::{age_band_range_inverted, age_matches_public_type_bounds, age_years_on_date, conflicting_age_band, resolve_public_type_for_age, PublicTypeAgeBand};
+    use super::{
+        age_band_range_inverted, age_matches_public_type_bounds, age_years_on_date,
+        conflicting_age_band, resolve_public_type_for_age, PublicTypeAgeBand,
+    };
 
     fn band(id: i64, name: &str, age_min: Option<i16>, age_max: Option<i16>) -> PublicTypeAgeBand {
         PublicTypeAgeBand {
@@ -166,7 +179,10 @@ mod tests {
 
     #[test]
     fn equal_width_uses_lowest_id() {
-        let rules = vec![band(8, "b", Some(18), Some(30)), band(3, "a", Some(18), Some(30))];
+        let rules = vec![
+            band(8, "b", Some(18), Some(30)),
+            band(3, "a", Some(18), Some(30)),
+        ];
         assert_eq!(resolve_public_type_for_age(&rules, 20), Some(3));
     }
 
@@ -218,7 +234,10 @@ mod tests {
     fn shared_boundary_is_an_overlap() {
         let child = band(1, "child", Some(0), Some(12));
         let next = band(2, "youth", Some(12), Some(17));
-        assert_eq!(conflicting_age_band(&next, &[child, next.clone()]).map(|band| band.id), Some(1));
+        assert_eq!(
+            conflicting_age_band(&next, &[child, next.clone()]).map(|band| band.id),
+            Some(1)
+        );
     }
 
     #[test]

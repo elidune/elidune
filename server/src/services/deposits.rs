@@ -8,10 +8,14 @@ use crate::{
     models::{
         biblio::Biblio,
         deposit::{
-            CreateDepositBatch, CreateLender, DepositBatch, DepositBatchDetail, DepositBatchItem, DepositBatchStatus, DepositCopyState, DepositLoss, Lender, NotifiedOn, UpdateDepositBatch,
-            UpdateLender,
+            CreateDepositBatch, CreateLender, DepositBatch, DepositBatchDetail, DepositBatchItem,
+            DepositBatchStatus, DepositCopyState, DepositLoss, Lender, NotifiedOn,
+            UpdateDepositBatch, UpdateLender,
         },
-        dto::deposit_import::{DepositDuplicateAction, DepositDuplicateConflict, DepositDuplicateConflictKind, DepositDuplicatePolicyRuntime, DepositDuplicateScanReport},
+        dto::deposit_import::{
+            DepositDuplicateAction, DepositDuplicateConflict, DepositDuplicateConflictKind,
+            DepositDuplicatePolicyRuntime, DepositDuplicateScanReport,
+        },
     },
     repository::Repository,
     services::{
@@ -77,7 +81,11 @@ pub struct PreparedMarcImport {
 
 impl DepositsService {
     pub fn new(repository: Repository, catalog: CatalogService, audit: AuditService) -> Self {
-        Self { repository, catalog, audit }
+        Self {
+            repository,
+            catalog,
+            audit,
+        }
     }
 
     pub async fn list_lenders(&self, include_archived: bool) -> AppResult<Vec<Lender>> {
@@ -85,7 +93,8 @@ impl DepositsService {
     }
 
     pub async fn create_lender(&self, data: &CreateLender) -> AppResult<Lender> {
-        data.validate().map_err(|err| AppError::Validation(err.to_string()))?;
+        data.validate()
+            .map_err(|err| AppError::Validation(err.to_string()))?;
         if data.name.trim().is_empty() {
             return Err(AppError::Validation("Lender name is required".into()));
         }
@@ -94,19 +103,30 @@ impl DepositsService {
     }
 
     pub async fn update_lender(&self, id: i64, data: &UpdateLender) -> AppResult<Lender> {
-        data.validate().map_err(|err| AppError::Validation(err.to_string()))?;
-        if data.name.as_ref().is_some_and(|name| name.trim().is_empty()) {
+        data.validate()
+            .map_err(|err| AppError::Validation(err.to_string()))?;
+        if data
+            .name
+            .as_ref()
+            .is_some_and(|name| name.trim().is_empty())
+        {
             return Err(AppError::Validation("Lender name is required".into()));
         }
         reject_non_positive_rate(data.replacement_rate_cents.flatten())?;
         self.repository.lenders_update(id, data).await
     }
 
-    pub async fn list_deposit_losses(&self, lender_id: Option<i64>, notified: bool) -> AppResult<Vec<DepositLoss>> {
+    pub async fn list_deposit_losses(
+        &self,
+        lender_id: Option<i64>,
+        notified: bool,
+    ) -> AppResult<Vec<DepositLoss>> {
         if let Some(lender_id) = lender_id {
             self.repository.lenders_get(lender_id).await?;
         }
-        self.repository.deposit_losses_list(lender_id, notified).await
+        self.repository
+            .deposit_losses_list(lender_id, notified)
+            .await
     }
 
     /// Set `items.deposit_loss_notified_at` and write `deposit_loss_notified`
@@ -115,12 +135,23 @@ impl DepositsService {
     /// A copy that is already notified returns `deposit_loss_already_notified`
     /// (409). The stored timestamp is left unchanged and no second audit row
     /// is written.
-    pub async fn mark_deposit_loss_notified(&self, item_id: i64, notified_on: Option<NotifiedOn>, actor: Option<i64>, client_ip: Option<String>) -> AppResult<DepositLoss> {
+    pub async fn mark_deposit_loss_notified(
+        &self,
+        item_id: i64,
+        notified_on: Option<NotifiedOn>,
+        actor: Option<i64>,
+        client_ip: Option<String>,
+    ) -> AppResult<DepositLoss> {
         let zone = self.repository.library_zone().await?;
         let notified_at = resolve_notified_at(zone, notified_on, Utc::now())?;
         let mut tx = self.repository.pool().begin().await?;
-        let lender_id = self.repository.deposit_loss_lock_for_notify(&mut tx, item_id).await?;
-        self.repository.deposit_loss_set_notified(&mut tx, item_id, notified_at).await?;
+        let lender_id = self
+            .repository
+            .deposit_loss_lock_for_notify(&mut tx, item_id)
+            .await?;
+        self.repository
+            .deposit_loss_set_notified(&mut tx, item_id, notified_at)
+            .await?;
         self.audit
             .log_in_tx(
                 &mut tx,
@@ -136,7 +167,10 @@ impl DepositsService {
                 AuditLogMeta::success(),
             )
             .await?;
-        let loss = self.repository.deposit_loss_by_item_tx(&mut tx, item_id).await?;
+        let loss = self
+            .repository
+            .deposit_loss_by_item_tx(&mut tx, item_id)
+            .await?;
         tx.commit().await?;
         Ok(loss)
     }
@@ -145,11 +179,17 @@ impl DepositsService {
         self.repository.lenders_archive(id).await
     }
 
-    pub async fn list_batches(&self, lender_id: Option<i64>, status: Option<DepositBatchStatus>) -> AppResult<Vec<DepositBatch>> {
+    pub async fn list_batches(
+        &self,
+        lender_id: Option<i64>,
+        status: Option<DepositBatchStatus>,
+    ) -> AppResult<Vec<DepositBatch>> {
         if let Some(lender_id) = lender_id {
             self.repository.lenders_get(lender_id).await?;
         }
-        self.repository.deposit_batches_list(lender_id, status).await
+        self.repository
+            .deposit_batches_list(lender_id, status)
+            .await
     }
 
     pub async fn get_batch(&self, id: i64) -> AppResult<DepositBatchDetail> {
@@ -159,13 +199,18 @@ impl DepositsService {
     }
 
     pub async fn create_batch(&self, data: &CreateDepositBatch) -> AppResult<DepositBatch> {
-        data.validate().map_err(|err| AppError::Validation(err.to_string()))?;
+        data.validate()
+            .map_err(|err| AppError::Validation(err.to_string()))?;
         if data.reference.trim().is_empty() {
-            return Err(AppError::Validation("Deposit batch reference is required".into()));
+            return Err(AppError::Validation(
+                "Deposit batch reference is required".into(),
+            ));
         }
         if let Some(return_due_on) = data.return_due_on {
             if return_due_on < data.arrived_on {
-                return Err(AppError::Validation("returnDueOn must be on or after arrivedOn".into()));
+                return Err(AppError::Validation(
+                    "returnDueOn must be on or after arrivedOn".into(),
+                ));
             }
         }
         self.repository.lenders_get(data.lender_id).await?;
@@ -173,8 +218,13 @@ impl DepositsService {
         self.repository.deposit_batches_create(data).await
     }
 
-    pub async fn update_batch(&self, id: i64, data: &UpdateDepositBatch) -> AppResult<DepositBatch> {
-        data.validate().map_err(|err| AppError::Validation(err.to_string()))?;
+    pub async fn update_batch(
+        &self,
+        id: i64,
+        data: &UpdateDepositBatch,
+    ) -> AppResult<DepositBatch> {
+        data.validate()
+            .map_err(|err| AppError::Validation(err.to_string()))?;
         if let Some(site_id) = data.site_id {
             self.require_site(site_id).await?;
         }
@@ -189,22 +239,42 @@ impl DepositsService {
         self.repository.deposit_batches_cancel_return(id).await
     }
 
-    pub async fn scan_out(&self, id: i64, barcode: &str) -> AppResult<crate::models::deposit::DepositScanOut> {
+    pub async fn scan_out(
+        &self,
+        id: i64,
+        barcode: &str,
+    ) -> AppResult<crate::models::deposit::DepositScanOut> {
         self.repository.deposit_batches_scan_out(id, barcode).await
     }
 
-    pub async fn scan_out_by_barcode(&self, barcode: &str) -> AppResult<crate::models::deposit::DepositGlobalScanOut> {
-        self.repository.deposit_batches_scan_out_by_barcode(barcode).await
+    pub async fn scan_out_by_barcode(
+        &self,
+        barcode: &str,
+    ) -> AppResult<crate::models::deposit::DepositGlobalScanOut> {
+        self.repository
+            .deposit_batches_scan_out_by_barcode(barcode)
+            .await
     }
 
-    pub async fn close_batch(&self, id: i64) -> AppResult<crate::models::deposit::DepositCloseReport> {
+    pub async fn close_batch(
+        &self,
+        id: i64,
+    ) -> AppResult<crate::models::deposit::DepositCloseReport> {
         self.repository.deposit_batches_close(id).await
     }
 
-    pub async fn list_batch_items(&self, id: i64, state: Option<&str>) -> AppResult<Vec<DepositBatchItem>> {
+    pub async fn list_batch_items(
+        &self,
+        id: i64,
+        state: Option<&str>,
+    ) -> AppResult<Vec<DepositBatchItem>> {
         let state = match state.map(str::trim).filter(|value| !value.is_empty()) {
             None => None,
-            Some(value) => Some(DepositCopyState::from_filter(value).ok_or_else(|| AppError::Validation("state must be onLoan, onHold, inTransit, onShelf, returned, or missing".into()))?),
+            Some(value) => Some(DepositCopyState::from_filter(value).ok_or_else(|| {
+                AppError::Validation(
+                    "state must be onLoan, onHold, inTransit, onShelf, returned, or missing".into(),
+                )
+            })?),
         };
         self.repository.deposit_batch_items(id, state).await
     }
@@ -218,8 +288,12 @@ impl DepositsService {
         confirm_replace_existing_id: Option<i64>,
     ) -> AppResult<PreparedMarcImport> {
         let Some(deposit_batch_id) = deposit_batch_id else {
-            let site_id = site_id.ok_or_else(|| AppError::Validation("site_id is required".into()))?;
-            return Ok(PreparedMarcImport { site_id, deposit_batch_id: None });
+            let site_id =
+                site_id.ok_or_else(|| AppError::Validation("site_id is required".into()))?;
+            return Ok(PreparedMarcImport {
+                site_id,
+                deposit_batch_id: None,
+            });
         };
         if allow_duplicate_isbn || confirm_replace_existing_id.is_some() {
             return Err(AppError::coded(
@@ -231,7 +305,11 @@ impl DepositsService {
         let batch = self.require_active_batch(deposit_batch_id).await?;
         if let Some(site_id) = site_id {
             if site_id != batch.site_id {
-                return Err(AppError::coded(422, error_code::DEPOSIT_SITE_MISMATCH, "site_id must be the deposit batch site"));
+                return Err(AppError::coded(
+                    422,
+                    error_code::DEPOSIT_SITE_MISMATCH,
+                    "site_id must be the deposit batch site",
+                ));
             }
         }
         Ok(PreparedMarcImport {
@@ -243,27 +321,55 @@ impl DepositsService {
     pub async fn require_active_batch(&self, id: i64) -> AppResult<DepositBatch> {
         let batch = self.repository.deposit_batches_get(id).await?;
         if batch.status != DepositBatchStatus::Active {
-            return Err(AppError::coded(422, error_code::DEPOSIT_BATCH_NOT_ACTIVE, "Deposit copies can only be imported into an active batch"));
+            return Err(AppError::coded(
+                422,
+                error_code::DEPOSIT_BATCH_NOT_ACTIVE,
+                "Deposit copies can only be imported into an active batch",
+            ));
         }
         Ok(batch)
     }
 
     /// Scan cached MARC copies for lender-barcode conflicts before import.
-    pub async fn scan_marc_duplicates(&self, batch_id: i64, batch: &DepositBatch, records: &[(String, Biblio)]) -> AppResult<DepositDuplicateScanReport> {
+    pub async fn scan_marc_duplicates(
+        &self,
+        batch_id: i64,
+        batch: &DepositBatch,
+        records: &[(String, Biblio)],
+    ) -> AppResult<DepositDuplicateScanReport> {
         let mut conflicts = Vec::new();
         for (record_key, biblio) in records {
-            conflicts.extend(self.scan_biblio_duplicates(record_key, biblio, batch).await?);
+            conflicts.extend(
+                self.scan_biblio_duplicates(record_key, biblio, batch)
+                    .await?,
+            );
         }
-        Ok(DepositDuplicateScanReport { batch_id, conflicts })
+        Ok(DepositDuplicateScanReport {
+            batch_id,
+            conflicts,
+        })
     }
 
-    async fn scan_biblio_duplicates(&self, record_key: &str, biblio: &Biblio, batch: &DepositBatch) -> AppResult<Vec<DepositDuplicateConflict>> {
+    async fn scan_biblio_duplicates(
+        &self,
+        record_key: &str,
+        biblio: &Biblio,
+        batch: &DepositBatch,
+    ) -> AppResult<Vec<DepositDuplicateConflict>> {
         let mut out = Vec::new();
         for item in &biblio.items {
-            let Some(lender_barcode) = item.barcode.as_deref().map(str::trim).filter(|value| !value.is_empty()) else {
+            let Some(lender_barcode) = item
+                .barcode
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            else {
                 continue;
             };
-            if let Some(info) = self.detect_lender_barcode_duplicate(batch, lender_barcode).await? {
+            if let Some(info) = self
+                .detect_lender_barcode_duplicate(batch, lender_barcode)
+                .await?
+            {
                 out.push(DepositDuplicateConflict {
                     record_key: record_key.to_string(),
                     lender_barcode: lender_barcode.to_string(),
@@ -276,8 +382,16 @@ impl DepositsService {
         Ok(out)
     }
 
-    async fn detect_lender_barcode_duplicate(&self, batch: &DepositBatch, lender_barcode: &str) -> AppResult<Option<DuplicateInfo>> {
-        if let Some(archived) = self.repository.deposit_archived_copy_for_lender_barcode(batch.lender_id, lender_barcode).await? {
+    async fn detect_lender_barcode_duplicate(
+        &self,
+        batch: &DepositBatch,
+        lender_barcode: &str,
+    ) -> AppResult<Option<DuplicateInfo>> {
+        if let Some(archived) = self
+            .repository
+            .deposit_archived_copy_for_lender_barcode(batch.lender_id, lender_barcode)
+            .await?
+        {
             if archived.lost_billed {
                 return Ok(Some(DuplicateInfo {
                     kind: DepositDuplicateConflictKind::WasLost,
@@ -293,7 +407,11 @@ impl DepositsService {
                 }));
             }
         }
-        if let Some(item_id) = self.repository.items_get_active_id_by_barcode(lender_barcode).await? {
+        if let Some(item_id) = self
+            .repository
+            .items_get_active_id_by_barcode(lender_barcode)
+            .await?
+        {
             return Ok(Some(DuplicateInfo {
                 kind: DepositDuplicateConflictKind::ActiveBarcode,
                 existing_item_id: item_id,
@@ -303,7 +421,9 @@ impl DepositsService {
         Ok(None)
     }
 
-    fn resolve_duplicate_action(policy: &mut Option<DepositDuplicatePolicyRuntime>) -> DepositDuplicateAction {
+    fn resolve_duplicate_action(
+        policy: &mut Option<DepositDuplicatePolicyRuntime>,
+    ) -> DepositDuplicateAction {
         match policy {
             Some(runtime) => runtime.resolve(),
             None => DepositDuplicateAction::Relabel,
@@ -313,7 +433,12 @@ impl DepositsService {
     /// Attach copies to the active record with the same ISBN, or create the record.
     ///
     /// The bibliographic record is not modified when the ISBN already exists.
-    pub async fn import_marc_record(&self, mut biblio: Biblio, batch: &DepositBatch, policy: &mut Option<DepositDuplicatePolicyRuntime>) -> AppResult<DepositMarcRecordOutcome> {
+    pub async fn import_marc_record(
+        &self,
+        mut biblio: Biblio,
+        batch: &DepositBatch,
+        policy: &mut Option<DepositDuplicatePolicyRuntime>,
+    ) -> AppResult<DepositMarcRecordOutcome> {
         use super::item_barcode::allocate_local_item_barcode;
 
         let mut report = DepositImportCopyReport::default();
@@ -324,18 +449,27 @@ impl DepositsService {
             item.site_name = None;
             item.id = None;
             item.biblio_id = None;
-            let lender_barcode = item.barcode.as_deref().map(str::trim).filter(|value| !value.is_empty()).map(str::to_string);
+            let lender_barcode = item
+                .barcode
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string);
             let Some(lender_barcode) = lender_barcode else {
                 pending.push(DepositImportPending {
                     item,
                     lender_barcode: String::new(),
-                    action: PendingCopyAction::CreateNew { relabel_local: None },
+                    action: PendingCopyAction::CreateNew {
+                        relabel_local: None,
+                    },
                 });
                 continue;
             };
             item.lender_barcode = Some(lender_barcode.clone());
 
-            let duplicate = self.detect_lender_barcode_duplicate(batch, &lender_barcode).await?;
+            let duplicate = self
+                .detect_lender_barcode_duplicate(batch, &lender_barcode)
+                .await?;
             if let Some(ref info) = duplicate {
                 let action = Self::resolve_duplicate_action(policy);
                 match (info.kind, action) {
@@ -348,7 +482,10 @@ impl DepositsService {
                         });
                         continue;
                     }
-                    (DepositDuplicateConflictKind::Reactivation, DepositDuplicateAction::Overwrite) => {
+                    (
+                        DepositDuplicateConflictKind::Reactivation,
+                        DepositDuplicateAction::Overwrite,
+                    ) => {
                         let desk = lender_barcode.clone();
                         item.barcode = Some(desk.clone());
                         pending.push(DepositImportPending {
@@ -361,8 +498,18 @@ impl DepositsService {
                         });
                         continue;
                     }
-                    (DepositDuplicateConflictKind::Reactivation, DepositDuplicateAction::Relabel) => {
-                        let desk = if self.repository.items_barcode_exists_active(&lender_barcode, Some(info.existing_item_id)).await? {
+                    (
+                        DepositDuplicateConflictKind::Reactivation,
+                        DepositDuplicateAction::Relabel,
+                    ) => {
+                        let desk = if self
+                            .repository
+                            .items_barcode_exists_active(
+                                &lender_barcode,
+                                Some(info.existing_item_id),
+                            )
+                            .await?
+                        {
                             allocate_local_item_barcode(&self.repository).await?
                         } else {
                             lender_barcode.clone()
@@ -378,41 +525,59 @@ impl DepositsService {
                         });
                         continue;
                     }
-                    (DepositDuplicateConflictKind::ActiveBarcode, DepositDuplicateAction::Overwrite) => {
+                    (
+                        DepositDuplicateConflictKind::ActiveBarcode,
+                        DepositDuplicateAction::Overwrite,
+                    ) => {
                         pending.push(DepositImportPending {
                             item,
                             lender_barcode,
-                            action: PendingCopyAction::OverwriteActive { item_id: info.existing_item_id },
+                            action: PendingCopyAction::OverwriteActive {
+                                item_id: info.existing_item_id,
+                            },
                         });
                         continue;
                     }
-                    (DepositDuplicateConflictKind::ActiveBarcode, DepositDuplicateAction::Relabel) => {
+                    (
+                        DepositDuplicateConflictKind::ActiveBarcode,
+                        DepositDuplicateAction::Relabel,
+                    ) => {
                         let local = allocate_local_item_barcode(&self.repository).await?;
                         item.barcode = Some(local.clone());
                         pending.push(DepositImportPending {
                             item,
                             lender_barcode,
-                            action: PendingCopyAction::CreateNew { relabel_local: Some(local) },
+                            action: PendingCopyAction::CreateNew {
+                                relabel_local: Some(local),
+                            },
                         });
                         continue;
                     }
                 }
             }
 
-            if self.repository.items_barcode_exists_active(&lender_barcode, None).await? {
+            if self
+                .repository
+                .items_barcode_exists_active(&lender_barcode, None)
+                .await?
+            {
                 let local = allocate_local_item_barcode(&self.repository).await?;
                 item.barcode = Some(local.clone());
                 pending.push(DepositImportPending {
                     item,
                     lender_barcode: lender_barcode.clone(),
-                    action: PendingCopyAction::CreateNew { relabel_local: Some(local) },
+                    action: PendingCopyAction::CreateNew {
+                        relabel_local: Some(local),
+                    },
                 });
             } else {
                 item.barcode = Some(lender_barcode.clone());
                 pending.push(DepositImportPending {
                     item,
                     lender_barcode,
-                    action: PendingCopyAction::CreateNew { relabel_local: None },
+                    action: PendingCopyAction::CreateNew {
+                        relabel_local: None,
+                    },
                 });
             }
         }
@@ -426,7 +591,11 @@ impl DepositsService {
         }
 
         let existing_id = match biblio.isbn.as_ref() {
-            Some(isbn) if !isbn.as_str().is_empty() => self.repository.biblios_find_active_by_isbn(isbn.as_str(), None).await?,
+            Some(isbn) if !isbn.as_str().is_empty() => {
+                self.repository
+                    .biblios_find_active_by_isbn(isbn.as_str(), None)
+                    .await?
+            }
             _ => None,
         };
 
@@ -434,7 +603,9 @@ impl DepositsService {
             (id, false)
         } else {
             self.repository.biblios_create(&mut biblio).await?;
-            let id = biblio.id.ok_or_else(|| AppError::Internal("Created bibliographic record is missing an id".into()))?;
+            let id = biblio.id.ok_or_else(|| {
+                AppError::Internal("Created bibliographic record is missing an id".into())
+            })?;
             (id, true)
         };
 
@@ -444,7 +615,14 @@ impl DepositsService {
                 PendingCopyAction::OverwriteActive { item_id } => {
                     match self
                         .repository
-                        .items_deposit_overwrite_from_import(item_id, biblio_id, batch.id, batch.site_id, &row.lender_barcode, &row.item)
+                        .items_deposit_overwrite_from_import(
+                            item_id,
+                            biblio_id,
+                            batch.id,
+                            batch.site_id,
+                            &row.lender_barcode,
+                            &row.item,
+                        )
                         .await
                     {
                         Ok(item) => {
@@ -460,10 +638,21 @@ impl DepositsService {
                     }
                     continue;
                 }
-                PendingCopyAction::Reactivate { item_id, desk_barcode } => {
+                PendingCopyAction::Reactivate {
+                    item_id,
+                    desk_barcode,
+                } => {
                     match self
                         .repository
-                        .items_reactivate_deposit_copy(item_id, biblio_id, batch.id, batch.site_id, &desk_barcode, &row.lender_barcode, &row.item)
+                        .items_reactivate_deposit_copy(
+                            item_id,
+                            biblio_id,
+                            batch.id,
+                            batch.site_id,
+                            &desk_barcode,
+                            &row.lender_barcode,
+                            &row.item,
+                        )
                         .await
                     {
                         Ok(item) => {
@@ -496,7 +685,9 @@ impl DepositsService {
                             }
                             stored.push(item);
                         }
-                        Err(AppError::Coded { code, .. }) if code == error_code::ITEM_REACTIVATION_BARCODE_TAKEN => {
+                        Err(AppError::Coded { code, .. })
+                            if code == error_code::ITEM_REACTIVATION_BARCODE_TAKEN =>
+                        {
                             report.refused.push(DepositImportRefusedLine {
                                 lender_barcode: row.lender_barcode,
                                 code: error_code::ITEM_REACTIVATION_BARCODE_TAKEN,
@@ -532,7 +723,10 @@ impl DepositsService {
                             stored.push(created_item);
                         }
                         Err(error) if is_unique_violation(&error) => {
-                            return Err(AppError::Internal("Unexpected barcode collision while importing a deposit copy".into()));
+                            return Err(AppError::Internal(
+                                "Unexpected barcode collision while importing a deposit copy"
+                                    .into(),
+                            ));
                         }
                         Err(error) => return Err(error),
                     }
@@ -553,7 +747,9 @@ impl DepositsService {
         if created {
             biblio.id = Some(biblio_id);
             biblio.items = stored;
-            self.repository.biblios_update_marc_record(&mut biblio).await?;
+            self.repository
+                .biblios_update_marc_record(&mut biblio)
+                .await?;
         }
         self.catalog.sync_index(biblio_id).await;
 
@@ -573,12 +769,18 @@ impl DepositsService {
     }
 }
 
-fn resolve_notified_at(zone: Tz, value: Option<NotifiedOn>, now: DateTime<Utc>) -> AppResult<DateTime<Utc>> {
+fn resolve_notified_at(
+    zone: Tz,
+    value: Option<NotifiedOn>,
+    now: DateTime<Utc>,
+) -> AppResult<DateTime<Utc>> {
     match value {
         None => Ok(now),
         Some(NotifiedOn::Timestamp(timestamp)) => Ok(timestamp),
         Some(NotifiedOn::Date(date)) => {
-            let naive = date.and_hms_opt(0, 0, 0).ok_or_else(|| AppError::Validation("notifiedOn is not a valid date".into()))?;
+            let naive = date
+                .and_hms_opt(0, 0, 0)
+                .ok_or_else(|| AppError::Validation("notifiedOn is not a valid date".into()))?;
             zone.from_local_datetime(&naive)
                 .earliest()
                 .map(|local| local.with_timezone(&Utc))
@@ -589,7 +791,9 @@ fn resolve_notified_at(zone: Tz, value: Option<NotifiedOn>, now: DateTime<Utc>) 
 
 fn reject_non_positive_rate(rate: Option<crate::models::fine::Cents>) -> AppResult<()> {
     if rate.is_some_and(|cents| cents.0 <= 0) {
-        return Err(AppError::Validation("replacementRateCents must be greater than 0".into()));
+        return Err(AppError::Validation(
+            "replacementRateCents must be greater than 0".into(),
+        ));
     }
     Ok(())
 }
@@ -613,7 +817,11 @@ struct DepositImportPending {
 }
 
 fn report_has_entries(report: &DepositImportCopyReport) -> bool {
-    !report.created.is_empty() || !report.reactivated.is_empty() || !report.relabeled.is_empty() || !report.overwritten.is_empty() || !report.refused.is_empty()
+    !report.created.is_empty()
+        || !report.reactivated.is_empty()
+        || !report.relabeled.is_empty()
+        || !report.overwritten.is_empty()
+        || !report.refused.is_empty()
 }
 
 fn is_unique_violation(error: &AppError) -> bool {

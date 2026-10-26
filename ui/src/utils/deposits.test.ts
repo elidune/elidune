@@ -12,14 +12,18 @@ import { checkoutDeskActions } from './deskCheckoutError.ts';
 import { checkoutMayForce } from './loanConflict.ts';
 import { presentRenewalRefusal } from './renewalDesk.ts';
 import { getApiErrorMessage } from './apiError.ts';
+import { isDepositsTab } from './depositsTabs.ts';
+import { formatLocaleDate } from './localeDate.ts';
 import {
   biblioMatchesDepositFilter,
+  buildLenderWrite,
   buildMarcBatchImportParams,
   activeLoanCopyLabel,
   depositActiveLoanCopies,
   depositBadgeText,
   depositLenderInitials,
   depositDueDateNotice,
+  depositLossNotifiedText,
   depositReplacementAmountRequired,
   depositScanAlreadyReturned,
   lenderNameConflictMessage,
@@ -379,5 +383,57 @@ describe('deposit replacement amount', () => {
     assert.equal(depositLenderInitials('Médiathèque départementale'), 'MD');
     assert.equal(depositLenderInitials('Smith'), 'SM');
     assert.equal(depositLenderInitials(''), '?');
+  });
+});
+
+describe('lender replacement rate write', () => {
+  it('sends JSON null when the rate is cleared and never sends zero', () => {
+    const cleared = buildLenderWrite({
+      name: '  Médiathèque  ',
+      contact: '  ',
+      notes: '',
+      replacementRateCents: null,
+    });
+    assert.deepEqual(cleared, {
+      name: 'Médiathèque',
+      contact: null,
+      notes: null,
+      replacementRateCents: null,
+    });
+    assert.equal(Object.prototype.hasOwnProperty.call(cleared, 'replacementRateCents'), true);
+    assert.notEqual(cleared.replacementRateCents, 0);
+    assert.equal(parseReplacementRateEuros('0').ok, false);
+    assert.equal(
+      buildLenderWrite({ name: 'A', contact: '', notes: '', replacementRateCents: 1500 }).replacementRateCents,
+      1500,
+    );
+  });
+});
+
+describe('deposit loss notice', () => {
+  it('formats the staff line and maps the scan-out and notice refusals', async () => {
+    const t = await tFor('fr');
+    const iso = '2026-05-02T12:00:00Z';
+    assert.equal(
+      depositLossNotifiedText({ ...deposit, depositLossNotifiedAt: iso }, t, 'fr'),
+      `Prêteur prévenu le ${formatLocaleDate(iso, 'fr')}`,
+    );
+    assert.equal(depositLossNotifiedText(deposit, t, 'fr'), null);
+    assert.equal(depositLossNotifiedText({ ...deposit, depositLossNotifiedAt: '  ' }, t, 'fr'), null);
+    assert.equal(
+      getApiErrorMessage(axiosError(422, 'deposit_item_on_loan'), t),
+      'Enregistrez le retour de cet exemplaire au comptoir avant de le scanner en sortie vers le prêteur. Il est encore en prêt.',
+    );
+    assert.equal(
+      getApiErrorMessage(axiosError(422, 'deposit_loss_not_declared'), t),
+      'Cet exemplaire n’est pas un exemplaire de dépôt déclaré perdu ou endommagé.',
+    );
+    assert.equal(
+      getApiErrorMessage(axiosError(409, 'deposit_loss_already_notified'), t),
+      'Le prêteur a déjà été informé pour cet exemplaire.',
+    );
+    assert.equal(isDepositsTab('losses'), true);
+    assert.equal(isDepositsTab('lenders'), true);
+    assert.equal(isDepositsTab('other'), false);
   });
 });

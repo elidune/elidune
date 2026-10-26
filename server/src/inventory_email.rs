@@ -34,7 +34,10 @@ pub async fn send_loan_closure_notifications(
         let to = match first.user_email.as_deref().map(str::trim) {
             Some(e) if !e.is_empty() => e,
             _ => {
-                tracing::debug!(user_id, "No email — skipping inventory loan closure notification");
+                tracing::debug!(
+                    user_id,
+                    "No email — skipping inventory loan closure notification"
+                );
                 continue;
             }
         };
@@ -43,11 +46,18 @@ pub async fn send_loan_closure_notifications(
         let lastname = first.user_lastname.clone().unwrap_or_default();
         let lang = first.user_language.as_deref().map(Language::from);
 
-        let items_list = user_rows.iter().map(|r| format_item_line(lang, r)).collect::<Vec<_>>().join("\n");
+        let items_list = user_rows
+            .iter()
+            .map(|r| format_item_line(lang, r))
+            .collect::<Vec<_>>()
+            .join("\n");
 
         let items_list_html = format!(
             "<ul>{}</ul>",
-            user_rows.iter().map(|r| format!("<li>{}</li>", html_escape(&format_item_line(lang, r)))).collect::<String>()
+            user_rows
+                .iter()
+                .map(|r| format!("<li>{}</li>", html_escape(&format_item_line(lang, r))))
+                .collect::<String>()
         );
 
         match email_svc.load_template("inventory_loan_closed", lang).await {
@@ -59,8 +69,12 @@ pub async fn send_loan_closure_notifications(
                     ("items_list", items_list.as_str()),
                     ("items_list_html", items_list_html.as_str()),
                 ];
-                let (subject, body_plain, body_html) = email_templates::substitute(&template, &vars);
-                match email_svc.enqueue(to, &subject, &body_plain, &body_html).await {
+                let (subject, body_plain, body_html) =
+                    email_templates::substitute(&template, &vars);
+                match email_svc
+                    .enqueue(to, &subject, &body_plain, &body_html)
+                    .await
+                {
                     Ok(outbox_id) => {
                         sent += 1;
                         let loan_ids: Vec<i64> = user_rows.iter().map(|r| r.loan_id).collect();
@@ -131,15 +145,31 @@ pub async fn send_loan_closure_notifications(
 
 fn format_item_line(lang: Option<Language>, row: &InventoryLoanClosureRow) -> String {
     let fallback = i18n::label(lang, i18n::Label::UnknownTitle);
-    let title = row.biblio_title.as_deref().map(str::trim).filter(|t| !t.is_empty()).unwrap_or(fallback);
-    match row.barcode.as_deref().map(str::trim).filter(|b| !b.is_empty()) {
-        Some(barcode) => format!("- {title} ({})", i18n::labeled(lang, i18n::Label::Barcode, barcode)),
+    let title = row
+        .biblio_title
+        .as_deref()
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+        .unwrap_or(fallback);
+    match row
+        .barcode
+        .as_deref()
+        .map(str::trim)
+        .filter(|b| !b.is_empty())
+    {
+        Some(barcode) => format!(
+            "- {title} ({})",
+            i18n::labeled(lang, i18n::Label::Barcode, barcode)
+        ),
         None => format!("- {title}"),
     }
 }
 
 fn html_escape(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
 }
 
 #[cfg(test)]
@@ -162,12 +192,33 @@ mod tests {
 
     #[test]
     fn item_line_localizes_barcode_and_missing_title() {
-        assert_eq!(format_item_line(Some(Language::French), &row(Some("Kim"), Some("BC-9"))), "- Kim (Code-barres : BC-9)");
-        assert_eq!(format_item_line(Some(Language::English), &row(Some("Kim"), Some("BC-9"))), "- Kim (Barcode: BC-9)");
-        assert_eq!(format_item_line(Some(Language::German), &row(Some("Kim"), Some("BC-9"))), "- Kim (Barcode: BC-9)");
-        assert_eq!(format_item_line(Some(Language::Spanish), &row(Some("Kim"), Some("BC-9"))), "- Kim (Código de barras: BC-9)");
-        assert_eq!(format_item_line(Some(Language::Italian), &row(None, None)), "- (titre inconnu)");
-        assert_eq!(format_item_line(Some(Language::English), &row(Some("Kim"), Some("  "))), "- Kim");
-        assert!(!format_item_line(Some(Language::French), &row(Some("Kim"), Some("BC-9"))).contains("barcode:"));
+        assert_eq!(
+            format_item_line(Some(Language::French), &row(Some("Kim"), Some("BC-9"))),
+            "- Kim (Code-barres : BC-9)"
+        );
+        assert_eq!(
+            format_item_line(Some(Language::English), &row(Some("Kim"), Some("BC-9"))),
+            "- Kim (Barcode: BC-9)"
+        );
+        assert_eq!(
+            format_item_line(Some(Language::German), &row(Some("Kim"), Some("BC-9"))),
+            "- Kim (Barcode: BC-9)"
+        );
+        assert_eq!(
+            format_item_line(Some(Language::Spanish), &row(Some("Kim"), Some("BC-9"))),
+            "- Kim (Código de barras: BC-9)"
+        );
+        assert_eq!(
+            format_item_line(Some(Language::Italian), &row(None, None)),
+            "- (titre inconnu)"
+        );
+        assert_eq!(
+            format_item_line(Some(Language::English), &row(Some("Kim"), Some("  "))),
+            "- Kim"
+        );
+        assert!(
+            !format_item_line(Some(Language::French), &row(Some("Kim"), Some("BC-9")))
+                .contains("barcode:")
+        );
     }
 }

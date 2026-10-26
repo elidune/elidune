@@ -20,7 +20,10 @@ fn retarget(token: &str, secret: &str, users: Rights, loans: Rights) -> String {
 fn assert_notice(body: &Value) {
     assert_eq!(body["notice"]["code"], "item_not_on_loan", "{body}");
     assert_eq!(body["notice"]["level"], "informational", "{body}");
-    assert!(body.get("code").is_none(), "notice is not an error body: {body}");
+    assert!(
+        body.get("code").is_none(),
+        "notice is not an error body: {body}"
+    );
     assert!(body.get("error").is_none(), "{body}");
 }
 
@@ -28,7 +31,12 @@ fn assert_minimized(body: &Value, user_id: i64, card: &str) {
     assert_eq!(body["id"], user_id.to_string(), "{body}");
     assert_eq!(body["cardNumber"], card, "{body}");
     assert_eq!(body["initials"], "HH", "{body}");
-    let mut keys: Vec<&str> = body.as_object().expect("holdFor").keys().map(String::as_str).collect();
+    let mut keys: Vec<&str> = body
+        .as_object()
+        .expect("holdFor")
+        .keys()
+        .map(String::as_str)
+        .collect();
     keys.sort_unstable();
     assert_eq!(keys, ["cardNumber", "id", "initials"], "{body}");
 }
@@ -98,7 +106,12 @@ async fn on_shelf_return_without_hold_is_informational() {
     let biblio_id = fixtures::json_id(&created["biblio"]["id"]);
     let item_id = fixtures::json_id(&created["biblio"]["items"][0]["id"]);
 
-    let (status, body) = app.post_empty(&format!("/api/v1/loans/items/{barcode}/return"), Some(&admin_token)).await;
+    let (status, body) = app
+        .post_empty(
+            &format!("/api/v1/loans/items/{barcode}/return"),
+            Some(&admin_token),
+        )
+        .await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["status"], "available", "{body}");
     assert_notice(&body);
@@ -106,7 +119,9 @@ async fn on_shelf_return_without_hold_is_informational() {
     assert!(body["hold"].is_null(), "{body}");
     assert!(body.get("holdFor").is_none(), "{body}");
 
-    let (status, biblio) = app.get_json_with_auth(&format!("/api/v1/biblios/{biblio_id}"), &admin_token).await;
+    let (status, biblio) = app
+        .get_json_with_auth(&format!("/api/v1/biblios/{biblio_id}"), &admin_token)
+        .await;
     assert_eq!(status, StatusCode::OK, "{biblio}");
     let copy = copy_by_barcode(&biblio, &barcode);
     assert_eq!(copy["availability"], "available", "{copy}");
@@ -153,7 +168,13 @@ async fn on_shelf_return_with_pending_hold_sets_copy_aside() {
         .fetch_one(app.state.services.repository.pool())
         .await
         .expect("holder login");
-    let needles = ["Helene", "Holder", email.as_str(), phone.as_str(), login.as_str()];
+    let needles = [
+        "Helene",
+        "Holder",
+        email.as_str(),
+        phone.as_str(),
+        login.as_str(),
+    ];
 
     let loaned_barcode = format!("OUT-{}", fixtures::unique_suffix());
     let (status, created) = app
@@ -210,33 +231,48 @@ async fn on_shelf_return_with_pending_hold_sets_copy_aside() {
     assert_eq!(status, StatusCode::CREATED, "{shelf}");
     let shelf_item_id = fixtures::json_id(&shelf["id"]);
 
-    let (status, body) = app.post_empty(&format!("/api/v1/loans/items/{shelf_barcode}/return"), Some(&loans_only)).await;
+    let (status, body) = app
+        .post_empty(
+            &format!("/api/v1/loans/items/{shelf_barcode}/return"),
+            Some(&loans_only),
+        )
+        .await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["status"], "ready", "{body}");
     assert_notice(&body);
     assert!(body["loan"].is_null(), "{body}");
     assert_eq!(body["hold"]["status"], "ready", "{body}");
     assert_eq!(fixtures::json_id(&body["hold"]["id"]), hold_id, "{body}");
-    assert_eq!(fixtures::json_id(&body["hold"]["itemId"]), shelf_item_id, "{body}");
+    assert_eq!(
+        fixtures::json_id(&body["hold"]["itemId"]),
+        shelf_item_id,
+        "{body}"
+    );
     assert!(body["hold"]["notifiedAt"].is_string(), "{body}");
     assert_minimized(&body["holdFor"], holder_id, &card);
     assert_hidden(&body, &needles);
 
-    let still_out: i64 = sqlx::query_scalar("SELECT COUNT(*)::bigint FROM loans WHERE item_id = $1 AND returned_at IS NULL")
-        .bind(loaned_item_id)
-        .fetch_one(app.state.services.repository.pool())
-        .await
-        .expect("open loan");
+    let still_out: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*)::bigint FROM loans WHERE item_id = $1 AND returned_at IS NULL",
+    )
+    .bind(loaned_item_id)
+    .fetch_one(app.state.services.repository.pool())
+    .await
+    .expect("open loan");
     assert_eq!(still_out, 1, "the copy that is out stays on loan");
 
-    let (status, biblio) = app.get_json_with_auth(&format!("/api/v1/biblios/{biblio_id}"), &loans_only).await;
+    let (status, biblio) = app
+        .get_json_with_auth(&format!("/api/v1/biblios/{biblio_id}"), &loans_only)
+        .await;
     assert_eq!(status, StatusCode::OK, "{biblio}");
     let copy = copy_by_barcode(&biblio, &shelf_barcode);
     assert_eq!(copy["onHold"], true, "{copy}");
     assert_minimized(&copy["holdFor"], holder_id, &card);
     assert_hidden(&biblio, &needles);
 
-    let (status, full) = app.get_json_with_auth(&format!("/api/v1/biblios/{biblio_id}"), &users_read).await;
+    let (status, full) = app
+        .get_json_with_auth(&format!("/api/v1/biblios/{biblio_id}"), &users_read)
+        .await;
     assert_eq!(status, StatusCode::OK, "{full}");
     let full_copy = copy_by_barcode(&full, &shelf_barcode);
     assert_eq!(full_copy["holdFor"]["login"], login, "{full_copy}");
@@ -312,7 +348,11 @@ async fn return_of_protected_status_warns(case: BlockedStatus) {
 
     let barcode = format!("BLK-{}-{}", case.label, fixtures::unique_suffix());
     let (status, shelf) = app
-        .post_json(&format!("/api/v1/biblios/{biblio_id}/items"), &json!({ "barcode": barcode, "borrowable": true }), Some(&admin_token))
+        .post_json(
+            &format!("/api/v1/biblios/{biblio_id}/items"),
+            &json!({ "barcode": barcode, "borrowable": true }),
+            Some(&admin_token),
+        )
         .await;
     assert_eq!(status, StatusCode::CREATED, "{shelf}");
     let item_id = fixtures::json_id(&shelf["id"]);
@@ -331,16 +371,26 @@ async fn return_of_protected_status_warns(case: BlockedStatus) {
     .await
     .expect("set protected status");
 
-    let before: (Option<i16>, bool, String) = sqlx::query_as("SELECT circulation_status, borrowable, weeding_status FROM items WHERE id = $1")
-        .bind(item_id)
-        .fetch_one(app.state.services.repository.pool())
-        .await
-        .expect("flags before");
+    let before: (Option<i16>, bool, String) = sqlx::query_as(
+        "SELECT circulation_status, borrowable, weeding_status FROM items WHERE id = $1",
+    )
+    .bind(item_id)
+    .fetch_one(app.state.services.repository.pool())
+    .await
+    .expect("flags before");
 
-    let (status, body) = app.post_empty(&format!("/api/v1/loans/items/{barcode}/return"), Some(&admin_token)).await;
+    let (status, body) = app
+        .post_empty(
+            &format!("/api/v1/loans/items/{barcode}/return"),
+            Some(&admin_token),
+        )
+        .await;
     assert_eq!(status, StatusCode::OK, "{case:?} {body}");
     assert_eq!(body["status"], "unchanged", "{body}");
-    assert_eq!(body["notice"]["code"], "item_not_available_status", "{body}");
+    assert_eq!(
+        body["notice"]["code"], "item_not_available_status",
+        "{body}"
+    );
     assert_eq!(body["notice"]["level"], "warning", "{body}");
     assert_eq!(body["circulationStatus"], case.expect_circulation, "{body}");
     assert_eq!(body["weedingStatus"], case.expect_weeding, "{body}");
@@ -351,18 +401,21 @@ async fn return_of_protected_status_warns(case: BlockedStatus) {
     assert!(body.get("wasLost").is_none(), "{body}");
     assert!(body.get("code").is_none(), "{body}");
 
-    let after: (Option<i16>, bool, String) = sqlx::query_as("SELECT circulation_status, borrowable, weeding_status FROM items WHERE id = $1")
-        .bind(item_id)
-        .fetch_one(app.state.services.repository.pool())
-        .await
-        .expect("flags after");
+    let after: (Option<i16>, bool, String) = sqlx::query_as(
+        "SELECT circulation_status, borrowable, weeding_status FROM items WHERE id = $1",
+    )
+    .bind(item_id)
+    .fetch_one(app.state.services.repository.pool())
+    .await
+    .expect("flags after");
     assert_eq!(before, after, "status must stay unchanged");
 
-    let hold_row: (String, Option<i64>) = sqlx::query_as("SELECT status, item_id FROM holds WHERE id = $1")
-        .bind(hold_id)
-        .fetch_one(app.state.services.repository.pool())
-        .await
-        .expect("hold");
+    let hold_row: (String, Option<i64>) =
+        sqlx::query_as("SELECT status, item_id FROM holds WHERE id = $1")
+            .bind(hold_id)
+            .fetch_one(app.state.services.repository.pool())
+            .await
+            .expect("hold");
     assert_eq!(hold_row.0, "pending");
     assert_eq!(hold_row.1, None, "the protected copy must not be assigned");
 
@@ -381,7 +434,10 @@ async fn return_of_protected_status_warns(case: BlockedStatus) {
     let payload = wait_audit(&app, "item.return_blocked_status", item_id).await;
     assert_eq!(payload["notice"], "item_not_available_status", "{payload}");
     assert_eq!(payload["barcode"], barcode, "{payload}");
-    assert_eq!(payload["circulationStatus"], case.expect_circulation, "{payload}");
+    assert_eq!(
+        payload["circulationStatus"], case.expect_circulation,
+        "{payload}"
+    );
     assert_eq!(payload["weedingStatus"], case.expect_weeding, "{payload}");
 
     let shelf_notice: i64 = sqlx::query_scalar(
@@ -484,7 +540,12 @@ async fn weeding_candidate_still_uses_item_not_on_loan() {
         .await
         .expect("mark candidate");
 
-    let (status, body) = app.post_empty(&format!("/api/v1/loans/items/{barcode}/return"), Some(&admin_token)).await;
+    let (status, body) = app
+        .post_empty(
+            &format!("/api/v1/loans/items/{barcode}/return"),
+            Some(&admin_token),
+        )
+        .await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["status"], "available", "{body}");
     assert_notice(&body);

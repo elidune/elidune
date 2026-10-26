@@ -20,7 +20,10 @@ struct PreparedFilter {
 }
 
 fn like_escape(value: &str) -> String {
-    value.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
+    value
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
 }
 
 fn prepare_filter(query: &WeedingCandidateQuery) -> PreparedFilter {
@@ -43,9 +46,17 @@ fn prepare_filter(query: &WeedingCandidateQuery) -> PreparedFilter {
             params.len()
         ));
     }
-    if let Some(call_number) = query.call_number.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+    if let Some(call_number) = query
+        .call_number
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
         params.push(Param::Text(format!("%{}%", like_escape(call_number))));
-        parts.push(format!("unaccent(lower(i.call_number)) LIKE unaccent(lower(${}))", params.len()));
+        parts.push(format!(
+            "unaccent(lower(i.call_number)) LIKE unaccent(lower(${}))",
+            params.len()
+        ));
     }
 
     PreparedFilter {
@@ -86,7 +97,10 @@ const SELECT_CANDIDATE: &str = r#"
 "#;
 
 impl Repository {
-    pub async fn weeding_candidates_list(&self, query: &WeedingCandidateQuery) -> AppResult<WeedingCandidateList> {
+    pub async fn weeding_candidates_list(
+        &self,
+        query: &WeedingCandidateQuery,
+    ) -> AppResult<WeedingCandidateList> {
         let prepared = prepare_filter(query);
         let page = query.page.unwrap_or(1).max(1);
         let per_page = query.per_page.unwrap_or(20).clamp(1, 100);
@@ -101,7 +115,9 @@ impl Repository {
             "#,
             prepared.where_sql
         );
-        let total: i64 = sqlx::query_scalar_with(&count_sql, bind_params(&prepared.params)).fetch_one(&self.pool).await?;
+        let total: i64 = sqlx::query_scalar_with(&count_sql, bind_params(&prepared.params))
+            .fetch_one(&self.pool)
+            .await?;
 
         let mut page_params = Vec::new();
         page_params.extend(prepared.params.iter().map(|param| match param {
@@ -117,8 +133,16 @@ impl Repository {
             "{SELECT_CANDIDATE} WHERE {} ORDER BY i.updated_at DESC, i.id DESC LIMIT ${limit_idx} OFFSET ${offset_idx}",
             prepared.where_sql
         );
-        let items = sqlx::query_as_with::<_, WeedingCandidate, _>(&page_sql, bind_params(&page_params)).fetch_all(&self.pool).await?;
+        let items =
+            sqlx::query_as_with::<_, WeedingCandidate, _>(&page_sql, bind_params(&page_params))
+                .fetch_all(&self.pool)
+                .await?;
 
-        Ok(WeedingCandidateList { items, total, page, per_page })
+        Ok(WeedingCandidateList {
+            items,
+            total,
+            page,
+            per_page,
+        })
     }
 }

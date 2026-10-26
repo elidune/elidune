@@ -15,7 +15,9 @@ use crate::{
     error::{AppError, AppResult},
     events_consent,
     models::{
-        event::{AudienceSelection, CreateEvent, Event, EventAttachmentInput, EventQuery, UpdateEvent},
+        event::{
+            AudienceSelection, CreateEvent, Event, EventAttachmentInput, EventQuery, UpdateEvent,
+        },
         Language,
     },
     repository::{events::EventAnnualStats, users::AnnouncementChild, EventsServiceRepository},
@@ -73,7 +75,13 @@ pub struct EventsService {
 }
 
 impl EventsService {
-    pub fn new(repository: Arc<dyn EventsServiceRepository>, email: EmailService, audit: AuditService, unsubscribe_secret: String, public_base_url: String) -> Self {
+    pub fn new(
+        repository: Arc<dyn EventsServiceRepository>,
+        email: EmailService,
+        audit: AuditService,
+        unsubscribe_secret: String,
+        public_base_url: String,
+    ) -> Self {
         Self {
             repository,
             email,
@@ -103,12 +111,16 @@ impl EventsService {
     #[tracing::instrument(skip(self), err)]
     pub async fn create(&self, data: &CreateEvent) -> AppResult<Event> {
         let audiences = resolve_create_audiences(data).map_err(AudienceInputError::into_app)?;
-        self.validate_audience_names(&audiences.public_types).await?;
+        self.validate_audience_names(&audiences.public_types)
+            .await?;
         let attachment = match &data.attachment {
             Some(a) => Some(decode_event_attachment_input(a)?),
             None => None,
         };
-        let event = self.repository.events_create(data, &audiences, attachment).await?;
+        let event = self
+            .repository
+            .events_create(data, &audiences, attachment)
+            .await?;
         self.enrich_with_attachment_base64(event).await
     }
 
@@ -116,7 +128,8 @@ impl EventsService {
     pub async fn update(&self, id: i64, data: &UpdateEvent) -> AppResult<Event> {
         let audiences = resolve_update_audiences(data).map_err(AudienceInputError::into_app)?;
         if let Some(selection) = &audiences {
-            self.validate_audience_names(&selection.public_types).await?;
+            self.validate_audience_names(&selection.public_types)
+                .await?;
         }
         let remove = data.remove_attachment == Some(true);
         let new_attachment = if !remove {
@@ -133,7 +146,9 @@ impl EventsService {
         event = if remove {
             self.repository.events_delete_attachment(id).await?
         } else if let Some((bytes, fname, mime)) = new_attachment {
-            self.repository.events_put_attachment(id, &bytes, &fname, &mime).await?
+            self.repository
+                .events_put_attachment(id, &bytes, &fname, &mime)
+                .await?
         } else {
             event
         };
@@ -143,7 +158,9 @@ impl EventsService {
 
     async fn enrich_with_attachment_base64(&self, mut event: Event) -> AppResult<Event> {
         if event.attachment_size.unwrap_or(0) > 0 {
-            if let Some((bytes, _, _)) = self.repository.events_get_attachment_blob(event.id).await? {
+            if let Some((bytes, _, _)) =
+                self.repository.events_get_attachment_blob(event.id).await?
+            {
                 event.attachment_data_base64 = Some(B64.encode(&bytes));
             }
         }
@@ -168,8 +185,12 @@ impl EventsService {
     #[tracing::instrument(skip(self), err)]
     pub async fn count_announcement_recipients(&self, event_id: i64) -> AppResult<i64> {
         let event = self.repository.events_get_by_id(event_id).await?;
-        let targets = self.repository.users_list_announcement_recipients(event.all_audiences, &event.public_types).await?;
-        i64::try_from(targets.len()).map_err(|_| AppError::Internal("announcement recipient count exceeds i64".into()))
+        let targets = self
+            .repository
+            .users_list_announcement_recipients(event.all_audiences, &event.public_types)
+            .await?;
+        i64::try_from(targets.len())
+            .map_err(|_| AppError::Internal("announcement recipient count exceeds i64".into()))
     }
 
     /// Send an announcement email to patrons in any selected audience, once each.
@@ -189,7 +210,13 @@ impl EventsService {
     /// directly instead of the template. A guardian message still names the children
     /// when that text does not already include them.
     #[tracing::instrument(skip(self), err)]
-    pub async fn send_announcement(&self, event_id: i64, payload: &SendAnnouncementRequest, triggered_by: Option<i64>, client_ip: Option<String>) -> AppResult<AnnouncementReport> {
+    pub async fn send_announcement(
+        &self,
+        event_id: i64,
+        payload: &SendAnnouncementRequest,
+        triggered_by: Option<i64>,
+        client_ip: Option<String>,
+    ) -> AppResult<AnnouncementReport> {
         let event = self.repository.events_get_by_id(event_id).await?;
 
         let event_date = crate::services::calendar::format_calendar_date(event.event_date);
@@ -203,7 +230,15 @@ impl EventsService {
             _ => "Autre / Other",
         };
 
-        let start_time_plain = event.start_time.map(|t| format!("\nHeure / Time: {}", crate::services::calendar::format_clock(t))).unwrap_or_default();
+        let start_time_plain = event
+            .start_time
+            .map(|t| {
+                format!(
+                    "\nHeure / Time: {}",
+                    crate::services::calendar::format_clock(t)
+                )
+            })
+            .unwrap_or_default();
         let start_time_row = event
             .start_time
             .map(|t| {
@@ -215,10 +250,21 @@ impl EventsService {
             })
             .unwrap_or_default();
 
-        let description_plain = event.description.as_deref().map(|d| format!("\n{}", d)).unwrap_or_default();
-        let description_block = event.description.as_deref().map(|d| format!("<p>{}</p>", d.replace('\n', "<br>"))).unwrap_or_default();
+        let description_plain = event
+            .description
+            .as_deref()
+            .map(|d| format!("\n{}", d))
+            .unwrap_or_default();
+        let description_block = event
+            .description
+            .as_deref()
+            .map(|d| format!("<p>{}</p>", d.replace('\n', "<br>")))
+            .unwrap_or_default();
 
-        let targets = self.repository.users_list_announcement_recipients(event.all_audiences, &event.public_types).await?;
+        let targets = self
+            .repository
+            .users_list_announcement_recipients(event.all_audiences, &event.public_types)
+            .await?;
 
         let mut emails_sent: u32 = 0;
         let mut skipped: u32 = 0;
@@ -234,63 +280,90 @@ impl EventsService {
             };
 
             let firstname = recipient.firstname.as_deref().unwrap_or("");
-            let (children_line, children_block) = announcement_children_fragments(recipient.language.as_deref(), &recipient.children);
+            let (children_line, children_block) =
+                announcement_children_fragments(recipient.language.as_deref(), &recipient.children);
             let child_ids: Vec<i64> = recipient.children.iter().map(|child| child.id).collect();
 
-            let (subject, mut body_plain, mut body_html) = if payload.subject.is_some() || payload.body_plain.is_some() {
-                // Use caller-supplied content
-                let subj = payload.subject.as_deref().unwrap_or(&event.name).to_string();
-                let plain = payload.body_plain.as_deref().unwrap_or("").to_string();
-                let html = payload
-                    .body_html
-                    .as_deref()
-                    .map(|h| h.to_string())
-                    .unwrap_or_else(|| format!("<html><body><pre>{}</pre></body></html>", plain.replace('\n', "<br>")));
-                (subj, plain, html)
-            } else {
-                let lang = recipient.language.as_deref().map(Language::from);
-                match self.email.load_template("event_announcement", lang).await {
+            let (subject, mut body_plain, mut body_html) =
+                if payload.subject.is_some() || payload.body_plain.is_some() {
+                    // Use caller-supplied content
+                    let subj = payload
+                        .subject
+                        .as_deref()
+                        .unwrap_or(&event.name)
+                        .to_string();
+                    let plain = payload.body_plain.as_deref().unwrap_or("").to_string();
+                    let html = payload
+                        .body_html
+                        .as_deref()
+                        .map(|h| h.to_string())
+                        .unwrap_or_else(|| {
+                            format!(
+                                "<html><body><pre>{}</pre></body></html>",
+                                plain.replace('\n', "<br>")
+                            )
+                        });
+                    (subj, plain, html)
+                } else {
+                    let lang = recipient.language.as_deref().map(Language::from);
+                    match self.email.load_template("event_announcement", lang).await {
+                        Err(e) => {
+                            errors.push(AnnouncementError {
+                                user_id: recipient.id,
+                                email: email_addr.clone(),
+                                error_message: format!("Template load error: {}", e),
+                            });
+                            continue;
+                        }
+                        Ok(template) => {
+                            let vars: Vec<(&str, &str)> = vec![
+                                ("firstname", firstname),
+                                ("event_name", &event.name),
+                                ("event_date", &event_date),
+                                ("event_type", event_type_label),
+                                ("start_time_line", &start_time_plain),
+                                ("start_time_row", &start_time_row),
+                                ("description_line", &description_plain),
+                                ("description_block", &description_block),
+                                ("children_line", &children_line),
+                                ("children_block", &children_block),
+                            ];
+                            let (s, p, h) = email_templates::substitute(&template, &vars);
+                            (s, p, h)
+                        }
+                    }
+                };
+            append_children_if_unnamed(
+                &mut body_plain,
+                &mut body_html,
+                &children_line,
+                &children_block,
+                &recipient.children,
+            );
+            let (ui_unsubscribe_url, api_unsubscribe_url) =
+                match self.unsubscribe_urls(recipient.id) {
+                    Ok(urls) => urls,
                     Err(e) => {
                         errors.push(AnnouncementError {
                             user_id: recipient.id,
                             email: email_addr.clone(),
-                            error_message: format!("Template load error: {}", e),
+                            error_message: e.to_string(),
                         });
                         continue;
                     }
-                    Ok(template) => {
-                        let vars: Vec<(&str, &str)> = vec![
-                            ("firstname", firstname),
-                            ("event_name", &event.name),
-                            ("event_date", &event_date),
-                            ("event_type", event_type_label),
-                            ("start_time_line", &start_time_plain),
-                            ("start_time_row", &start_time_row),
-                            ("description_line", &description_plain),
-                            ("description_block", &description_block),
-                            ("children_line", &children_line),
-                            ("children_block", &children_block),
-                        ];
-                        let (s, p, h) = email_templates::substitute(&template, &vars);
-                        (s, p, h)
-                    }
-                }
-            };
-            append_children_if_unnamed(&mut body_plain, &mut body_html, &children_line, &children_block, &recipient.children);
-            let (ui_unsubscribe_url, api_unsubscribe_url) = match self.unsubscribe_urls(recipient.id) {
-                Ok(urls) => urls,
-                Err(e) => {
-                    errors.push(AnnouncementError {
-                        user_id: recipient.id,
-                        email: email_addr.clone(),
-                        error_message: e.to_string(),
-                    });
-                    continue;
-                }
-            };
-            events_consent::append_announcement_footer(&mut body_plain, &mut body_html, recipient.language.as_deref(), recipient.include_migration_notice, &ui_unsubscribe_url);
+                };
+            events_consent::append_announcement_footer(
+                &mut body_plain,
+                &mut body_html,
+                recipient.language.as_deref(),
+                recipient.include_migration_notice,
+                &ui_unsubscribe_url,
+            );
             let header_values = events_consent::list_unsubscribe_headers(&api_unsubscribe_url);
-            let headers: Vec<(&str, &str)> = header_values.iter().map(|(name, value)| (*name, value.as_str())).collect();
+            let headers: Vec<(&str, &str)> = header_values
+                .iter()
+                .map(|(name, value)| (*name, value.as_str()))
+                .collect();
             let notice_user = recipient.include_migration_notice.then_some(recipient.id);
 
             match self
@@ -365,14 +438,19 @@ impl EventsService {
     fn unsubscribe_urls(&self, user_id: i64) -> AppResult<(String, String)> {
         let token = events_consent::sign(self.unsubscribe_secret.as_bytes(), user_id)?;
         let base = &self.public_base_url;
-        Ok((format!("{base}/events/unsubscribe?token={token}"), format!("{base}/api/v1/events/unsubscribe?token={token}")))
+        Ok((
+            format!("{base}/events/unsubscribe?token={token}"),
+            format!("{base}/api/v1/events/unsubscribe?token={token}"),
+        ))
     }
 
     async fn validate_audience_names(&self, names: &[String]) -> AppResult<()> {
         for name in names {
             let exists = self.repository.public_types_find_id_by_name(name).await?;
             if exists.is_none() {
-                return Err(AppError::Validation(format!("Unknown public_type name {name:?} (must match public_types.name)")));
+                return Err(AppError::Validation(format!(
+                    "Unknown public_type name {name:?} (must match public_types.name)"
+                )));
             }
         }
         Ok(())
@@ -389,14 +467,20 @@ pub enum AudienceInputError {
 impl AudienceInputError {
     fn into_app(self) -> AppError {
         match self {
-            Self::Empty => AppError::Validation("Select at least one audience, or set allAudiences to true".into()),
-            Self::Combined => AppError::Validation("allAudiences cannot be combined with publicTypes".into()),
+            Self::Empty => AppError::Validation(
+                "Select at least one audience, or set allAudiences to true".into(),
+            ),
+            Self::Combined => {
+                AppError::Validation("allAudiences cannot be combined with publicTypes".into())
+            }
         }
     }
 }
 
 /// Build the audience selection for a create request.
-pub fn resolve_create_audiences(data: &CreateEvent) -> Result<AudienceSelection, AudienceInputError> {
+pub fn resolve_create_audiences(
+    data: &CreateEvent,
+) -> Result<AudienceSelection, AudienceInputError> {
     let names = match &data.public_types {
         Some(list) => normalize_audience_names(list),
         None => legacy_public_type_names(data.public_type.as_deref()),
@@ -405,8 +489,14 @@ pub fn resolve_create_audiences(data: &CreateEvent) -> Result<AudienceSelection,
 }
 
 /// Audience replacement for an update. `None` means the stored audiences stay as they are.
-pub fn resolve_update_audiences(data: &UpdateEvent) -> Result<Option<AudienceSelection>, AudienceInputError> {
-    let legacy = data.public_type.as_deref().map(str::trim).filter(|name| !name.is_empty());
+pub fn resolve_update_audiences(
+    data: &UpdateEvent,
+) -> Result<Option<AudienceSelection>, AudienceInputError> {
+    let legacy = data
+        .public_type
+        .as_deref()
+        .map(str::trim)
+        .filter(|name| !name.is_empty());
     let touched = data.all_audiences.is_some() || data.public_types.is_some() || legacy.is_some();
     if !touched {
         return Ok(None);
@@ -441,7 +531,10 @@ fn legacy_public_type_names(public_type: Option<&str>) -> Vec<String> {
     }
 }
 
-fn validate_audience_selection(all_audiences: bool, public_types: Vec<String>) -> Result<AudienceSelection, AudienceInputError> {
+fn validate_audience_selection(
+    all_audiences: bool,
+    public_types: Vec<String>,
+) -> Result<AudienceSelection, AudienceInputError> {
     if all_audiences && !public_types.is_empty() {
         return Err(AudienceInputError::Combined);
     }
@@ -450,17 +543,30 @@ fn validate_audience_selection(all_audiences: bool, public_types: Vec<String>) -
     }
     Ok(AudienceSelection {
         all_audiences,
-        public_types: if all_audiences { Vec::new() } else { public_types },
+        public_types: if all_audiences {
+            Vec::new()
+        } else {
+            public_types
+        },
     })
 }
 
-fn decode_event_attachment_input(input: &EventAttachmentInput) -> AppResult<(Vec<u8>, String, String)> {
-    let bytes = B64.decode(input.data_base64.trim()).map_err(|_| AppError::Validation("Invalid Base64 in attachment".to_string()))?;
+fn decode_event_attachment_input(
+    input: &EventAttachmentInput,
+) -> AppResult<(Vec<u8>, String, String)> {
+    let bytes = B64
+        .decode(input.data_base64.trim())
+        .map_err(|_| AppError::Validation("Invalid Base64 in attachment".to_string()))?;
     if bytes.is_empty() {
-        return Err(AppError::Validation("Attachment payload is empty".to_string()));
+        return Err(AppError::Validation(
+            "Attachment payload is empty".to_string(),
+        ));
     }
     if bytes.len() > MAX_EVENT_ATTACHMENT_BYTES {
-        return Err(AppError::Validation(format!("Attachment exceeds maximum size of {} bytes", MAX_EVENT_ATTACHMENT_BYTES)));
+        return Err(AppError::Validation(format!(
+            "Attachment exceeds maximum size of {} bytes",
+            MAX_EVENT_ATTACHMENT_BYTES
+        )));
     }
     let fname = sanitize_attachment_filename(&input.file_name);
     let mime = normalize_mime_type(&input.mime_type);
@@ -468,8 +574,15 @@ fn decode_event_attachment_input(input: &EventAttachmentInput) -> AppResult<(Vec
 }
 
 fn sanitize_attachment_filename(name: &str) -> String {
-    let base = Path::new(name.trim()).file_name().and_then(|s| s.to_str()).unwrap_or("attachment");
-    let cleaned: String = base.chars().filter(|c| c.is_alphanumeric() || *c == '.' || *c == '-' || *c == '_').take(200).collect();
+    let base = Path::new(name.trim())
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("attachment");
+    let cleaned: String = base
+        .chars()
+        .filter(|c| c.is_alphanumeric() || *c == '.' || *c == '-' || *c == '_')
+        .take(200)
+        .collect();
     let trimmed = cleaned.trim_matches('.');
     if trimmed.is_empty() {
         "attachment".to_string()
@@ -483,20 +596,33 @@ fn sanitize_attachment_filename(name: &str) -> String {
 /// and Spanish each have a sentence; every other value (missing, unknown, or
 /// a language without a packaged template) uses French, matching the
 /// `event_announcement` cascade in [`crate::email_templates`].
-pub(crate) fn announcement_children_fragments(language: Option<&str>, children: &[AnnouncementChild]) -> (String, String) {
+pub(crate) fn announcement_children_fragments(
+    language: Option<&str>,
+    children: &[AnnouncementChild],
+) -> (String, String) {
     if children.is_empty() {
         return (String::new(), String::new());
     }
-    let names = children.iter().map(child_display_name).collect::<Vec<_>>().join(", ");
+    let names = children
+        .iter()
+        .map(child_display_name)
+        .collect::<Vec<_>>()
+        .join(", ");
     let intro = children_intro(language);
-    (format!("\n{intro} {names}.\n"), format!("<p>{intro} {}.</p>", html_escape(&names)))
+    (
+        format!("\n{intro} {names}.\n"),
+        format!("<p>{intro} {}.</p>", html_escape(&names)),
+    )
 }
 
 /// Localized intro for [`announcement_children_fragments`].
 /// Resolved with [`Language::from`], so aliases (`deu`, `spa`, …) match the
 /// rest of the server. French is the fallback ([`crate::services::i18n`]).
 fn children_intro(language: Option<&str>) -> &'static str {
-    crate::services::i18n::label(language.map(Language::from), crate::services::i18n::Label::InvitationConcerns)
+    crate::services::i18n::label(
+        language.map(Language::from),
+        crate::services::i18n::Label::InvitationConcerns,
+    )
 }
 
 fn child_display_name(child: &AnnouncementChild) -> String {
@@ -511,12 +637,22 @@ fn child_display_name(child: &AnnouncementChild) -> String {
 }
 
 fn html_escape(value: &str) -> String {
-    value.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
 }
 
 /// Append the localized children block when a stored or custom body does not
 /// already name every child (older templates omit `{{children_line}}`).
-fn append_children_if_unnamed(plain: &mut String, html: &mut String, line: &str, block: &str, children: &[AnnouncementChild]) {
+fn append_children_if_unnamed(
+    plain: &mut String,
+    html: &mut String,
+    line: &str,
+    block: &str,
+    children: &[AnnouncementChild],
+) {
     let unnamed = children.iter().any(|child| {
         let name = child_display_name(child);
         !plain.contains(&name)
@@ -560,25 +696,34 @@ mod audience_tests {
 
     #[test]
     fn explicit_all_audiences_stores_no_names() {
-        let created = create_body(r#"{"name":"Talk","eventDate":"2026-05-01","allAudiences":true}"#);
+        let created =
+            create_body(r#"{"name":"Talk","eventDate":"2026-05-01","allAudiences":true}"#);
         let selection = resolve_create_audiences(&created).unwrap();
         assert!(selection.all_audiences);
         assert!(selection.public_types.is_empty());
 
-        let with_empty_list = create_body(r#"{"name":"Talk","eventDate":"2026-05-01","allAudiences":true,"publicTypes":[]}"#);
+        let with_empty_list = create_body(
+            r#"{"name":"Talk","eventDate":"2026-05-01","allAudiences":true,"publicTypes":[]}"#,
+        );
         let selection = resolve_create_audiences(&with_empty_list).unwrap();
         assert!(selection.all_audiences);
     }
 
     #[test]
     fn rejects_all_audiences_combined_with_names() {
-        let created = create_body(r#"{"name":"Talk","eventDate":"2026-05-01","allAudiences":true,"publicTypes":["adult"]}"#);
-        assert_eq!(resolve_create_audiences(&created), Err(AudienceInputError::Combined));
+        let created = create_body(
+            r#"{"name":"Talk","eventDate":"2026-05-01","allAudiences":true,"publicTypes":["adult"]}"#,
+        );
+        assert_eq!(
+            resolve_create_audiences(&created),
+            Err(AudienceInputError::Combined)
+        );
     }
 
     #[test]
     fn legacy_public_type_maps_to_one_element_list() {
-        let created = create_body(r#"{"name":"Talk","eventDate":"2026-05-01","publicType":" adult "}"#);
+        let created =
+            create_body(r#"{"name":"Talk","eventDate":"2026-05-01","publicType":" adult "}"#);
         let selection = resolve_create_audiences(&created).unwrap();
         assert!(!selection.all_audiences);
         assert_eq!(selection.public_types, vec!["adult".to_string()]);
@@ -590,9 +735,14 @@ mod audience_tests {
 
     #[test]
     fn multi_audience_create_dedupes_names() {
-        let created = create_body(r#"{"name":"Talk","eventDate":"2026-05-01","publicTypes":["child"," adult ","child",""]}"#);
+        let created = create_body(
+            r#"{"name":"Talk","eventDate":"2026-05-01","publicTypes":["child"," adult ","child",""]}"#,
+        );
         let selection = resolve_create_audiences(&created).unwrap();
-        assert_eq!(selection.public_types, vec!["child".to_string(), "adult".to_string()]);
+        assert_eq!(
+            selection.public_types,
+            vec!["child".to_string(), "adult".to_string()]
+        );
     }
 
     #[test]
@@ -630,7 +780,10 @@ mod children_fragment_tests {
 
     #[test]
     fn french_block_names_every_child() {
-        let (plain, html) = announcement_children_fragments(Some("french"), &[child(2, "Lea", "Martin"), child(3, "Noe", "Martin")]);
+        let (plain, html) = announcement_children_fragments(
+            Some("french"),
+            &[child(2, "Lea", "Martin"), child(3, "Noe", "Martin")],
+        );
         assert!(plain.contains("Cette invitation concerne : Lea Martin, Noe Martin."));
         assert!(html.contains("Cette invitation concerne : Lea Martin, Noe Martin."));
         assert!(!plain.contains("This invitation concerns"));
@@ -638,7 +791,8 @@ mod children_fragment_tests {
 
     #[test]
     fn english_block_names_every_child_and_escapes_html() {
-        let (plain, html) = announcement_children_fragments(Some("english"), &[child(4, "Ada", "Lovelace & Co")]);
+        let (plain, html) =
+            announcement_children_fragments(Some("english"), &[child(4, "Ada", "Lovelace & Co")]);
         assert!(plain.contains("This invitation concerns: Ada Lovelace & Co."));
         assert!(html.contains("This invitation concerns: Ada Lovelace &amp; Co."));
         assert!(!html.contains("Lovelace & Co"));
@@ -647,8 +801,12 @@ mod children_fragment_tests {
     #[test]
     fn german_block_names_every_child() {
         for lang in ["german", "deu", "ger", "langDe", "3"] {
-            let (plain, html) = announcement_children_fragments(Some(lang), &[child(5, "Lea", "Martin")]);
-            assert!(plain.contains("Diese Einladung betrifft: Lea Martin."), "{lang}: {plain}");
+            let (plain, html) =
+                announcement_children_fragments(Some(lang), &[child(5, "Lea", "Martin")]);
+            assert!(
+                plain.contains("Diese Einladung betrifft: Lea Martin."),
+                "{lang}: {plain}"
+            );
             assert!(html.contains("<p>Diese Einladung betrifft: Lea Martin.</p>"));
             assert!(!plain.contains("Cette invitation concerne"));
             assert!(!plain.contains("This invitation concerns"));
@@ -658,8 +816,12 @@ mod children_fragment_tests {
     #[test]
     fn spanish_block_names_every_child() {
         for lang in ["spanish", "spa", "langEs", "5"] {
-            let (plain, html) = announcement_children_fragments(Some(lang), &[child(6, "Lea", "Martin")]);
-            assert!(plain.contains("Esta invitación se refiere a: Lea Martin."), "{lang}: {plain}");
+            let (plain, html) =
+                announcement_children_fragments(Some(lang), &[child(6, "Lea", "Martin")]);
+            assert!(
+                plain.contains("Esta invitación se refiere a: Lea Martin."),
+                "{lang}: {plain}"
+            );
             assert!(html.contains("<p>Esta invitación se refiere a: Lea Martin.</p>"));
             assert!(!plain.contains("Cette invitation concerne"));
             assert!(!plain.contains("This invitation concerns"));
@@ -668,9 +830,17 @@ mod children_fragment_tests {
 
     #[test]
     fn unknown_language_falls_back_to_french() {
-        for lang in [None, Some("unknown"), Some("italian"), Some("not-a-language")] {
+        for lang in [
+            None,
+            Some("unknown"),
+            Some("italian"),
+            Some("not-a-language"),
+        ] {
             let (plain, html) = announcement_children_fragments(lang, &[child(7, "Lea", "Martin")]);
-            assert!(plain.contains("Cette invitation concerne : Lea Martin."), "{lang:?}: {plain}");
+            assert!(
+                plain.contains("Cette invitation concerne : Lea Martin."),
+                "{lang:?}: {plain}"
+            );
             assert!(html.contains("<p>Cette invitation concerne : Lea Martin.</p>"));
             assert!(!plain.contains("Diese Einladung betrifft"));
             assert!(!plain.contains("Esta invitación"));

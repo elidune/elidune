@@ -69,6 +69,7 @@ import type {
   MarcBatchImportReport,
   Lender,
   LenderWrite,
+  DepositLoss,
   DepositBatch,
   DepositBatchDetail,
   DepositBatchItem,
@@ -1764,6 +1765,34 @@ class ApiService {
 
   async updateLender(id: string, data: LenderWrite): Promise<Lender> {
     const response = await this.client.patch<Lender>(`/lenders/${id}`, data);
+    return response.data;
+  }
+
+  /**
+   * Lost or damaged deposit copies. `notified` false (the default) lists copies
+   * not yet reported to the lender.
+   */
+  async listDepositLosses(params?: {
+    lenderId?: string;
+    notified?: boolean;
+  }): Promise<DepositLoss[]> {
+    const response = await this.client.get<DepositLoss[]>('/deposit-losses', {
+      params: {
+        ...(params?.lenderId ? { lenderId: params.lenderId } : {}),
+        ...(params?.notified != null ? { notified: params.notified } : {}),
+      },
+    });
+    return response.data;
+  }
+
+  /**
+   * Records that the lender was told this copy was lost or damaged.
+   * `notifiedOn` is `YYYY-MM-DD`. 422 `deposit_loss_not_declared`, 409 `deposit_loss_already_notified`.
+   */
+  async markDepositLossNotified(itemId: string, notifiedOn: string): Promise<DepositLoss> {
+    const response = await this.client.post<DepositLoss>(`/items/${itemId}/deposit-loss-notified`, {
+      notifiedOn,
+    });
     return response.data;
   }
 

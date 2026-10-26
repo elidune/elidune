@@ -21,7 +21,9 @@ async fn seed_borrowable_item(app: &TestApp, admin_token: &str, barcode: &str, t
         "items": [{ "barcode": barcode, "borrowable": true }]
     });
 
-    let (status, body) = app.post_json("/api/v1/biblios", &biblio_payload, Some(admin_token)).await;
+    let (status, body) = app
+        .post_json("/api/v1/biblios", &biblio_payload, Some(admin_token))
+        .await;
     assert_eq!(status, StatusCode::CREATED, "create biblio: {body}");
     fixtures::json_id(&body["biblio"]["items"][0]["id"])
 }
@@ -39,12 +41,19 @@ fn create_loan(user_id: i64, item_id: i64, force: bool) -> CreateLoan {
 
 fn assert_open_loan_conflict(err: AppError, code: &'static str) {
     match err {
-        AppError::Coded { status, code: got, message } => {
+        AppError::Coded {
+            status,
+            code: got,
+            message,
+        } => {
             assert_eq!(status, 409);
             assert_eq!(got, code);
             assert!(!message.is_empty());
             if code == error_code::ITEM_ALREADY_ON_LOAN_TO_BORROWER {
-                assert!(message.to_lowercase().contains("renew"), "same-borrower message should point at renewal: {message}");
+                assert!(
+                    message.to_lowercase().contains("renew"),
+                    "same-borrower message should point at renewal: {message}"
+                );
             }
         }
         other => panic!("expected 409 {code}, got {other:?}"),
@@ -54,7 +63,11 @@ fn assert_open_loan_conflict(err: AppError, code: &'static str) {
 fn assert_duplicate_hold(err: AppError) {
     match err {
         AppError::Conflict(msg) => {
-            assert!(msg.contains("active hold for this title") || msg.contains("active hold for this item"), "unexpected conflict: {msg}");
+            assert!(
+                msg.contains("active hold for this title")
+                    || msg.contains("active hold for this item"),
+                "unexpected conflict: {msg}"
+            );
         }
         other => panic!("expected duplicate hold conflict, got {other:?}"),
     }
@@ -81,24 +94,41 @@ async fn loan_return_atomically_advances_next_hold() {
         "items": [{ "barcode": format!("REPO-HOLD-{}", fixtures::unique_suffix()), "borrowable": true }]
     });
 
-    let (status, body) = app.post_json("/api/v1/biblios", &biblio_payload, Some(&admin_token)).await;
+    let (status, body) = app
+        .post_json("/api/v1/biblios", &biblio_payload, Some(&admin_token))
+        .await;
     assert_eq!(status, StatusCode::CREATED, "create biblio: {body}");
     let item_id = fixtures::json_id(&body["biblio"]["items"][0]["id"]);
 
     let repo = app.state.services.repository.as_ref().clone();
 
-    let hold_a = repo.holds_create(&CreateHold::for_item(reader_a_id, item_id)).await.expect("hold for reader A");
-    let hold_b = repo.holds_create(&CreateHold::for_item(reader_b_id, item_id)).await.expect("hold for reader B");
+    let hold_a = repo
+        .holds_create(&CreateHold::for_item(reader_a_id, item_id))
+        .await
+        .expect("hold for reader A");
+    let hold_b = repo
+        .holds_create(&CreateHold::for_item(reader_b_id, item_id))
+        .await
+        .expect("hold for reader B");
 
-    assert_eq!(hold_a.status, HoldStatus::Pending);
+    assert_eq!(hold_a.status, HoldStatus::ToPick);
     assert_eq!(hold_b.status, HoldStatus::Pending);
     assert!(hold_a.position < hold_b.position);
 
-    let checkout = repo.loans_create(&create_loan(reader_a_id, item_id, false)).await.expect("checkout to reader A");
+    let checkout = repo
+        .loans_create(&create_loan(reader_a_id, item_id, false))
+        .await
+        .expect("checkout to reader A");
 
-    let return_outcome = repo.loans_return(checkout.loan_id).await.expect("return loan");
+    let return_outcome = repo
+        .loans_return(checkout.loan_id)
+        .await
+        .expect("return loan");
 
-    let readied = return_outcome.readied_hold.as_ref().expect("next hold should become ready in same transaction");
+    let readied = return_outcome
+        .readied_hold
+        .as_ref()
+        .expect("next hold should become ready in same transaction");
     assert_eq!(readied.user_id, reader_b_id);
     assert_eq!(readied.id, hold_b.id);
     assert_eq!(readied.status, HoldStatus::Ready);
@@ -114,12 +144,18 @@ async fn sequential_checkout_same_item_fails_with_already_borrowed() {
     let admin_token = fixtures::ensure_first_setup(&app).await;
     let (reader_a_id, _) = fixtures::create_reader(&app, &admin_token, "seqloan_a").await;
     let (reader_b_id, _) = fixtures::create_reader(&app, &admin_token, "seqloan_b").await;
-    let item_id = seed_borrowable_item(&app, &admin_token, "SEQ-LOAN-001", "Sequential Loan Test").await;
+    let item_id =
+        seed_borrowable_item(&app, &admin_token, "SEQ-LOAN-001", "Sequential Loan Test").await;
     let repo = app.state.services.repository.as_ref().clone();
 
-    repo.loans_create(&create_loan(reader_a_id, item_id, false)).await.expect("first checkout");
+    repo.loans_create(&create_loan(reader_a_id, item_id, false))
+        .await
+        .expect("first checkout");
 
-    let err = repo.loans_create(&create_loan(reader_b_id, item_id, false)).await.expect_err("second checkout must fail");
+    let err = repo
+        .loans_create(&create_loan(reader_b_id, item_id, false))
+        .await
+        .expect_err("second checkout must fail");
     assert_open_loan_conflict(err, error_code::ITEM_ON_LOAN_TO_OTHER_BORROWER);
     assert_eq!(repo.loans_count_active_for_item(item_id).await.unwrap(), 1);
 }
@@ -133,7 +169,8 @@ async fn concurrent_checkout_same_item_only_one_succeeds() {
     let admin_token = fixtures::ensure_first_setup(&app).await;
     let (reader_a_id, _) = fixtures::create_reader(&app, &admin_token, "raceloan_a").await;
     let (reader_b_id, _) = fixtures::create_reader(&app, &admin_token, "raceloan_b").await;
-    let item_id = seed_borrowable_item(&app, &admin_token, "RACE-LOAN-001", "Concurrent Loan Test").await;
+    let item_id =
+        seed_borrowable_item(&app, &admin_token, "RACE-LOAN-001", "Concurrent Loan Test").await;
     let repo = app.state.services.repository.as_ref().clone();
 
     let loan_a = create_loan(reader_a_id, item_id, false);
@@ -141,9 +178,16 @@ async fn concurrent_checkout_same_item_only_one_succeeds() {
     let (r1, r2) = tokio::join!(repo.loans_create(&loan_a), repo.loans_create(&loan_b),);
 
     let oks = [&r1, &r2].iter().filter(|r| r.is_ok()).count();
-    assert_eq!(oks, 1, "exactly one concurrent checkout should succeed: {r1:?} {r2:?}");
+    assert_eq!(
+        oks, 1,
+        "exactly one concurrent checkout should succeed: {r1:?} {r2:?}"
+    );
 
-    let err = if r1.is_err() { r1.err().unwrap() } else { r2.err().unwrap() };
+    let err = if r1.is_err() {
+        r1.err().unwrap()
+    } else {
+        r2.err().unwrap()
+    };
     assert_open_loan_conflict(err, error_code::ITEM_ON_LOAN_TO_OTHER_BORROWER);
     assert_eq!(repo.loans_count_active_for_item(item_id).await.unwrap(), 1);
 }
@@ -157,7 +201,8 @@ async fn unique_index_rejects_second_active_loan_on_item() {
     let admin_token = fixtures::ensure_first_setup(&app).await;
     let (reader_a_id, _) = fixtures::create_reader(&app, &admin_token, "uniqloan_a").await;
     let (reader_b_id, _) = fixtures::create_reader(&app, &admin_token, "uniqloan_b").await;
-    let item_id = seed_borrowable_item(&app, &admin_token, "UNIQ-LOAN-001", "Unique Index Loan").await;
+    let item_id =
+        seed_borrowable_item(&app, &admin_token, "UNIQ-LOAN-001", "Unique Index Loan").await;
     let repo = app.state.services.repository.as_ref().clone();
     let pool = repo.pool();
 
@@ -189,13 +234,20 @@ async fn force_checkout_does_not_replace_existing_active_loan() {
     let admin_token = fixtures::ensure_first_setup(&app).await;
     let (reader_a_id, _) = fixtures::create_reader(&app, &admin_token, "forceloan_a").await;
     let (reader_b_id, _) = fixtures::create_reader(&app, &admin_token, "forceloan_b").await;
-    let item_id = seed_borrowable_item(&app, &admin_token, "FORCE-LOAN-001", "Force Loan Test").await;
+    let item_id =
+        seed_borrowable_item(&app, &admin_token, "FORCE-LOAN-001", "Force Loan Test").await;
     let repo = app.state.services.repository.as_ref().clone();
 
-    let first = repo.loans_create(&create_loan(reader_a_id, item_id, false)).await.expect("first checkout");
+    let first = repo
+        .loans_create(&create_loan(reader_a_id, item_id, false))
+        .await
+        .expect("first checkout");
     let before = repo.loans_get_by_id(first.loan_id).await.unwrap();
 
-    let err = repo.loans_create(&create_loan(reader_b_id, item_id, true)).await.expect_err("force must not replace an open loan");
+    let err = repo
+        .loans_create(&create_loan(reader_b_id, item_id, true))
+        .await
+        .expect_err("force must not replace an open loan");
     assert_open_loan_conflict(err, error_code::ITEM_ON_LOAN_TO_OTHER_BORROWER);
 
     let after = repo.loans_get_by_id(first.loan_id).await.unwrap();
@@ -214,14 +266,24 @@ async fn same_borrower_checkout_points_at_renewal() {
 
     let admin_token = fixtures::ensure_first_setup(&app).await;
     let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "sameloan").await;
-    let item_id = seed_borrowable_item(&app, &admin_token, "SAME-LOAN-001", "Same Borrower Loan").await;
+    let item_id =
+        seed_borrowable_item(&app, &admin_token, "SAME-LOAN-001", "Same Borrower Loan").await;
     let repo = app.state.services.repository.as_ref().clone();
 
-    let first = repo.loans_create(&create_loan(reader_id, item_id, false)).await.expect("first checkout");
+    let first = repo
+        .loans_create(&create_loan(reader_id, item_id, false))
+        .await
+        .expect("first checkout");
 
-    let err = repo.loans_create(&create_loan(reader_id, item_id, true)).await.expect_err("same borrower must not open a second loan");
+    let err = repo
+        .loans_create(&create_loan(reader_id, item_id, true))
+        .await
+        .expect_err("same borrower must not open a second loan");
     assert_open_loan_conflict(err, error_code::ITEM_ALREADY_ON_LOAN_TO_BORROWER);
-    assert_eq!(repo.loans_get_active_ids_for_item(item_id).await.unwrap(), vec![first.loan_id]);
+    assert_eq!(
+        repo.loans_get_active_ids_for_item(item_id).await.unwrap(),
+        vec![first.loan_id]
+    );
 }
 
 #[tokio::test]
@@ -233,7 +295,8 @@ async fn concurrent_force_checkouts_leave_one_active_loan() {
     let admin_token = fixtures::ensure_first_setup(&app).await;
     let (reader_a_id, _) = fixtures::create_reader(&app, &admin_token, "forcerace_a").await;
     let (reader_b_id, _) = fixtures::create_reader(&app, &admin_token, "forcerace_b").await;
-    let item_id = seed_borrowable_item(&app, &admin_token, "FORCE-RACE-001", "Force Race Loan").await;
+    let item_id =
+        seed_borrowable_item(&app, &admin_token, "FORCE-RACE-001", "Force Race Loan").await;
     let repo = app.state.services.repository.as_ref().clone();
 
     let loan_a = create_loan(reader_a_id, item_id, true);
@@ -242,7 +305,11 @@ async fn concurrent_force_checkouts_leave_one_active_loan() {
 
     let oks = [&r1, &r2].iter().filter(|r| r.is_ok()).count();
     assert_eq!(oks, 1, "force must not open two loans: {r1:?} {r2:?}");
-    let err = if r1.is_err() { r1.err().unwrap() } else { r2.err().unwrap() };
+    let err = if r1.is_err() {
+        r1.err().unwrap()
+    } else {
+        r2.err().unwrap()
+    };
     assert_open_loan_conflict(err, error_code::ITEM_ON_LOAN_TO_OTHER_BORROWER);
     assert_eq!(repo.loans_count_active_for_item(item_id).await.unwrap(), 1);
 }
@@ -259,7 +326,9 @@ async fn concurrent_checkout_respects_hold_queue() {
     let item_id = seed_borrowable_item(&app, &admin_token, "HOLD-RACE-001", "Hold Race Loan").await;
     let repo = app.state.services.repository.as_ref().clone();
 
-    repo.holds_create(&CreateHold::for_item(reader_a_id, item_id)).await.expect("hold for reader A");
+    repo.holds_create(&CreateHold::for_item(reader_a_id, item_id))
+        .await
+        .expect("hold for reader A");
 
     let loan_a = create_loan(reader_a_id, item_id, false);
     let loan_b = create_loan(reader_b_id, item_id, false);
@@ -271,9 +340,11 @@ async fn concurrent_checkout_respects_hold_queue() {
     assert!(!b_ok, "patron B must not steal the held copy: {r_b:?}");
 
     match r_b.err().unwrap() {
-        AppError::CheckoutRefused(refusal) if refusal.code == error_code::ITEM_HELD_FOR_OTHER => {
-            assert!(refusal.message.contains("active hold"), "{}", refusal.message);
-            assert!(!refusal.forceable());
+        AppError::CheckoutRefused(refusal)
+            if refusal.code == error_code::ITEM_HELD_FOR_OTHER
+                || refusal.code == error_code::ITEM_TO_PICK_FOR_OTHER =>
+        {
+            assert!(!refusal.forceable(), "{}", refusal.message);
         }
         AppError::Coded { status, code, .. } => {
             assert_eq!(status, 409);
@@ -296,14 +367,29 @@ async fn sequential_place_hold_same_user_item_conflicts() {
 
     let admin_token = fixtures::ensure_first_setup(&app).await;
     let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "seqhold_a").await;
-    let item_id = seed_borrowable_item(&app, &admin_token, "SEQ-HOLD-001", "Sequential Hold Test").await;
+    let item_id =
+        seed_borrowable_item(&app, &admin_token, "SEQ-HOLD-001", "Sequential Hold Test").await;
     let holds = &app.state.services.holds;
 
-    holds.place_hold(create_hold(reader_id, item_id), None, None).await.expect("first hold");
+    holds
+        .place_hold(create_hold(reader_id, item_id), None, None)
+        .await
+        .expect("first hold");
 
-    let err = holds.place_hold(create_hold(reader_id, item_id), None, None).await.expect_err("second hold must fail");
+    let err = holds
+        .place_hold(create_hold(reader_id, item_id), None, None)
+        .await
+        .expect_err("second hold must fail");
     assert_duplicate_hold(err);
-    assert_eq!(app.state.services.repository.holds_count_for_item(item_id).await.unwrap(), 1);
+    assert_eq!(
+        app.state
+            .services
+            .repository
+            .holds_count_for_item(item_id)
+            .await
+            .unwrap(),
+        1
+    );
 }
 
 #[tokio::test]
@@ -314,7 +400,13 @@ async fn concurrent_place_hold_same_user_item_only_one_succeeds() {
 
     let admin_token = fixtures::ensure_first_setup(&app).await;
     let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "racehold_dup").await;
-    let item_id = seed_borrowable_item(&app, &admin_token, "RACE-HOLD-DUP", "Concurrent Duplicate Hold").await;
+    let item_id = seed_borrowable_item(
+        &app,
+        &admin_token,
+        "RACE-HOLD-DUP",
+        "Concurrent Duplicate Hold",
+    )
+    .await;
     let holds = app.state.services.holds.clone();
 
     let (r1, r2) = tokio::join!(
@@ -323,11 +415,26 @@ async fn concurrent_place_hold_same_user_item_only_one_succeeds() {
     );
 
     let oks = [&r1, &r2].iter().filter(|r| r.is_ok()).count();
-    assert_eq!(oks, 1, "exactly one concurrent place_hold should succeed: {r1:?} {r2:?}");
+    assert_eq!(
+        oks, 1,
+        "exactly one concurrent place_hold should succeed: {r1:?} {r2:?}"
+    );
 
-    let err = if r1.is_err() { r1.err().unwrap() } else { r2.err().unwrap() };
+    let err = if r1.is_err() {
+        r1.err().unwrap()
+    } else {
+        r2.err().unwrap()
+    };
     assert_duplicate_hold(err);
-    assert_eq!(app.state.services.repository.holds_count_for_item(item_id).await.unwrap(), 1);
+    assert_eq!(
+        app.state
+            .services
+            .repository
+            .holds_count_for_item(item_id)
+            .await
+            .unwrap(),
+        1
+    );
 }
 
 #[tokio::test]
@@ -339,16 +446,28 @@ async fn concurrent_place_hold_assigns_distinct_positions() {
     let admin_token = fixtures::ensure_first_setup(&app).await;
     let (reader_a_id, _) = fixtures::create_reader(&app, &admin_token, "racehold_pos_a").await;
     let (reader_b_id, _) = fixtures::create_reader(&app, &admin_token, "racehold_pos_b").await;
-    let item_id = seed_borrowable_item(&app, &admin_token, "RACE-HOLD-POS", "Concurrent Hold Positions").await;
+    let item_id = seed_borrowable_item(
+        &app,
+        &admin_token,
+        "RACE-HOLD-POS",
+        "Concurrent Hold Positions",
+    )
+    .await;
     let repo = app.state.services.repository.as_ref().clone();
     let hold_req_a = create_hold(reader_a_id, item_id);
     let hold_req_b = create_hold(reader_b_id, item_id);
 
-    let (r1, r2) = tokio::join!(repo.holds_create(&hold_req_a), repo.holds_create(&hold_req_b),);
+    let (r1, r2) = tokio::join!(
+        repo.holds_create(&hold_req_a),
+        repo.holds_create(&hold_req_b),
+    );
 
     let hold_a = r1.expect("hold A must succeed");
     let hold_b = r2.expect("hold B must succeed");
-    assert_ne!(hold_a.position, hold_b.position, "concurrent place_hold must not assign the same queue position");
+    assert_ne!(
+        hold_a.position, hold_b.position,
+        "concurrent place_hold must not assign the same queue position"
+    );
 
     let mut positions = [hold_a.position, hold_b.position];
     positions.sort_unstable();
@@ -364,7 +483,8 @@ async fn unique_index_rejects_second_active_hold_for_user_item() {
 
     let admin_token = fixtures::ensure_first_setup(&app).await;
     let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "uniqhold_a").await;
-    let item_id = seed_borrowable_item(&app, &admin_token, "UNIQ-HOLD-001", "Unique Index Hold").await;
+    let item_id =
+        seed_borrowable_item(&app, &admin_token, "UNIQ-HOLD-001", "Unique Index Hold").await;
     let pool = app.state.services.repository.pool();
     let suffix = fixtures::unique_suffix() as i64;
 
@@ -392,7 +512,10 @@ async fn unique_index_rejects_second_active_hold_for_user_item() {
 
     let db = err.as_database_error().expect("database error");
     assert_eq!(db.code().as_deref(), Some("23505"));
-    assert_eq!(db.constraint(), Some("idx_holds_one_active_per_user_biblio"));
+    assert_eq!(
+        db.constraint(),
+        Some("idx_holds_one_active_per_user_biblio")
+    );
 }
 
 #[tokio::test]
@@ -403,28 +526,59 @@ async fn cancelled_hold_does_not_block_new_active_hold() {
 
     let admin_token = fixtures::ensure_first_setup(&app).await;
     let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "rehold_a").await;
-    let item_id = seed_borrowable_item(&app, &admin_token, "REHOLD-001", "Rehold After Cancel").await;
+    let item_id =
+        seed_borrowable_item(&app, &admin_token, "REHOLD-001", "Rehold After Cancel").await;
     let repo = app.state.services.repository.as_ref().clone();
 
-    let first = repo.holds_create(&create_hold(reader_id, item_id)).await.expect("first hold");
+    let first = repo
+        .holds_create(&create_hold(reader_id, item_id))
+        .await
+        .expect("first hold");
     repo.holds_cancel(first.id).await.expect("cancel hold");
 
-    let second = repo.holds_create(&create_hold(reader_id, item_id)).await.expect("new hold after cancel must succeed");
+    let second = repo
+        .holds_create(&create_hold(reader_id, item_id))
+        .await
+        .expect("new hold after cancel must succeed");
     assert_ne!(first.id, second.id);
-    assert_eq!(second.status, HoldStatus::Pending);
+    assert_eq!(second.status, HoldStatus::ToPick);
     assert_eq!(repo.holds_count_for_item(item_id).await.unwrap(), 1);
 }
 
-async fn seed_ready_then_pending(app: &TestApp, admin_token: &str, barcode: &str, title: &str, login_a: &str, login_b: &str) -> (Repository, i64, i64) {
+async fn seed_ready_then_pending(
+    app: &TestApp,
+    admin_token: &str,
+    barcode: &str,
+    title: &str,
+    login_a: &str,
+    login_b: &str,
+) -> (Repository, i64, i64) {
     let (reader_a_id, _) = fixtures::create_reader(app, admin_token, login_a).await;
     let (reader_b_id, _) = fixtures::create_reader(app, admin_token, login_b).await;
     let item_id = seed_borrowable_item(app, admin_token, barcode, title).await;
     let repo = app.state.services.repository.as_ref().clone();
 
-    let hold_a = repo.holds_create(&create_hold(reader_a_id, item_id)).await.expect("hold for first patron");
-    let hold_b = repo.holds_create(&create_hold(reader_b_id, item_id)).await.expect("hold for next patron");
+    let hold_a = repo
+        .holds_create(&create_hold(reader_a_id, item_id))
+        .await
+        .expect("hold for first patron");
+    let hold_b = repo
+        .holds_create(&create_hold(reader_b_id, item_id))
+        .await
+        .expect("hold for next patron");
 
-    repo.holds_mark_ready(hold_a.id, 7).await.expect("first hold becomes ready");
+    assert_eq!(hold_a.status, HoldStatus::ToPick);
+    let stored_barcode: String = sqlx::query_scalar("SELECT barcode FROM items WHERE id = $1")
+        .bind(item_id)
+        .fetch_one(app.state.services.repository.pool())
+        .await
+        .unwrap();
+    let completed = repo
+        .holds_complete_to_pick_by_identification(&stored_barcode)
+        .await
+        .expect("scan the shelf copy")
+        .expect("to_pick hold completed");
+    assert_eq!(completed.hold.status, HoldStatus::Ready);
 
     (repo, hold_a.id, hold_b.id)
 }
@@ -436,13 +590,31 @@ async fn cancel_ready_hold_atomically_advances_next_pending() {
     };
 
     let admin_token = fixtures::ensure_first_setup(&app).await;
-    let (repo, ready_id, next_id) = seed_ready_then_pending(&app, &admin_token, "CANCEL-READY-001", "Cancel Ready Advances Queue", "cancelready_a", "cancelready_b").await;
+    let (repo, ready_id, next_id) = seed_ready_then_pending(
+        &app,
+        &admin_token,
+        "CANCEL-READY-001",
+        "Cancel Ready Advances Queue",
+        "cancelready_a",
+        "cancelready_b",
+    )
+    .await;
 
-    let cancelled = repo.holds_cancel(ready_id).await.expect("cancel ready hold");
+    let cancelled = repo
+        .holds_cancel(ready_id)
+        .await
+        .expect("cancel ready hold");
     assert_eq!(cancelled.status, HoldStatus::Cancelled);
 
-    let next = repo.holds_get_by_id(next_id).await.expect("next hold still exists");
-    assert_eq!(next.status, HoldStatus::Ready, "cancelling a ready hold must promote the next pending patron");
+    let next = repo
+        .holds_get_by_id(next_id)
+        .await
+        .expect("next hold still exists");
+    assert_eq!(
+        next.status,
+        HoldStatus::Ready,
+        "cancelling a ready hold must promote the next pending patron"
+    );
     assert!(next.notified_at.is_some());
     assert!(next.expires_at.is_some());
 }
@@ -454,7 +626,15 @@ async fn expire_ready_hold_atomically_advances_next_pending() {
     };
 
     let admin_token = fixtures::ensure_first_setup(&app).await;
-    let (repo, ready_id, next_id) = seed_ready_then_pending(&app, &admin_token, "EXPIRE-READY-001", "Expire Ready Advances Queue", "expireready_a", "expireready_b").await;
+    let (repo, ready_id, next_id) = seed_ready_then_pending(
+        &app,
+        &admin_token,
+        "EXPIRE-READY-001",
+        "Expire Ready Advances Queue",
+        "expireready_a",
+        "expireready_b",
+    )
+    .await;
 
     sqlx::query("UPDATE holds SET expires_at = NOW() - interval '1 hour' WHERE id = $1")
         .bind(ready_id)
@@ -462,14 +642,30 @@ async fn expire_ready_hold_atomically_advances_next_pending() {
         .await
         .expect("make ready hold overdue");
 
-    let expired_ids = repo.holds_expire_overdue().await.expect("expire overdue ready holds");
-    assert!(expired_ids.contains(&ready_id), "overdue ready hold must be expired: {expired_ids:?}");
+    let expired_ids = repo
+        .holds_expire_overdue()
+        .await
+        .expect("expire overdue ready holds");
+    assert!(
+        expired_ids.contains(&ready_id),
+        "overdue ready hold must be expired: {expired_ids:?}"
+    );
 
-    let expired = repo.holds_get_by_id(ready_id).await.expect("expired hold still exists");
+    let expired = repo
+        .holds_get_by_id(ready_id)
+        .await
+        .expect("expired hold still exists");
     assert_eq!(expired.status, HoldStatus::Expired);
 
-    let next = repo.holds_get_by_id(next_id).await.expect("next hold still exists");
-    assert_eq!(next.status, HoldStatus::Ready, "expiring a ready hold must promote the next pending patron");
+    let next = repo
+        .holds_get_by_id(next_id)
+        .await
+        .expect("next hold still exists");
+    assert_eq!(
+        next.status,
+        HoldStatus::Ready,
+        "expiring a ready hold must promote the next pending patron"
+    );
     assert!(next.notified_at.is_some());
     assert!(next.expires_at.is_some());
 }
@@ -481,27 +677,53 @@ async fn cancel_pending_hold_does_not_ready_next_while_ready_exists() {
     };
 
     let admin_token = fixtures::ensure_first_setup(&app).await;
-    let (repo, ready_id, pending_id) = seed_ready_then_pending(&app, &admin_token, "CANCEL-PENDING-001", "Cancel Pending Does Not Double Ready", "cancelpend_a", "cancelpend_b").await;
+    let (repo, ready_id, pending_id) = seed_ready_then_pending(
+        &app,
+        &admin_token,
+        "CANCEL-PENDING-001",
+        "Cancel Pending Does Not Double Ready",
+        "cancelpend_a",
+        "cancelpend_b",
+    )
+    .await;
 
     let (reader_c_id, _) = fixtures::create_reader(&app, &admin_token, "cancelpend_c").await;
-    let item_id = repo.holds_get_by_id(ready_id).await.unwrap().item_id.expect("ready hold has a copy");
-    let hold_c = repo.holds_create(&create_hold(reader_c_id, item_id)).await.expect("third pending hold");
+    let item_id = repo
+        .holds_get_by_id(ready_id)
+        .await
+        .unwrap()
+        .item_id
+        .expect("ready hold has a copy");
+    let hold_c = repo
+        .holds_create(&create_hold(reader_c_id, item_id))
+        .await
+        .expect("third pending hold");
 
-    let cancelled = repo.holds_cancel(pending_id).await.expect("cancel pending hold");
+    let cancelled = repo
+        .holds_cancel(pending_id)
+        .await
+        .expect("cancel pending hold");
     assert_eq!(cancelled.status, HoldStatus::Cancelled);
 
     let still_ready = repo.holds_get_by_id(ready_id).await.unwrap();
     assert_eq!(still_ready.status, HoldStatus::Ready);
 
     let third = repo.holds_get_by_id(hold_c.id).await.unwrap();
-    assert_eq!(third.status, HoldStatus::Pending, "cancelling a pending hold must not mark another patron ready");
+    assert_eq!(
+        third.status,
+        HoldStatus::Pending,
+        "cancelling a pending hold must not mark another patron ready"
+    );
 }
 
 fn assert_max_renewals(err: AppError) {
     match err {
         AppError::RenewalRefused { code, message } => {
             assert_eq!(code, "max_renewals");
-            assert!(message.starts_with("Maximum renewals reached"), "unexpected refusal: {message}");
+            assert!(
+                message.starts_with("Maximum renewals reached"),
+                "unexpected refusal: {message}"
+            );
         }
         other => panic!("expected max_renewals, got {other:?}"),
     }
@@ -511,7 +733,10 @@ fn assert_hold_queue_blocks_renew(err: AppError) {
     match err {
         AppError::RenewalRefused { code, message } => {
             assert_eq!(code, "hold_waiting");
-            assert!(message.to_lowercase().contains("hold"), "expected hold-queue refusal, got {message}");
+            assert!(
+                message.to_lowercase().contains("hold"),
+                "expected hold-queue refusal, got {message}"
+            );
         }
         other => panic!("expected hold_waiting, got {other:?}"),
     }
@@ -525,17 +750,28 @@ async fn concurrent_renew_same_loan_cannot_exceed_max_renewals() {
 
     let admin_token = fixtures::ensure_first_setup(&app).await;
     let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "renewrace").await;
-    let item_id = seed_borrowable_item(&app, &admin_token, "RENEW-RACE-001", "Concurrent Renew Test").await;
+    let item_id = seed_borrowable_item(
+        &app,
+        &admin_token,
+        "RENEW-RACE-001",
+        "Concurrent Renew Test",
+    )
+    .await;
     let repo = app.state.services.repository.as_ref().clone();
 
-    let checkout = repo.loans_create(&create_loan(reader_id, item_id, false)).await.expect("checkout");
+    let checkout = repo
+        .loans_create(&create_loan(reader_id, item_id, false))
+        .await
+        .expect("checkout");
 
     // Leave one renewal slot (default max is 2) so both racing renews would pass a stale read.
-    sqlx::query("UPDATE loans SET nb_renews = 1, expiry_at = NOW() + interval '1 day' WHERE id = $1")
-        .bind(checkout.loan_id)
-        .execute(repo.pool())
-        .await
-        .expect("seed one used renewal");
+    sqlx::query(
+        "UPDATE loans SET nb_renews = 1, expiry_at = NOW() + interval '1 day' WHERE id = $1",
+    )
+    .bind(checkout.loan_id)
+    .execute(repo.pool())
+    .await
+    .expect("seed one used renewal");
 
     let (r1, r2) = tokio::join!(
         repo.loans_renew(checkout.loan_id, RenewalOverride::default()),
@@ -543,12 +779,22 @@ async fn concurrent_renew_same_loan_cannot_exceed_max_renewals() {
     );
 
     let oks = [&r1, &r2].iter().filter(|r| r.is_ok()).count();
-    assert_eq!(oks, 1, "exactly one concurrent renew should succeed: {r1:?} {r2:?}");
+    assert_eq!(
+        oks, 1,
+        "exactly one concurrent renew should succeed: {r1:?} {r2:?}"
+    );
 
-    let err = if r1.is_err() { r1.err().unwrap() } else { r2.err().unwrap() };
+    let err = if r1.is_err() {
+        r1.err().unwrap()
+    } else {
+        r2.err().unwrap()
+    };
     assert_max_renewals(err);
 
-    let loan = repo.loans_get_by_id(checkout.loan_id).await.expect("loan after race");
+    let loan = repo
+        .loans_get_by_id(checkout.loan_id)
+        .await
+        .expect("loan after race");
     assert_eq!(loan.nb_renews, Some(2));
 }
 
@@ -561,12 +807,23 @@ async fn renew_blocked_when_hold_queue_has_waiting_patron() {
     let admin_token = fixtures::ensure_first_setup(&app).await;
     let (reader_a_id, _) = fixtures::create_reader(&app, &admin_token, "renewhold_a").await;
     let (reader_b_id, _) = fixtures::create_reader(&app, &admin_token, "renewhold_b").await;
-    let item_id = seed_borrowable_item(&app, &admin_token, "RENEW-HOLD-001", "Renew Hold Queue Test").await;
+    let item_id = seed_borrowable_item(
+        &app,
+        &admin_token,
+        "RENEW-HOLD-001",
+        "Renew Hold Queue Test",
+    )
+    .await;
     let repo = app.state.services.repository.as_ref().clone();
 
-    let checkout = repo.loans_create(&create_loan(reader_a_id, item_id, false)).await.expect("checkout to reader A");
+    let checkout = repo
+        .loans_create(&create_loan(reader_a_id, item_id, false))
+        .await
+        .expect("checkout to reader A");
 
-    repo.holds_create(&CreateHold::for_item(reader_b_id, item_id)).await.expect("pending hold for reader B");
+    repo.holds_create(&CreateHold::for_item(reader_b_id, item_id))
+        .await
+        .expect("pending hold for reader B");
 
     let err = repo
         .loans_renew(checkout.loan_id, RenewalOverride::default())
@@ -574,7 +831,10 @@ async fn renew_blocked_when_hold_queue_has_waiting_patron() {
         .expect_err("renew must fail while another patron is queued");
     assert_hold_queue_blocks_renew(err);
 
-    let loan = repo.loans_get_by_id(checkout.loan_id).await.expect("loan unchanged");
+    let loan = repo
+        .loans_get_by_id(checkout.loan_id)
+        .await
+        .expect("loan unchanged");
     assert_eq!(loan.nb_renews.unwrap_or(0), 0);
 }
 
@@ -587,13 +847,27 @@ async fn renew_blocked_when_ready_hold_exists_for_copy() {
     let admin_token = fixtures::ensure_first_setup(&app).await;
     let (reader_a_id, _) = fixtures::create_reader(&app, &admin_token, "renewready_a").await;
     let (reader_b_id, _) = fixtures::create_reader(&app, &admin_token, "renewready_b").await;
-    let item_id = seed_borrowable_item(&app, &admin_token, "RENEW-READY-001", "Renew Ready Hold Test").await;
+    let item_id = seed_borrowable_item(
+        &app,
+        &admin_token,
+        "RENEW-READY-001",
+        "Renew Ready Hold Test",
+    )
+    .await;
     let repo = app.state.services.repository.as_ref().clone();
 
-    let checkout = repo.loans_create(&create_loan(reader_a_id, item_id, false)).await.expect("checkout to reader A");
+    let checkout = repo
+        .loans_create(&create_loan(reader_a_id, item_id, false))
+        .await
+        .expect("checkout to reader A");
 
-    let hold = repo.holds_create(&CreateHold::for_item(reader_b_id, item_id)).await.expect("pending hold for reader B");
-    repo.holds_mark_ready(hold.id, 7).await.expect("mark hold ready");
+    let hold = repo
+        .holds_create(&CreateHold::for_item(reader_b_id, item_id))
+        .await
+        .expect("pending hold for reader B");
+    repo.holds_mark_ready(hold.id, 7)
+        .await
+        .expect("mark hold ready");
 
     let err = repo
         .loans_renew(checkout.loan_id, RenewalOverride::default())
@@ -601,7 +875,10 @@ async fn renew_blocked_when_ready_hold_exists_for_copy() {
         .expect_err("renew must fail while a ready hold exists");
     assert_hold_queue_blocks_renew(err);
 
-    let loan = repo.loans_get_by_id(checkout.loan_id).await.expect("loan unchanged");
+    let loan = repo
+        .loans_get_by_id(checkout.loan_id)
+        .await
+        .expect("loan unchanged");
     assert_eq!(loan.nb_renews.unwrap_or(0), 0);
 }
 
@@ -614,7 +891,10 @@ async fn renew_before_the_window_is_refused_without_counting() {
     let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "renewearly").await;
     let item_id = seed_borrowable_item(&app, &admin_token, "RENEW-EARLY", "Too Early").await;
     let repo = app.state.services.repository.as_ref().clone();
-    let checkout = repo.loans_create(&create_loan(reader_id, item_id, false)).await.expect("checkout");
+    let checkout = repo
+        .loans_create(&create_loan(reader_id, item_id, false))
+        .await
+        .expect("checkout");
     let before = repo.loans_get_by_id(checkout.loan_id).await.expect("loan");
 
     let err = repo
@@ -623,19 +903,37 @@ async fn renew_before_the_window_is_refused_without_counting() {
         .expect_err("same-day renew is outside the 7-day window");
     match err {
         AppError::RenewalTooEarly(msg) => {
-            assert!(msg.contains("Renewal is possible from"), "message should name the opening date: {msg}");
+            assert!(
+                msg.contains("Renewal is possible from"),
+                "message should name the opening date: {msg}"
+            );
         }
         other => panic!("expected renewal_too_early, got {other:?}"),
     }
 
-    let after = repo.loans_get_by_id(checkout.loan_id).await.expect("loan unchanged");
+    let after = repo
+        .loans_get_by_id(checkout.loan_id)
+        .await
+        .expect("loan unchanged");
     assert_eq!(after.nb_renews.unwrap_or(0), 0);
     assert_eq!(after.expiry_at, before.expiry_at);
 
-    let (status, body) = app.post_empty(&format!("/api/v1/loans/{}/renew", checkout.loan_id), Some(&admin_token)).await;
-    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "http renew: {body}");
+    let (status, body) = app
+        .post_empty(
+            &format!("/api/v1/loans/{}/renew", checkout.loan_id),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "http renew: {body}"
+    );
     assert_eq!(body["code"], "renewal_too_early");
-    assert!(body["message"].as_str().unwrap_or_default().contains("Renewal is possible from"));
+    assert!(body["message"]
+        .as_str()
+        .unwrap_or_default()
+        .contains("Renewal is possible from"));
 }
 
 #[tokio::test]
@@ -647,7 +945,10 @@ async fn renew_inside_the_window_extends_the_current_due_date() {
     let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "renewdue").await;
     let item_id = seed_borrowable_item(&app, &admin_token, "RENEW-DUE", "From Due Date").await;
     let repo = app.state.services.repository.as_ref().clone();
-    let checkout = repo.loans_create(&create_loan(reader_id, item_id, false)).await.expect("checkout");
+    let checkout = repo
+        .loans_create(&create_loan(reader_id, item_id, false))
+        .await
+        .expect("checkout");
 
     let due = chrono::Utc::now() + chrono::Duration::days(2);
     sqlx::query("UPDATE loans SET expiry_at = $2 WHERE id = $1")
@@ -657,7 +958,10 @@ async fn renew_inside_the_window_extends_the_current_due_date() {
         .await
         .expect("set due date inside the window");
 
-    let renewed = repo.loans_renew(checkout.loan_id, RenewalOverride::default()).await.expect("renew inside the window");
+    let renewed = repo
+        .loans_renew(checkout.loan_id, RenewalOverride::default())
+        .await
+        .expect("renew inside the window");
     let new_expiry = renewed.expiry_at;
     let renews = renewed.renew_count;
     assert_eq!(renews, 1);
@@ -677,7 +981,10 @@ async fn overdue_renewal_still_extends_from_the_due_date() {
     let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "renewlate").await;
     let item_id = seed_borrowable_item(&app, &admin_token, "RENEW-LATE", "Overdue Renew").await;
     let repo = app.state.services.repository.as_ref().clone();
-    let checkout = repo.loans_create(&create_loan(reader_id, item_id, false)).await.expect("checkout");
+    let checkout = repo
+        .loans_create(&create_loan(reader_id, item_id, false))
+        .await
+        .expect("checkout");
 
     let due = chrono::Utc::now() - chrono::Duration::days(3);
     sqlx::query("UPDATE loans SET expiry_at = $2 WHERE id = $1")
@@ -687,7 +994,10 @@ async fn overdue_renewal_still_extends_from_the_due_date() {
         .await
         .expect("mark loan overdue");
 
-    let renewed = repo.loans_renew(checkout.loan_id, RenewalOverride::default()).await.expect("overdue renew stays allowed");
+    let renewed = repo
+        .loans_renew(checkout.loan_id, RenewalOverride::default())
+        .await
+        .expect("overdue renew stays allowed");
     let new_expiry = renewed.expiry_at;
     let renews = renewed.renew_count;
     assert_eq!(renews, 1);
@@ -698,19 +1008,34 @@ async fn overdue_renewal_still_extends_from_the_due_date() {
     );
 }
 
-async fn seed_title(app: &TestApp, admin_token: &str, title: &str, barcodes: &[&str]) -> (i64, Vec<i64>) {
+async fn seed_title(
+    app: &TestApp,
+    admin_token: &str,
+    title: &str,
+    barcodes: &[&str],
+) -> (i64, Vec<i64>) {
     let suffix = fixtures::unique_suffix();
-    let items: Vec<serde_json::Value> = barcodes.iter().map(|barcode| json!({ "barcode": format!("{barcode}-{suffix}"), "borrowable": true })).collect();
+    let items: Vec<serde_json::Value> = barcodes
+        .iter()
+        .map(|barcode| json!({ "barcode": format!("{barcode}-{suffix}"), "borrowable": true }))
+        .collect();
     let payload = json!({
         "title": title,
         "mediaType": "printedText",
         "lang": "french",
         "items": items,
     });
-    let (status, body) = app.post_json("/api/v1/biblios", &payload, Some(admin_token)).await;
+    let (status, body) = app
+        .post_json("/api/v1/biblios", &payload, Some(admin_token))
+        .await;
     assert_eq!(status, StatusCode::CREATED, "create title: {body}");
     let biblio_id = fixtures::json_id(&body["biblio"]["id"]);
-    let item_ids = body["biblio"]["items"].as_array().expect("items").iter().map(|item| fixtures::json_id(&item["id"])).collect();
+    let item_ids = body["biblio"]["items"]
+        .as_array()
+        .expect("items")
+        .iter()
+        .map(|item| fixtures::json_id(&item["id"]))
+        .collect();
     (biblio_id, item_ids)
 }
 
@@ -723,10 +1048,17 @@ async fn renewal_refused_when_title_hold_is_unassigned() {
     let admin_token = fixtures::ensure_first_setup(&app).await;
     let (borrower_id, _) = fixtures::create_reader(&app, &admin_token, "renewttl_a").await;
     let (waiter_id, _) = fixtures::create_reader(&app, &admin_token, "renewttl_b").await;
-    let (biblio_id, items) = seed_title(&app, &admin_token, "Title Hold Blocks Renew", &["TTL-1"]).await;
+    let (biblio_id, items) =
+        seed_title(&app, &admin_token, "Title Hold Blocks Renew", &["TTL-1"]).await;
     let repo = app.state.services.repository.as_ref().clone();
-    let checkout = repo.loans_create(&create_loan(borrower_id, items[0], false)).await.expect("checkout");
-    let hold = repo.holds_create(&CreateHold::for_biblio(waiter_id, biblio_id)).await.expect("title hold");
+    let checkout = repo
+        .loans_create(&create_loan(borrower_id, items[0], false))
+        .await
+        .expect("checkout");
+    let hold = repo
+        .holds_create(&CreateHold::for_biblio(waiter_id, biblio_id))
+        .await
+        .expect("title hold");
     assert_eq!(hold.status, HoldStatus::Pending);
     assert!(hold.item_id.is_none(), "no shelf copy left to assign");
 
@@ -749,10 +1081,17 @@ async fn renewal_allowed_when_title_has_no_hold() {
     let (borrower_id, _) = fixtures::create_reader(&app, &admin_token, "renewfree").await;
     let (_, items) = seed_title(&app, &admin_token, "No Hold Renew", &["FREE-1"]).await;
     let repo = app.state.services.repository.as_ref().clone();
-    let checkout = repo.loans_create(&create_loan(borrower_id, items[0], false)).await.expect("checkout");
+    let checkout = repo
+        .loans_create(&create_loan(borrower_id, items[0], false))
+        .await
+        .expect("checkout");
     fixtures::pull_loan_into_renewal_window(&app, checkout.loan_id).await;
 
-    let renews = repo.loans_renew(checkout.loan_id, RenewalOverride::default()).await.expect("renewal with no hold").renew_count;
+    let renews = repo
+        .loans_renew(checkout.loan_id, RenewalOverride::default())
+        .await
+        .expect("renewal with no hold")
+        .renew_count;
     assert_eq!(renews, 1);
 }
 
@@ -767,10 +1106,22 @@ async fn renewal_allowed_when_title_hold_is_to_pick_on_another_copy() {
     let admin_token = fixtures::ensure_first_setup(&app).await;
     let (borrower_id, _) = fixtures::create_reader(&app, &admin_token, "renewpick_a").await;
     let (waiter_id, _) = fixtures::create_reader(&app, &admin_token, "renewpick_b").await;
-    let (biblio_id, items) = seed_title(&app, &admin_token, "To Pick Sibling", &["PICK-LOAN", "PICK-SHELF"]).await;
+    let (biblio_id, items) = seed_title(
+        &app,
+        &admin_token,
+        "To Pick Sibling",
+        &["PICK-LOAN", "PICK-SHELF"],
+    )
+    .await;
     let repo = app.state.services.repository.as_ref().clone();
-    let checkout = repo.loans_create(&create_loan(borrower_id, items[0], false)).await.expect("checkout first copy");
-    let hold = repo.holds_create(&CreateHold::for_biblio(waiter_id, biblio_id)).await.expect("title hold captures the shelf copy");
+    let checkout = repo
+        .loans_create(&create_loan(borrower_id, items[0], false))
+        .await
+        .expect("checkout first copy");
+    let hold = repo
+        .holds_create(&CreateHold::for_biblio(waiter_id, biblio_id))
+        .await
+        .expect("title hold captures the shelf copy");
     assert_eq!(hold.status, HoldStatus::ToPick);
     assert_eq!(hold.item_id, Some(items[1]));
     fixtures::pull_loan_into_renewal_window(&app, checkout.loan_id).await;
@@ -793,17 +1144,30 @@ async fn lending_unassigned_shelf_copy_stays_allowed() {
     let admin_token = fixtures::ensure_first_setup(&app).await;
     let (waiter_id, _) = fixtures::create_reader(&app, &admin_token, "lendhold").await;
     let (borrower_id, _) = fixtures::create_reader(&app, &admin_token, "lendfree").await;
-    let (biblio_id, items) = seed_title(&app, &admin_token, "Lend Free Copy", &["LEND-A", "LEND-B"]).await;
+    let (biblio_id, items) =
+        seed_title(&app, &admin_token, "Lend Free Copy", &["LEND-A", "LEND-B"]).await;
     let repo = app.state.services.repository.as_ref().clone();
-    let hold = repo.holds_create(&CreateHold::for_biblio(waiter_id, biblio_id)).await.expect("title hold assigns one shelf copy");
+    let hold = repo
+        .holds_create(&CreateHold::for_biblio(waiter_id, biblio_id))
+        .await
+        .expect("title hold assigns one shelf copy");
     assert_eq!(hold.status, HoldStatus::ToPick);
     let reserved = hold.item_id.expect("assigned copy");
-    let free = items.into_iter().find(|id| *id != reserved).expect("other copy");
+    let free = items
+        .into_iter()
+        .find(|id| *id != reserved)
+        .expect("other copy");
 
-    repo.loans_create(&create_loan(borrower_id, free, false)).await.expect("unassigned shelf copy stays lendable");
-    let err = repo.loans_create(&create_loan(borrower_id, reserved, false)).await.expect_err("the assigned copy stays reserved");
+    repo.loans_create(&create_loan(borrower_id, free, false))
+        .await
+        .expect("unassigned shelf copy stays lendable");
+    let err = repo
+        .loans_create(&create_loan(borrower_id, reserved, false))
+        .await
+        .expect_err("the assigned copy stays reserved");
     match err {
-        AppError::CheckoutRefused(refusal) if refusal.code == error_code::ITEM_TO_PICK_FOR_OTHER && !refusal.forceable() => {}
+        AppError::CheckoutRefused(refusal)
+            if refusal.code == error_code::ITEM_TO_PICK_FOR_OTHER && !refusal.forceable() => {}
         other => panic!("expected item_to_pick_for_other, got {other:?}"),
     }
 }

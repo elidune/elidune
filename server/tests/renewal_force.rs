@@ -53,7 +53,13 @@ async fn checkout(app: &TestApp, admin_token: &str, user_id: i64, item_id: i64) 
 }
 
 /// Custom account type. The code is never `admin`, `librarian`, or `reader`.
-async fn user_with_rights(app: &TestApp, admin_token: &str, loans_rights: &str, settings_rights: &str, override_rights: &str) -> (i64, String, String) {
+async fn user_with_rights(
+    app: &TestApp,
+    admin_token: &str,
+    loans_rights: &str,
+    settings_rights: &str,
+    override_rights: &str,
+) -> (i64, String, String) {
     let code = format!("circ{}", fixtures::unique_token());
     assert!(!matches!(code.as_str(), "admin" | "librarian" | "reader"));
     let (status, body) = app
@@ -96,8 +102,19 @@ async fn user_with_rights(app: &TestApp, admin_token: &str, loans_rights: &str, 
         .await;
     assert_eq!(status, StatusCode::CREATED, "user: {body}");
     let user_id = fixtures::json_id(&body["id"]);
-    app.state.services.users.set_must_change_password(user_id, false).await.expect("clear must_change_password");
-    let (status, session) = app.post_json("/api/v1/auth/login", &json!({ "username": login, "password": "readerpass1234" }), None).await;
+    app.state
+        .services
+        .users
+        .set_must_change_password(user_id, false)
+        .await
+        .expect("clear must_change_password");
+    let (status, session) = app
+        .post_json(
+            "/api/v1/auth/login",
+            &json!({ "username": login, "password": "readerpass1234" }),
+            None,
+        )
+        .await;
     assert_eq!(status, StatusCode::OK, "login: {session}");
     let token = session["token"].as_str().expect("token").to_string();
     (user_id, token, code)
@@ -105,7 +122,12 @@ async fn user_with_rights(app: &TestApp, admin_token: &str, loans_rights: &str, 
 
 fn assert_refusal(status: StatusCode, body: &Value, code: &str, forceable: bool) {
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
-    let mut keys: Vec<_> = body.as_object().unwrap_or_else(|| panic!("object body: {body}")).keys().cloned().collect();
+    let mut keys: Vec<_> = body
+        .as_object()
+        .unwrap_or_else(|| panic!("object body: {body}"))
+        .keys()
+        .cloned()
+        .collect();
     keys.sort();
     let mut expected = vec!["code", "error", "forceable", "message"];
     if code == "subscription_expired" && forceable {
@@ -130,7 +152,12 @@ async fn renewal_count(app: &TestApp, loan_id: i64) -> i16 {
         .expect("renewal count")
 }
 
-async fn override_audits(app: &TestApp, event_type: &str, loan_id: i64, expected: usize) -> Vec<(Option<i64>, String, Value)> {
+async fn override_audits(
+    app: &TestApp,
+    event_type: &str,
+    loan_id: i64,
+    expected: usize,
+) -> Vec<(Option<i64>, String, Value)> {
     let pool = app.state.services.repository.pool();
     for _ in 0..40 {
         let rows: Vec<(Option<i64>, String, Value)> = sqlx::query_as(
@@ -154,14 +181,27 @@ async fn override_audits(app: &TestApp, event_type: &str, loan_id: i64, expected
     panic!("{event_type} audit missing for loan {loan_id}");
 }
 
-fn assert_override_audit(rows: &[(Option<i64>, String, Value)], staff_id: i64, loan_id: i64, patron_id: i64, reasons: &[&str], override_reason: Option<&str>) {
+fn assert_override_audit(
+    rows: &[(Option<i64>, String, Value)],
+    staff_id: i64,
+    loan_id: i64,
+    patron_id: i64,
+    reasons: &[&str],
+    override_reason: Option<&str>,
+) {
     assert_eq!(rows.len(), reasons.len(), "{rows:?}");
     let mut found: Vec<&str> = rows
         .iter()
         .map(|row| {
             assert_eq!(row.0, Some(staff_id), "{row:?}");
             assert_eq!(row.1, "loan");
-            let mut keys: Vec<_> = row.2.as_object().expect("payload").keys().cloned().collect();
+            let mut keys: Vec<_> = row
+                .2
+                .as_object()
+                .expect("payload")
+                .keys()
+                .cloned()
+                .collect();
             keys.sort();
             let mut expected = vec!["loanId".to_string(), "patron_id".into(), "reason".into()];
             if override_reason.is_some() {
@@ -191,42 +231,85 @@ async fn loans_write_forces_max_renewals_and_renewal_too_early_with_audit() {
     };
     let admin_token = fixtures::ensure_first_setup(&app).await;
     let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "forcepatron").await;
-    let (staff_id, desk_token, account_type) = user_with_rights(&app, &admin_token, "w", "n", "n").await;
+    let (staff_id, desk_token, account_type) =
+        user_with_rights(&app, &admin_token, "w", "n", "n").await;
     let (status, me) = app.get_json_with_auth("/api/v1/auth/me", &desk_token).await;
     assert_eq!(status, StatusCode::OK, "{me}");
     assert_eq!(me["accountType"], account_type, "{me}");
 
     let (_, capped_item, _) = create_copy(&app, &admin_token, "Force Cap").await;
     let capped = checkout(&app, &admin_token, reader_id, capped_item).await;
-    sqlx::query("UPDATE loans SET nb_renews = 2, expiry_at = NOW() + interval '1 day' WHERE id = $1")
-        .bind(capped)
-        .execute(app.state.services.repository.pool())
-        .await
-        .expect("put the loan at the renewal cap inside the window");
+    sqlx::query(
+        "UPDATE loans SET nb_renews = 2, expiry_at = NOW() + interval '1 day' WHERE id = $1",
+    )
+    .bind(capped)
+    .execute(app.state.services.repository.pool())
+    .await
+    .expect("put the loan at the renewal cap inside the window");
 
-    let (status, refused) = app.post_empty(&format!("/api/v1/loans/{capped}/renew"), Some(&desk_token)).await;
+    let (status, refused) = app
+        .post_empty(&format!("/api/v1/loans/{capped}/renew"), Some(&desk_token))
+        .await;
     assert_refusal(status, &refused, "max_renewals", true);
-    assert!(refused["message"].as_str().unwrap_or("").contains("Maximum renewals reached"), "{refused}");
+    assert!(
+        refused["message"]
+            .as_str()
+            .unwrap_or("")
+            .contains("Maximum renewals reached"),
+        "{refused}"
+    );
 
-    let (status, forced) = app.post_empty(&format!("/api/v1/loans/{capped}/renew?force=true"), Some(&desk_token)).await;
+    let (status, forced) = app
+        .post_empty(
+            &format!("/api/v1/loans/{capped}/renew?force=true"),
+            Some(&desk_token),
+        )
+        .await;
     assert_eq!(status, StatusCode::OK, "{forced}");
     assert_eq!(fixtures::json_id(&forced["id"]), capped, "{forced}");
     assert_eq!(renewal_count(&app, capped).await, 3);
     let audits = override_audits(&app, "loan.renewal_forced", capped, 1).await;
-    assert_override_audit(&audits, staff_id, capped, reader_id, &["max_renewals"], None);
+    assert_override_audit(
+        &audits,
+        staff_id,
+        capped,
+        reader_id,
+        &["max_renewals"],
+        None,
+    );
 
     let (_, early_item, barcode) = create_copy(&app, &admin_token, "Force Early").await;
     let early = checkout(&app, &admin_token, reader_id, early_item).await;
-    let (status, refused) = app.post_empty(&format!("/api/v1/loans/{early}/renew"), Some(&desk_token)).await;
+    let (status, refused) = app
+        .post_empty(&format!("/api/v1/loans/{early}/renew"), Some(&desk_token))
+        .await;
     assert_refusal(status, &refused, "renewal_too_early", true);
-    assert!(refused["message"].as_str().unwrap_or("").contains("Renewal is possible from"), "{refused}");
+    assert!(
+        refused["message"]
+            .as_str()
+            .unwrap_or("")
+            .contains("Renewal is possible from"),
+        "{refused}"
+    );
 
-    let (status, forced) = app.post_empty(&format!("/api/v1/loans/items/{barcode}/renew?force=true"), Some(&desk_token)).await;
+    let (status, forced) = app
+        .post_empty(
+            &format!("/api/v1/loans/items/{barcode}/renew?force=true"),
+            Some(&desk_token),
+        )
+        .await;
     assert_eq!(status, StatusCode::OK, "{forced}");
     assert_eq!(fixtures::json_id(&forced["id"]), early, "{forced}");
     assert_eq!(renewal_count(&app, early).await, 1);
     let audits = override_audits(&app, "loan.renewal_forced", early, 1).await;
-    assert_override_audit(&audits, staff_id, early, reader_id, &["renewal_too_early"], None);
+    assert_override_audit(
+        &audits,
+        staff_id,
+        early,
+        reader_id,
+        &["renewal_too_early"],
+        None,
+    );
 
     let (_, both_item, _) = create_copy(&app, &admin_token, "Force Both").await;
     let both = checkout(&app, &admin_token, reader_id, both_item).await;
@@ -235,10 +318,22 @@ async fn loans_write_forces_max_renewals_and_renewal_too_early_with_audit() {
         .execute(app.state.services.repository.pool())
         .await
         .expect("cap a loan that is also too early");
-    let (status, forced) = app.post_empty(&format!("/api/v1/loans/{both}/renew?force=true"), Some(&desk_token)).await;
+    let (status, forced) = app
+        .post_empty(
+            &format!("/api/v1/loans/{both}/renew?force=true"),
+            Some(&desk_token),
+        )
+        .await;
     assert_eq!(status, StatusCode::OK, "{forced}");
     let audits = override_audits(&app, "loan.renewal_forced", both, 2).await;
-    assert_override_audit(&audits, staff_id, both, reader_id, &["max_renewals", "renewal_too_early"], None);
+    assert_override_audit(
+        &audits,
+        staff_id,
+        both,
+        reader_id,
+        &["max_renewals", "renewal_too_early"],
+        None,
+    );
 }
 
 #[tokio::test]
@@ -264,7 +359,12 @@ async fn force_does_not_lift_hold_withdrawn_or_claimed_returned() {
         )
         .await;
     assert_eq!(status, StatusCode::CREATED, "hold: {hold}");
-    let (status, refused) = app.post_empty(&format!("/api/v1/loans/{held}/renew?force=true"), Some(&desk_token)).await;
+    let (status, refused) = app
+        .post_empty(
+            &format!("/api/v1/loans/{held}/renew?force=true"),
+            Some(&desk_token),
+        )
+        .await;
     assert_refusal(status, &refused, "hold_waiting", false);
     assert_eq!(renewal_count(&app, held).await, 0);
 
@@ -275,7 +375,12 @@ async fn force_does_not_lift_hold_withdrawn_or_claimed_returned() {
         .execute(app.state.services.repository.pool())
         .await
         .expect("withdraw the copy");
-    let (status, refused) = app.post_empty(&format!("/api/v1/loans/{withdrawn}/renew?force=true"), Some(&desk_token)).await;
+    let (status, refused) = app
+        .post_empty(
+            &format!("/api/v1/loans/{withdrawn}/renew?force=true"),
+            Some(&desk_token),
+        )
+        .await;
     assert_refusal(status, &refused, "withdrawn", false);
     assert_eq!(renewal_count(&app, withdrawn).await, 0);
 
@@ -286,7 +391,12 @@ async fn force_does_not_lift_hold_withdrawn_or_claimed_returned() {
         .execute(app.state.services.repository.pool())
         .await
         .expect("mark claims returned");
-    let (status, refused) = app.post_empty(&format!("/api/v1/loans/{claimed}/renew?force=true"), Some(&desk_token)).await;
+    let (status, refused) = app
+        .post_empty(
+            &format!("/api/v1/loans/{claimed}/renew?force=true"),
+            Some(&desk_token),
+        )
+        .await;
     assert_refusal(status, &refused, "claimed_returned", false);
     assert_eq!(renewal_count(&app, claimed).await, 0);
 
@@ -317,10 +427,17 @@ async fn caller_without_loans_write_is_not_offered_force() {
     let (_, item_id, _) = create_copy(&app, &admin_token, "No Loans Write").await;
     let loan_id = checkout(&app, &admin_token, user_id, item_id).await;
 
-    let (status, refused) = app.post_empty(&format!("/api/v1/loans/{loan_id}/renew"), Some(&token)).await;
+    let (status, refused) = app
+        .post_empty(&format!("/api/v1/loans/{loan_id}/renew"), Some(&token))
+        .await;
     assert_refusal(status, &refused, "renewal_too_early", false);
 
-    let (status, denied) = app.post_empty(&format!("/api/v1/loans/{loan_id}/renew?force=true"), Some(&token)).await;
+    let (status, denied) = app
+        .post_empty(
+            &format!("/api/v1/loans/{loan_id}/renew?force=true"),
+            Some(&token),
+        )
+        .await;
     assert_eq!(status, StatusCode::FORBIDDEN, "{denied}");
     assert_eq!(denied["code"], "authorization_failed", "{denied}");
     assert!(denied.get("forceable").is_none(), "{denied}");
@@ -356,27 +473,51 @@ async fn subscription_expired_requires_override_right_like_checkout() {
     }
     assert_eq!(renewal_count(&app, loan_id).await, 0);
 
-    let (_, settings_token, settings_type) = user_with_rights(&app, &admin_token, "w", "w", "n").await;
+    let (_, settings_token, settings_type) =
+        user_with_rights(&app, &admin_token, "w", "w", "n").await;
     assert_ne!(settings_type, "admin");
-    let (status, settings_denied) = app.post_empty(&format!("/api/v1/loans/{loan_id}/renew?force=true"), Some(&settings_token)).await;
+    let (status, settings_denied) = app
+        .post_empty(
+            &format!("/api/v1/loans/{loan_id}/renew?force=true"),
+            Some(&settings_token),
+        )
+        .await;
     assert_refusal(status, &settings_denied, "subscription_expired", false);
 
-    let (staff_id, lead_token, lead_type) = user_with_rights(&app, &admin_token, "w", "n", "w").await;
+    let (staff_id, lead_token, lead_type) =
+        user_with_rights(&app, &admin_token, "w", "n", "w").await;
     assert_ne!(lead_type, "admin");
-    let (status, offered) = app.post_empty(&format!("/api/v1/loans/{loan_id}/renew"), Some(&lead_token)).await;
+    let (status, offered) = app
+        .post_empty(&format!("/api/v1/loans/{loan_id}/renew"), Some(&lead_token))
+        .await;
     assert_refusal(status, &offered, "subscription_expired", true);
-    let (status, missing) = app.post_empty(&format!("/api/v1/loans/{loan_id}/renew?force=true"), Some(&lead_token)).await;
+    let (status, missing) = app
+        .post_empty(
+            &format!("/api/v1/loans/{loan_id}/renew?force=true"),
+            Some(&lead_token),
+        )
+        .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{missing}");
     assert_eq!(missing["code"], "override_reason_required", "{missing}");
     assert_eq!(missing["error"], "Business Rule Violation", "{missing}");
     assert!(missing.get("forceable").is_none(), "{missing}");
     let (status, forced) = app
-        .post_empty(&format!("/api/v1/loans/{loan_id}/renew?force=true&overrideReason=still%20enrolled"), Some(&lead_token))
+        .post_empty(
+            &format!("/api/v1/loans/{loan_id}/renew?force=true&overrideReason=still%20enrolled"),
+            Some(&lead_token),
+        )
         .await;
     assert_eq!(status, StatusCode::OK, "{forced}");
     assert_eq!(renewal_count(&app, loan_id).await, 1);
     let audits = override_audits(&app, "loan.subscription_expired_overridden", loan_id, 1).await;
-    assert_override_audit(&audits, staff_id, loan_id, reader_id, &["subscription_expired"], Some("still enrolled"));
+    assert_override_audit(
+        &audits,
+        staff_id,
+        loan_id,
+        reader_id,
+        &["subscription_expired"],
+        Some("still enrolled"),
+    );
 }
 
 #[tokio::test]
@@ -396,12 +537,26 @@ async fn force_audits_account_blocked() {
         .await
         .expect("block account");
 
-    let (status, refused) = app.post_empty(&format!("/api/v1/loans/{loan_id}/renew"), Some(&desk_token)).await;
+    let (status, refused) = app
+        .post_empty(&format!("/api/v1/loans/{loan_id}/renew"), Some(&desk_token))
+        .await;
     assert_refusal(status, &refused, "account_blocked", true);
-    let (status, forced) = app.post_empty(&format!("/api/v1/loans/{loan_id}/renew?force=true"), Some(&desk_token)).await;
+    let (status, forced) = app
+        .post_empty(
+            &format!("/api/v1/loans/{loan_id}/renew?force=true"),
+            Some(&desk_token),
+        )
+        .await;
     assert_eq!(status, StatusCode::OK, "{forced}");
     let audits = override_audits(&app, "loan.renewal_forced", loan_id, 1).await;
-    assert_override_audit(&audits, staff_id, loan_id, reader_id, &["account_blocked"], None);
+    assert_override_audit(
+        &audits,
+        staff_id,
+        loan_id,
+        reader_id,
+        &["account_blocked"],
+        None,
+    );
 }
 
 #[tokio::test]
@@ -411,7 +566,8 @@ async fn force_audits_fines_over_threshold() {
     };
     let admin_token = fixtures::ensure_first_setup(&app).await;
     let name = format!("fineforce{}", fixtures::unique_token());
-    let cents = elidune_server::models::fine::money_to_cents("0.50".parse().expect("threshold")).expect("cents");
+    let cents = elidune_server::models::fine::money_to_cents("0.50".parse().expect("threshold"))
+        .expect("cents");
     let (status, body) = app
         .post_json(
             "/api/v1/public-types",
@@ -426,7 +582,13 @@ async fn force_audits_fines_over_threshold() {
         .await;
     assert_eq!(status, StatusCode::CREATED, "public type: {body}");
     let public_type_id = fixtures::json_id(&body["id"]);
-    let (reader_id, _) = fixtures::create_reader_with_public_type(&app, &admin_token, "fineforce", Some(public_type_id)).await;
+    let (reader_id, _) = fixtures::create_reader_with_public_type(
+        &app,
+        &admin_token,
+        "fineforce",
+        Some(public_type_id),
+    )
+    .await;
     let (staff_id, desk_token, _) = user_with_rights(&app, &admin_token, "w", "n", "n").await;
     let (_, item_id, _) = create_copy(&app, &admin_token, "Fined Renew").await;
     let loan_id = checkout(&app, &admin_token, reader_id, item_id).await;
@@ -434,14 +596,33 @@ async fn force_audits_fines_over_threshold() {
     app.state
         .services
         .repository
-        .fines_create(loan_id, reader_id, elidune_server::models::fine::Cents(100), Some("over threshold"))
+        .fines_create(
+            loan_id,
+            reader_id,
+            elidune_server::models::fine::Cents(100),
+            Some("over threshold"),
+        )
         .await
         .expect("create fine");
 
-    let (status, refused) = app.post_empty(&format!("/api/v1/loans/{loan_id}/renew"), Some(&desk_token)).await;
+    let (status, refused) = app
+        .post_empty(&format!("/api/v1/loans/{loan_id}/renew"), Some(&desk_token))
+        .await;
     assert_refusal(status, &refused, "fines_over_threshold", true);
-    let (status, forced) = app.post_empty(&format!("/api/v1/loans/{loan_id}/renew?force=true"), Some(&desk_token)).await;
+    let (status, forced) = app
+        .post_empty(
+            &format!("/api/v1/loans/{loan_id}/renew?force=true"),
+            Some(&desk_token),
+        )
+        .await;
     assert_eq!(status, StatusCode::OK, "{forced}");
     let audits = override_audits(&app, "loan.fine_threshold_overridden", loan_id, 1).await;
-    assert_override_audit(&audits, staff_id, loan_id, reader_id, &["fines_over_threshold"], None);
+    assert_override_audit(
+        &audits,
+        staff_id,
+        loan_id,
+        reader_id,
+        &["fines_over_threshold"],
+        None,
+    );
 }

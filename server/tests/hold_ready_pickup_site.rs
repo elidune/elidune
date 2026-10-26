@@ -27,7 +27,6 @@ fn email_service(app: &TestApp) -> EmailService {
     EmailService::new(app.state.dynamic_config.clone(), repo.pool().clone())
 }
 
-
 #[tokio::test]
 async fn email_shows_pickup_site_in_each_notice_language() {
     let _guard = TEST_LOCK.lock().await;
@@ -39,16 +38,20 @@ async fn email_shows_pickup_site_in_each_notice_language() {
     let pickup_name = format!("PickupAlpha{suffix}");
     let home_name = format!("HomeBeta{suffix}");
 
-    let pickup_id: i64 = sqlx::query_scalar(r#"INSERT INTO sites (name, is_archive, "default") VALUES ($1, 0, FALSE) RETURNING id"#)
-        .bind(&pickup_name)
-        .fetch_one(&pool)
-        .await
-        .expect("pickup site");
-    let home_id: i64 = sqlx::query_scalar(r#"INSERT INTO sites (name, is_archive, "default") VALUES ($1, 0, FALSE) RETURNING id"#)
-        .bind(&home_name)
-        .fetch_one(&pool)
-        .await
-        .expect("item site");
+    let pickup_id: i64 = sqlx::query_scalar(
+        r#"INSERT INTO sites (name, is_archive, "default") VALUES ($1, 0, FALSE) RETURNING id"#,
+    )
+    .bind(&pickup_name)
+    .fetch_one(&pool)
+    .await
+    .expect("pickup site");
+    let home_id: i64 = sqlx::query_scalar(
+        r#"INSERT INTO sites (name, is_archive, "default") VALUES ($1, 0, FALSE) RETURNING id"#,
+    )
+    .bind(&home_name)
+    .fetch_one(&pool)
+    .await
+    .expect("item site");
 
     let user_id: i64 = sqlx::query_scalar(
         r#"
@@ -128,7 +131,12 @@ async fn email_shows_pickup_site_in_each_notice_language() {
     };
 
     let email = email_service(&app);
-    let phrases = [("french", "vous attend à"), ("english", "waiting for you at"), ("german", "wartet in"), ("spanish", "le espera en")];
+    let phrases = [
+        ("french", "vous attend à"),
+        ("english", "waiting for you at"),
+        ("german", "wartet in"),
+        ("spanish", "le espera en"),
+    ];
     for (language, phrase) in phrases {
         let to = format!("{language}-{suffix}@test.local");
         elidune_server::hold_email::send_hold_ready_simple(
@@ -147,15 +155,24 @@ async fn email_shows_pickup_site_in_each_notice_language() {
         .await
         .unwrap_or_else(|err| panic!("enqueue {language}: {err}"));
 
-        let body: String = sqlx::query_scalar("SELECT body FROM email_outbox WHERE to_addr = $1 ORDER BY id DESC LIMIT 1")
-            .bind(&to)
-            .fetch_one(&pool)
-            .await
-            .unwrap_or_else(|_| panic!("outbox row for {language}"));
-        assert!(body.contains(&pickup_name), "{language} notice omitted the pickup site: {body}");
-        assert!(!body.contains(&home_name), "{language} notice showed the item site: {body}");
-        assert!(body.contains(phrase), "{language} notice was not rendered in that language: {body}");
+        let body: String = sqlx::query_scalar(
+            "SELECT body FROM email_outbox WHERE to_addr = $1 ORDER BY id DESC LIMIT 1",
+        )
+        .bind(&to)
+        .fetch_one(&pool)
+        .await
+        .unwrap_or_else(|_| panic!("outbox row for {language}"));
+        assert!(
+            body.contains(&pickup_name),
+            "{language} notice omitted the pickup site: {body}"
+        );
+        assert!(
+            !body.contains(&home_name),
+            "{language} notice showed the item site: {body}"
+        );
+        assert!(
+            body.contains(phrase),
+            "{language} notice was not rendered in that language: {body}"
+        );
     }
 }
-
-

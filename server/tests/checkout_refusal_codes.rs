@@ -19,7 +19,12 @@ fn next_id() -> i64 {
     tick.wrapping_add(N.fetch_add(1, Ordering::Relaxed))
 }
 
-async fn create_copy(app: &TestApp, admin_token: &str, title: &str, borrowable: bool) -> (i64, i64, String) {
+async fn create_copy(
+    app: &TestApp,
+    admin_token: &str,
+    title: &str,
+    borrowable: bool,
+) -> (i64, i64, String) {
     let barcode = format!("CHK-{}", fixtures::unique_suffix());
     let (status, body) = app
         .post_json(
@@ -56,17 +61,34 @@ async fn audience(app: &TestApp, admin_token: &str, settings: Value, threshold_c
     assert_eq!(status, StatusCode::CREATED, "public type: {body}");
     let id = fixtures::json_id(&body["id"]);
     let (status, saved) = app
-        .put_json(&format!("/api/v1/public-types/{id}/loan-settings"), &json!({ "settings": settings }), Some(admin_token))
+        .put_json(
+            &format!("/api/v1/public-types/{id}/loan-settings"),
+            &json!({ "settings": settings }),
+            Some(admin_token),
+        )
         .await;
     assert_eq!(status, StatusCode::OK, "loan settings: {saved}");
     id
 }
 
-async fn checkout(app: &TestApp, admin_token: &str, user_id: i64, item_id: i64, force: bool) -> (StatusCode, Value) {
+async fn checkout(
+    app: &TestApp,
+    admin_token: &str,
+    user_id: i64,
+    item_id: i64,
+    force: bool,
+) -> (StatusCode, Value) {
     checkout_with_reason(app, admin_token, user_id, item_id, force, None).await
 }
 
-async fn checkout_with_reason(app: &TestApp, token: &str, user_id: i64, item_id: i64, force: bool, override_reason: Option<&str>) -> (StatusCode, Value) {
+async fn checkout_with_reason(
+    app: &TestApp,
+    token: &str,
+    user_id: i64,
+    item_id: i64,
+    force: bool,
+    override_reason: Option<&str>,
+) -> (StatusCode, Value) {
     let mut payload = json!({
         "userId": user_id.to_string(),
         "itemId": item_id.to_string(),
@@ -83,11 +105,23 @@ async fn checkout_with_reason(app: &TestApp, token: &str, user_id: i64, item_id:
 fn expected_forceable(code: &str) -> bool {
     matches!(
         code,
-        "subscription_expired" | "item_held_for_other" | "fines_over_threshold" | "max_loans" | "max_media_loans" | "item_not_loanable"
+        "subscription_expired"
+            | "item_held_for_other"
+            | "fines_over_threshold"
+            | "max_loans"
+            | "max_media_loans"
+            | "item_not_loanable"
     )
 }
 
-async fn staff_token(app: &TestApp, admin_token: &str, name: &str, code_prefix: &str, settings_rights: &str, override_rights: &str) -> String {
+async fn staff_token(
+    app: &TestApp,
+    admin_token: &str,
+    name: &str,
+    code_prefix: &str,
+    settings_rights: &str,
+    override_rights: &str,
+) -> String {
     let code = format!("{code_prefix}{}", fixtures::unique_token());
     let (status, body) = app
         .post_json(
@@ -102,7 +136,11 @@ async fn staff_token(app: &TestApp, admin_token: &str, name: &str, code_prefix: 
             Some(admin_token),
         )
         .await;
-    assert_eq!(status, StatusCode::CREATED, "create account type {name}: {body}");
+    assert_eq!(
+        status,
+        StatusCode::CREATED,
+        "create account type {name}: {body}"
+    );
     assert_eq!(body["name"], name);
     assert_eq!(body["settingsRights"], settings_rights);
     assert_eq!(body["circulationOverrideRights"], override_rights);
@@ -130,8 +168,19 @@ async fn staff_token(app: &TestApp, admin_token: &str, name: &str, code_prefix: 
         .await;
     assert_eq!(status, StatusCode::CREATED, "create staff {name}: {body}");
     let user_id = fixtures::json_id(&body["id"]);
-    app.state.services.users.set_must_change_password(user_id, false).await.expect("clear must_change_password");
-    let (status, body) = app.post_json("/api/v1/auth/login", &json!({ "username": login, "password": "readerpass1234" }), None).await;
+    app.state
+        .services
+        .users
+        .set_must_change_password(user_id, false)
+        .await
+        .expect("clear must_change_password");
+    let (status, body) = app
+        .post_json(
+            "/api/v1/auth/login",
+            &json!({ "username": login, "password": "readerpass1234" }),
+            None,
+        )
+        .await;
     assert_eq!(status, StatusCode::OK, "login {name}: {body}");
     body["token"].as_str().expect("token").to_string()
 }
@@ -142,7 +191,10 @@ fn assert_refusal(status: StatusCode, body: &Value, code: &str, message_part: &s
     assert_eq!(body["error"], "Business Rule Violation", "{body}");
     assert_eq!(body["forceable"], expected_forceable(code), "{body}");
     let message = body["message"].as_str().unwrap_or("");
-    assert!(message.contains(message_part), "expected {message_part:?} in {body}");
+    assert!(
+        message.contains(message_part),
+        "expected {message_part:?} in {body}"
+    );
     if code == "item_status_action_required" {
         assert!(body["itemStatus"].is_string(), "{body}");
     } else {
@@ -156,7 +208,12 @@ fn assert_refusal(status: StatusCode, body: &Value, code: &str, message_part: &s
 }
 
 fn assert_held_details_are_hold_id_only(body: &Value, hold_id: i64) {
-    let mut keys: Vec<_> = body["details"].as_object().expect("details").keys().cloned().collect();
+    let mut keys: Vec<_> = body["details"]
+        .as_object()
+        .expect("details")
+        .keys()
+        .cloned()
+        .collect();
     keys.sort();
     assert_eq!(keys, ["holdId"], "{body}");
     assert_eq!(fixtures::json_id(&body["details"]["holdId"]), hold_id);
@@ -179,7 +236,9 @@ async fn expired_subscription_is_subscription_expired_and_force_still_checks_out
         return;
     };
     let admin_token = fixtures::ensure_first_setup(&app).await;
-    let (me_status, me) = app.get_json_with_auth("/api/v1/auth/me", &admin_token).await;
+    let (me_status, me) = app
+        .get_json_with_auth("/api/v1/auth/me", &admin_token)
+        .await;
     assert_eq!(me_status, StatusCode::OK, "{me}");
     let actor_id = fixtures::json_id(&me["id"]);
     let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "chksub").await;
@@ -193,7 +252,13 @@ async fn expired_subscription_is_subscription_expired_and_force_still_checks_out
 
     let (status, body) = checkout(&app, &admin_token, reader_id, item_id, false).await;
     assert_refusal(status, &body, "subscription_expired", "2020-01-15");
-    assert!(body["message"].as_str().unwrap_or("").contains("force=true"), "{body}");
+    assert!(
+        body["message"]
+            .as_str()
+            .unwrap_or("")
+            .contains("force=true"),
+        "{body}"
+    );
     assert_eq!(active_loan_count(&app, reader_id).await, 0);
 
     let (status, missing) = checkout(&app, &admin_token, reader_id, item_id, true).await;
@@ -202,7 +267,15 @@ async fn expired_subscription_is_subscription_expired_and_force_still_checks_out
     assert!(missing.get("forceable").is_none(), "{missing}");
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{missing}");
 
-    let (status, created) = checkout_with_reason(&app, &admin_token, reader_id, item_id, true, Some("membership renewal is at the desk")).await;
+    let (status, created) = checkout_with_reason(
+        &app,
+        &admin_token,
+        reader_id,
+        item_id,
+        true,
+        Some("membership renewal is at the desk"),
+    )
+    .await;
     assert_eq!(status, StatusCode::CREATED, "force checkout: {created}");
     assert_eq!(active_loan_count(&app, reader_id).await, 1);
     let loan_id = fixtures::json_id(&created["id"]);
@@ -214,7 +287,11 @@ async fn expired_subscription_is_subscription_expired_and_force_still_checks_out
             .await;
         assert_eq!(status, StatusCode::OK, "audit query: {audit}");
         let entries = audit["entries"].as_array().cloned().unwrap_or_default();
-        if let Some(found) = entries.iter().find(|row| fixtures::json_id(&row["entityId"]) == loan_id).cloned() {
+        if let Some(found) = entries
+            .iter()
+            .find(|row| fixtures::json_id(&row["entityId"]) == loan_id)
+            .cloned()
+        {
             row = Some(found);
             break;
         }
@@ -224,7 +301,10 @@ async fn expired_subscription_is_subscription_expired_and_force_still_checks_out
     assert_eq!(fixtures::json_id(&row["userId"]), actor_id);
     assert_eq!(row["entityType"], "loan");
     assert_eq!(row["payload"]["code"], "subscription_expired");
-    assert_eq!(row["payload"]["overrideReason"], "membership renewal is at the desk", "{row}");
+    assert_eq!(
+        row["payload"]["overrideReason"], "membership renewal is at the desk",
+        "{row}"
+    );
     assert!(row["payload"].get("user_id").is_none(), "{row}");
     assert_eq!(fixtures::json_id(&row["payload"]["patron_id"]), reader_id);
     assert_eq!(fixtures::json_id(&row["payload"]["item_id"]), item_id);
@@ -248,7 +328,11 @@ async fn desk_agent_cannot_force_expired_subscription() {
 
     for force in [false, true] {
         let (status, body) = checkout(&app, &desk, reader_id, item_id, force).await;
-        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "force={force}: {body}");
+        assert_eq!(
+            status,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "force={force}: {body}"
+        );
         assert_eq!(body["code"], "subscription_expired", "{body}");
         assert_eq!(body["error"], "Business Rule Violation", "{body}");
         assert_eq!(body["forceable"], false, "force={force}: {body}");
@@ -278,8 +362,20 @@ async fn subscription_expired_force_follows_override_right_not_the_account_type_
     assert_eq!(body["forceable"], false, "{body}");
     assert_eq!(active_loan_count(&app, reader_id).await, 0);
 
-    let (status, created) = checkout_with_reason(&app, &coordinator, reader_id, item_id, true, Some("coordinator override")).await;
-    assert_eq!(status, StatusCode::CREATED, "circulation override on a custom type: {created}");
+    let (status, created) = checkout_with_reason(
+        &app,
+        &coordinator,
+        reader_id,
+        item_id,
+        true,
+        Some("coordinator override"),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::CREATED,
+        "circulation override on a custom type: {created}"
+    );
     assert_eq!(active_loan_count(&app, reader_id).await, 1);
 }
 
@@ -296,7 +392,11 @@ async fn non_loanable_copy_is_item_not_loanable_and_force_still_checks_out() {
     assert_refusal(status, &body, "item_not_loanable", "Item is not borrowable");
     assert_eq!(active_loan_count(&app, reader_id).await, 0);
     let (status, created) = checkout(&app, &admin_token, reader_id, reference_id, true).await;
-    assert_eq!(status, StatusCode::CREATED, "force not-borrowable: {created}");
+    assert_eq!(
+        status,
+        StatusCode::CREATED,
+        "force not-borrowable: {created}"
+    );
 }
 
 #[tokio::test]
@@ -314,7 +414,12 @@ async fn damaged_copy_is_item_not_loanable_and_force_still_checks_out() {
         .expect("mark damaged");
 
     let (status, body) = checkout(&app, &admin_token, reader_id, item_id, false).await;
-    assert_refusal(status, &body, "item_not_loanable", "Item is marked damaged and is not borrowable");
+    assert_refusal(
+        status,
+        &body,
+        "item_not_loanable",
+        "Item is marked damaged and is not borrowable",
+    );
     let (status, created) = checkout(&app, &admin_token, reader_id, item_id, true).await;
     assert_eq!(status, StatusCode::CREATED, "force damaged: {created}");
 }
@@ -326,8 +431,14 @@ async fn status_action_required_is_refused_with_force() {
     };
     let admin_token = fixtures::ensure_first_setup(&app).await;
     let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "chkstat").await;
-    for (db_status, api_status) in [(1_i16, "lost"), (3, "claimedReturned"), (4, "toSearch"), (5, "missing")] {
-        let (_, item_id, _) = create_copy(&app, &admin_token, &format!("Status {api_status}"), true).await;
+    for (db_status, api_status) in [
+        (1_i16, "lost"),
+        (3, "claimedReturned"),
+        (4, "toSearch"),
+        (5, "missing"),
+    ] {
+        let (_, item_id, _) =
+            create_copy(&app, &admin_token, &format!("Status {api_status}"), true).await;
         sqlx::query("UPDATE items SET circulation_status = $2 WHERE id = $1")
             .bind(item_id)
             .bind(db_status)
@@ -336,7 +447,12 @@ async fn status_action_required_is_refused_with_force() {
             .expect("set circulation status");
         for force in [false, true] {
             let (status, body) = checkout(&app, &admin_token, reader_id, item_id, force).await;
-            assert_refusal(status, &body, "item_status_action_required", &format!("Item circulation status is {api_status}."));
+            assert_refusal(
+                status,
+                &body,
+                "item_status_action_required",
+                &format!("Item circulation status is {api_status}."),
+            );
             assert_eq!(body["itemStatus"], api_status, "{body}");
             assert_eq!(body["forceable"], false, "{body}");
         }
@@ -360,7 +476,12 @@ async fn withdrawn_copy_stays_generic_and_force_does_not_override() {
 
     for force in [false, true] {
         let (status, body) = checkout(&app, &admin_token, reader_id, item_id, force).await;
-        assert_refusal(status, &body, "business_rule_violation", "Item is withdrawn and cannot be checked out");
+        assert_refusal(
+            status,
+            &body,
+            "business_rule_violation",
+            "Item is withdrawn and cannot be checked out",
+        );
     }
     assert_eq!(active_loan_count(&app, reader_id).await, 0);
 }
@@ -371,8 +492,16 @@ async fn total_quota_is_max_loans_and_force_still_checks_out() {
         return;
     };
     let admin_token = fixtures::ensure_first_setup(&app).await;
-    let public_type = audience(&app, &admin_token, json!([{ "nbMax": 1, "duration": 21, "nbRenews": 1 }]), 0).await;
-    let (reader_id, _) = fixtures::create_reader_with_public_type(&app, &admin_token, "chkquota", Some(public_type)).await;
+    let public_type = audience(
+        &app,
+        &admin_token,
+        json!([{ "nbMax": 1, "duration": 21, "nbRenews": 1 }]),
+        0,
+    )
+    .await;
+    let (reader_id, _) =
+        fixtures::create_reader_with_public_type(&app, &admin_token, "chkquota", Some(public_type))
+            .await;
     let (_, first_id, _) = create_copy(&app, &admin_token, "Quota First", true).await;
     let (_, second_id, _) = create_copy(&app, &admin_token, "Quota Second", true).await;
 
@@ -380,7 +509,12 @@ async fn total_quota_is_max_loans_and_force_still_checks_out() {
     assert_eq!(status, StatusCode::CREATED, "first loan: {created}");
 
     let (status, body) = checkout(&app, &admin_token, reader_id, second_id, false).await;
-    assert_refusal(status, &body, "max_loans", "Maximum total loans reached (1/1)");
+    assert_refusal(
+        status,
+        &body,
+        "max_loans",
+        "Maximum total loans reached (1/1)",
+    );
     assert_eq!(active_loan_count(&app, reader_id).await, 1);
 
     let (status, forced) = checkout(&app, &admin_token, reader_id, second_id, true).await;
@@ -404,13 +538,20 @@ async fn both_caps_still_report_max_loans() {
         0,
     )
     .await;
-    let (reader_id, _) = fixtures::create_reader_with_public_type(&app, &admin_token, "chkboth", Some(public_type)).await;
+    let (reader_id, _) =
+        fixtures::create_reader_with_public_type(&app, &admin_token, "chkboth", Some(public_type))
+            .await;
     let (_, first_id, _) = create_copy(&app, &admin_token, "Both Caps First", true).await;
     let (_, second_id, _) = create_copy(&app, &admin_token, "Both Caps Second", true).await;
     let (status, created) = checkout(&app, &admin_token, reader_id, first_id, false).await;
     assert_eq!(status, StatusCode::CREATED, "{created}");
     let (status, body) = checkout(&app, &admin_token, reader_id, second_id, false).await;
-    assert_refusal(status, &body, "max_loans", "Maximum loans reached: total (1/1), this media type (1/1)");
+    assert_refusal(
+        status,
+        &body,
+        "max_loans",
+        "Maximum loans reached: total (1/1), this media type (1/1)",
+    );
 }
 
 #[tokio::test]
@@ -429,14 +570,21 @@ async fn media_quota_is_max_media_loans_and_force_still_checks_out() {
         0,
     )
     .await;
-    let (reader_id, _) = fixtures::create_reader_with_public_type(&app, &admin_token, "chkmedia", Some(public_type)).await;
+    let (reader_id, _) =
+        fixtures::create_reader_with_public_type(&app, &admin_token, "chkmedia", Some(public_type))
+            .await;
     let (_, first_id, _) = create_copy(&app, &admin_token, "Media First", true).await;
     let (_, second_id, _) = create_copy(&app, &admin_token, "Media Second", true).await;
     let (status, created) = checkout(&app, &admin_token, reader_id, first_id, false).await;
     assert_eq!(status, StatusCode::CREATED, "{created}");
 
     let (status, body) = checkout(&app, &admin_token, reader_id, second_id, false).await;
-    assert_refusal(status, &body, "max_media_loans", "Maximum loans for this document type reached (1/1)");
+    assert_refusal(
+        status,
+        &body,
+        "max_media_loans",
+        "Maximum loans for this document type reached (1/1)",
+    );
     let (status, forced) = checkout(&app, &admin_token, reader_id, second_id, true).await;
     assert_eq!(status, StatusCode::CREATED, "force media quota: {forced}");
 }
@@ -447,9 +595,18 @@ async fn fines_over_threshold_matches_renewal_and_force_still_checks_out() {
         return;
     };
     let admin_token = fixtures::ensure_first_setup(&app).await;
-    let cents = elidune_server::models::fine::money_to_cents("10".parse().expect("threshold")).expect("cents");
-    let public_type = audience(&app, &admin_token, json!([{ "nbMax": 5, "duration": 21, "nbRenews": 1 }]), cents).await;
-    let (reader_id, _) = fixtures::create_reader_with_public_type(&app, &admin_token, "chkfines", Some(public_type)).await;
+    let cents = elidune_server::models::fine::money_to_cents("10".parse().expect("threshold"))
+        .expect("cents");
+    let public_type = audience(
+        &app,
+        &admin_token,
+        json!([{ "nbMax": 5, "duration": 21, "nbRenews": 1 }]),
+        cents,
+    )
+    .await;
+    let (reader_id, _) =
+        fixtures::create_reader_with_public_type(&app, &admin_token, "chkfines", Some(public_type))
+            .await;
     let (_, first_id, _) = create_copy(&app, &admin_token, "Fine Anchor", true).await;
     let (_, second_id, _) = create_copy(&app, &admin_token, "Fine Blocked", true).await;
     let (status, created) = checkout(&app, &admin_token, reader_id, first_id, false).await;
@@ -507,9 +664,20 @@ async fn hold_for_another_patron_is_item_held_for_other() {
     .expect("ready hold");
 
     let (status, body) = checkout(&app, &admin_token, other_id, item_id, false).await;
-    assert_refusal(status, &body, "item_held_for_other", "active hold for another patron");
+    assert_refusal(
+        status,
+        &body,
+        "item_held_for_other",
+        "active hold for another patron",
+    );
     assert_held_details_are_hold_id_only(&body, hold_id);
-    assert!(!body["message"].as_str().unwrap_or("").contains("force=true"), "{body}");
+    assert!(
+        !body["message"]
+            .as_str()
+            .unwrap_or("")
+            .contains("force=true"),
+        "{body}"
+    );
     assert_eq!(active_loan_count(&app, other_id).await, 0);
 
     let (biblio_id, owned_id, _) = create_copy(&app, &admin_token, "Holder Copy", true).await;
@@ -529,7 +697,8 @@ async fn hold_for_another_patron_is_item_held_for_other() {
     let (status, created) = checkout(&app, &admin_token, holder_id, owned_id, false).await;
     assert_eq!(status, StatusCode::CREATED, "queued patron: {created}");
 
-    let (status, blank) = checkout_with_reason(&app, &admin_token, other_id, item_id, true, Some("   ")).await;
+    let (status, blank) =
+        checkout_with_reason(&app, &admin_token, other_id, item_id, true, Some("   ")).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{blank}");
     assert_eq!(blank["code"], "override_reason_required", "{blank}");
     assert_eq!(blank["error"], "Business Rule Violation", "{blank}");
@@ -537,7 +706,15 @@ async fn hold_for_another_patron_is_item_held_for_other() {
     assert_eq!(active_loan_count(&app, other_id).await, 0);
 
     let desk = staff_token(&app, &admin_token, "Desk only", "holddesk", "n", "n").await;
-    let (status, denied) = checkout_with_reason(&app, &desk, other_id, item_id, true, Some("desk cannot force a hold")).await;
+    let (status, denied) = checkout_with_reason(
+        &app,
+        &desk,
+        other_id,
+        item_id,
+        true,
+        Some("desk cannot force a hold"),
+    )
+    .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{denied}");
     assert_eq!(denied["code"], "item_held_for_other", "{denied}");
     assert_eq!(denied["forceable"], false, "{denied}");
@@ -635,5 +812,11 @@ async fn batch_checkout_reports_the_same_code() {
     assert_eq!(body["errors"], 1, "{body}");
     assert_eq!(body["results"][0]["success"], false, "{body}");
     assert_eq!(body["results"][0]["code"], "item_not_loanable", "{body}");
-    assert!(body["results"][0]["error"].as_str().unwrap_or("").contains("not borrowable"), "{body}");
+    assert!(
+        body["results"][0]["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("not borrowable"),
+        "{body}"
+    );
 }

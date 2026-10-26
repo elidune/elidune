@@ -99,7 +99,9 @@ const MEDIA_TYPE_ICON: Record<MediaType | 'unknown', LucideIcon> = {
 const DEFAULT_GLYPH_CLASS = 'text-indigo-600 dark:text-indigo-400';
 
 /** Background for the icon badge — same indigo tile as BiblioDetailPage header. */
-export function mediaTypeIconBadgeBgClass(_mediaType?: MediaType | string | null): string {
+/** Same indigo tile for every medium. The argument is kept so callers can pass the copy's type. */
+export function mediaTypeIconBadgeBgClass(mediaType?: MediaType | string | null): string {
+  void mediaType;
   return 'bg-indigo-100 dark:bg-indigo-900/50';
 }
 

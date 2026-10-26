@@ -14,8 +14,10 @@ use crate::{
     models::{
         circulation::{CirculationAction, ClaimsResolveOutcome},
         dto::circulation::{
-            CirculationExceptionOutcome, CirculationExceptionResponse, ClaimsReturnedQueueItem, LostFineAction, LostFoundDisposition, LostFoundResolution, MarkClaimedReturnedRequest,
-            MarkDamagedRequest, MarkLostRequest, ResolveClaimsReturnedRequest, ResolveLostFoundRequest,
+            CirculationExceptionOutcome, CirculationExceptionResponse, ClaimsReturnedQueueItem,
+            LostFineAction, LostFoundDisposition, LostFoundResolution, MarkClaimedReturnedRequest,
+            MarkDamagedRequest, MarkLostRequest, ResolveClaimsReturnedRequest,
+            ResolveLostFoundRequest,
         },
         fine::{Cents, FineChargeType},
     },
@@ -46,17 +48,44 @@ pub struct CirculationService {
 }
 
 impl CirculationService {
-    pub fn new(repository: Arc<Repository>, audit: AuditService, events: EventBus, email: EmailService) -> Self {
-        Self { repository, audit, events, email }
+    pub fn new(
+        repository: Arc<Repository>,
+        audit: AuditService,
+        events: EventBus,
+        email: EmailService,
+    ) -> Self {
+        Self {
+            repository,
+            audit,
+            events,
+            email,
+        }
     }
 
-    pub async fn mark_lost(&self, loan_id: i64, req: MarkLostRequest, actor: Option<i64>, client_ip: Option<String>) -> AppResult<CirculationExceptionResponse> {
+    pub async fn mark_lost(
+        &self,
+        loan_id: i64,
+        req: MarkLostRequest,
+        actor: Option<i64>,
+        client_ip: Option<String>,
+    ) -> AppResult<CirculationExceptionResponse> {
         let loan = self.repository.loans_get_by_id(loan_id).await?;
-        let deposit = self.repository.item_deposit_replacement(loan.item_id).await?;
+        let deposit = self
+            .repository
+            .item_deposit_replacement(loan.item_id)
+            .await?;
         let amount = if let Some(ref deposit) = deposit {
             Some(resolve_deposit_bill(deposit, req.amount)?)
         } else if req.bill {
-            Some(self.resolve_bill_amount(loan.item_id, req.amount, req.use_item_price, "Replacement amount").await?)
+            Some(
+                self.resolve_bill_amount(
+                    loan.item_id,
+                    req.amount,
+                    req.use_item_price,
+                    "Replacement amount",
+                )
+                .await?,
+            )
         } else {
             None
         };
@@ -97,14 +126,26 @@ impl CirculationService {
         Ok(response)
     }
 
-    pub async fn mark_damaged(&self, loan_id: i64, req: MarkDamagedRequest, actor: Option<i64>, client_ip: Option<String>) -> AppResult<CirculationExceptionResponse> {
+    pub async fn mark_damaged(
+        &self,
+        loan_id: i64,
+        req: MarkDamagedRequest,
+        actor: Option<i64>,
+        client_ip: Option<String>,
+    ) -> AppResult<CirculationExceptionResponse> {
         let loan = self.repository.loans_get_by_id(loan_id).await?;
-        let deposit = self.repository.item_deposit_replacement(loan.item_id).await?;
+        let deposit = self
+            .repository
+            .item_deposit_replacement(loan.item_id)
+            .await?;
         let should_bill = req.bill || req.amount.is_some();
         let amount = if let Some(ref deposit) = deposit {
             Some(resolve_deposit_bill(deposit, req.amount)?)
         } else if should_bill {
-            Some(self.resolve_bill_amount(loan.item_id, req.amount, true, "Damage fee amount").await?)
+            Some(
+                self.resolve_bill_amount(loan.item_id, req.amount, true, "Damage fee amount")
+                    .await?,
+            )
         } else {
             None
         };
@@ -146,7 +187,13 @@ impl CirculationService {
         Ok(response)
     }
 
-    pub async fn mark_claimed_returned(&self, loan_id: i64, req: MarkClaimedReturnedRequest, actor: Option<i64>, client_ip: Option<String>) -> AppResult<CirculationExceptionResponse> {
+    pub async fn mark_claimed_returned(
+        &self,
+        loan_id: i64,
+        req: MarkClaimedReturnedRequest,
+        actor: Option<i64>,
+        client_ip: Option<String>,
+    ) -> AppResult<CirculationExceptionResponse> {
         reject_disallowed_bill(CirculationAction::ClaimReturned, req.bill)?;
         let applied = self
             .repository
@@ -160,7 +207,9 @@ impl CirculationService {
             })
             .await?;
         if applied.loan_closed {
-            return Err(AppError::Internal("claimed-returned must not close the loan".to_string()));
+            return Err(AppError::Internal(
+                "claimed-returned must not close the loan".to_string(),
+            ));
         }
         let response = to_response(CirculationExceptionOutcome::ClaimedReturned, &applied);
         self.audit_exception(
@@ -176,7 +225,13 @@ impl CirculationService {
         Ok(response)
     }
 
-    pub async fn resolve_claims_returned(&self, loan_id: i64, req: ResolveClaimsReturnedRequest, actor: Option<i64>, client_ip: Option<String>) -> AppResult<CirculationExceptionResponse> {
+    pub async fn resolve_claims_returned(
+        &self,
+        loan_id: i64,
+        req: ResolveClaimsReturnedRequest,
+        actor: Option<i64>,
+        client_ip: Option<String>,
+    ) -> AppResult<CirculationExceptionResponse> {
         if !req.inventory_checked {
             return Err(AppError::BusinessRule(
                 "Claims-returned cannot be cleared without an inventory check (set inventoryChecked=true)".to_string(),
@@ -184,8 +239,14 @@ impl CirculationService {
         }
 
         let (action, outcome) = match req.outcome {
-            ClaimsResolveOutcome::Found => (CirculationAction::ResolveFound, CirculationExceptionOutcome::ClaimsResolvedFound),
-            ClaimsResolveOutcome::NotFound => (CirculationAction::ResolveNotFound, CirculationExceptionOutcome::ClaimsResolvedNotFound),
+            ClaimsResolveOutcome::Found => (
+                CirculationAction::ResolveFound,
+                CirculationExceptionOutcome::ClaimsResolvedFound,
+            ),
+            ClaimsResolveOutcome::NotFound => (
+                CirculationAction::ResolveNotFound,
+                CirculationExceptionOutcome::ClaimsResolvedNotFound,
+            ),
         };
         reject_disallowed_bill(action, req.bill)?;
 
@@ -236,7 +297,8 @@ impl CirculationService {
             }
         }
         if applied.loan_closed {
-            self.events.loan_returned(applied.loan_id, applied.user_id, applied.item_id);
+            self.events
+                .loan_returned(applied.loan_id, applied.user_id, applied.item_id);
         }
 
         Ok(response)
@@ -250,11 +312,22 @@ impl CirculationService {
     /// `damaged` leaves that charge unchanged: no cancel, no refund, no amount
     /// or status write. Partial relief is an explicit waive (`fine.waived`) with
     /// a reason, never an automatic side effect of this action.
-    pub async fn resolve_lost_found(&self, item_id: i64, req: ResolveLostFoundRequest, actor: Option<i64>, client_ip: Option<String>) -> AppResult<LostFoundResolution> {
-        let mut pending = self.repository.circulation_resolve_lost_found(item_id, req.disposition, req.notes.as_deref()).await?;
+    pub async fn resolve_lost_found(
+        &self,
+        item_id: i64,
+        req: ResolveLostFoundRequest,
+        actor: Option<i64>,
+        client_ip: Option<String>,
+    ) -> AppResult<LostFoundResolution> {
+        let mut pending = self
+            .repository
+            .circulation_resolve_lost_found(item_id, req.disposition, req.notes.as_deref())
+            .await?;
 
         let unchanged_fine_id = if req.disposition == LostFoundDisposition::Damaged {
-            self.repository.fines_linked_replacement_id_tx(&mut pending.tx, item_id).await?
+            self.repository
+                .fines_linked_replacement_id_tx(&mut pending.tx, item_id)
+                .await?
         } else {
             None
         };
@@ -262,24 +335,45 @@ impl CirculationService {
         // Audit rows are immutable. `damaged` writes none of the settlement events.
         if req.disposition != LostFoundDisposition::Damaged {
             if let Some(settlement) = pending.apply.settlement.clone() {
-                self.audit_settlement_tx(&mut pending.tx, actor, client_ip.clone(), item_id, req.disposition, &settlement).await?;
+                self.audit_settlement_tx(
+                    &mut pending.tx,
+                    actor,
+                    client_ip.clone(),
+                    item_id,
+                    req.disposition,
+                    &settlement,
+                )
+                .await?;
             }
         }
         pending.tx.commit().await?;
         let applied = pending.apply;
 
         if let Some(ref hold) = applied.readied_hold {
-            self.notify_resolved_hold(hold, applied.title.as_deref(), applied.barcode.as_deref(), actor, client_ip.clone()).await;
+            self.notify_resolved_hold(
+                hold,
+                applied.title.as_deref(),
+                applied.barcode.as_deref(),
+                actor,
+                client_ip.clone(),
+            )
+            .await;
         }
 
-        let (fine_action, fine_id, refunded_amount, cancelled_amount) = if req.disposition == LostFoundDisposition::Damaged {
-            (LostFineAction::Unchanged, unchanged_fine_id, 0, 0)
-        } else {
-            match applied.settlement {
-                Some(ref settlement) => (settlement.action, Some(settlement.fine_id), settlement.refunded_amount.get(), settlement.cancelled_amount.get()),
-                None => (LostFineAction::None, None, 0, 0),
-            }
-        };
+        let (fine_action, fine_id, refunded_amount, cancelled_amount) =
+            if req.disposition == LostFoundDisposition::Damaged {
+                (LostFineAction::Unchanged, unchanged_fine_id, 0, 0)
+            } else {
+                match applied.settlement {
+                    Some(ref settlement) => (
+                        settlement.action,
+                        Some(settlement.fine_id),
+                        settlement.refunded_amount.get(),
+                        settlement.cancelled_amount.get(),
+                    ),
+                    None => (LostFineAction::None, None, 0, 0),
+                }
+            };
 
         let response = LostFoundResolution {
             item_id: applied.item_id,
@@ -319,8 +413,14 @@ impl CirculationService {
         Ok(response)
     }
 
-    pub async fn list_claims_returned(&self, page: i64, per_page: i64) -> AppResult<(Vec<ClaimsReturnedQueueItem>, i64)> {
-        self.repository.circulation_list_claims_returned(page, per_page).await
+    pub async fn list_claims_returned(
+        &self,
+        page: i64,
+        per_page: i64,
+    ) -> AppResult<(Vec<ClaimsReturnedQueueItem>, i64)> {
+        self.repository
+            .circulation_list_claims_returned(page, per_page)
+            .await
     }
 
     fn audit_deposit_loss(&self, audit_row: DepositLossAudit<'_>) {
@@ -344,11 +444,20 @@ impl CirculationService {
         );
     }
 
-    async fn resolve_bill_amount(&self, item_id: i64, explicit: Option<Decimal>, use_item_price: bool, explicit_label: &str) -> AppResult<Cents> {
+    async fn resolve_bill_amount(
+        &self,
+        item_id: i64,
+        explicit: Option<Decimal>,
+        use_item_price: bool,
+        explicit_label: &str,
+    ) -> AppResult<Cents> {
         if let Some(amount) = explicit {
-            let cents = Cents::try_from_decimal(amount).map_err(|err| AppError::Validation(err.to_string()))?;
+            let cents = Cents::try_from_decimal(amount)
+                .map_err(|err| AppError::Validation(err.to_string()))?;
             if cents.0 == 0 {
-                return Err(AppError::Validation(format!("{explicit_label} must be positive")));
+                return Err(AppError::Validation(format!(
+                    "{explicit_label} must be positive"
+                )));
             }
             return Ok(cents);
         }
@@ -365,7 +474,14 @@ impl CirculationService {
         ))
     }
 
-    async fn notify_resolved_hold(&self, hold: &crate::models::hold::Hold, title: Option<&str>, barcode: Option<&str>, actor: Option<i64>, client_ip: Option<String>) {
+    async fn notify_resolved_hold(
+        &self,
+        hold: &crate::models::hold::Hold,
+        title: Option<&str>,
+        barcode: Option<&str>,
+        actor: Option<i64>,
+        client_ip: Option<String>,
+    ) {
         if let Some(item_id) = hold.item_id {
             self.events.hold_ready(hold.id, hold.user_id, item_id);
         }
@@ -383,12 +499,27 @@ impl CirculationService {
             })),
             AuditLogMeta::success(),
         );
-        let contact = self.repository.users_hold_ready_contact(hold.user_id).await.ok().flatten();
+        let contact = self
+            .repository
+            .users_hold_ready_contact(hold.user_id)
+            .await
+            .ok()
+            .flatten();
         let zone = match self.repository.library_timezone_name().await {
-            Ok(name) => crate::services::calendar::parse_timezone(&name).unwrap_or_else(|_| crate::services::calendar::default_zone()),
+            Ok(name) => crate::services::calendar::parse_timezone(&name)
+                .unwrap_or_else(|_| crate::services::calendar::default_zone()),
             Err(_) => crate::services::calendar::default_zone(),
         };
-        if let Err(e) = crate::hold_email::send_hold_ready_simple(&self.email, contact, hold, title.unwrap_or("(unknown title)"), barcode, zone).await {
+        if let Err(e) = crate::hold_email::send_hold_ready_simple(
+            &self.email,
+            contact,
+            hold,
+            title.unwrap_or("(unknown title)"),
+            barcode,
+            zone,
+        )
+        .await
+        {
             tracing::warn!(
                 target: "circulation",
                 error = %e,
@@ -450,9 +581,24 @@ impl CirculationService {
         Ok(())
     }
 
-    fn audit_exception(&self, event: &'static str, actor: Option<i64>, client_ip: Option<String>, response: &CirculationExceptionResponse, extra: serde_json::Value) {
+    fn audit_exception(
+        &self,
+        event: &'static str,
+        actor: Option<i64>,
+        client_ip: Option<String>,
+        response: &CirculationExceptionResponse,
+        extra: serde_json::Value,
+    ) {
         let payload = exception_audit_payload(response, extra);
-        self.audit.log(event, actor, Some("item"), Some(response.item_id), client_ip, Some(payload), AuditLogMeta::success());
+        self.audit.log(
+            event,
+            actor,
+            Some("item"),
+            Some(response.item_id),
+            client_ip,
+            Some(payload),
+            AuditLogMeta::success(),
+        );
         if let Some(ref charge) = response.charge {
             self.audit.log(
                 audit::event::FINE_CREATED,
@@ -479,7 +625,10 @@ impl CirculationService {
 /// A null or zero price does not count. A missing or non-positive staff amount is then
 /// `deposit_replacement_amount_required`. The library default replacement
 /// rule is never used. The returned cents are written once onto the fine row.
-fn resolve_deposit_bill(deposit: &crate::repository::deposits::DepositReplacement, explicit: Option<Decimal>) -> AppResult<Cents> {
+fn resolve_deposit_bill(
+    deposit: &crate::repository::deposits::DepositReplacement,
+    explicit: Option<Decimal>,
+) -> AppResult<Cents> {
     if let Some(rate) = deposit.replacement_rate_cents {
         if rate.0 > 0 {
             return Ok(rate);
@@ -504,12 +653,27 @@ fn resolve_deposit_bill(deposit: &crate::repository::deposits::DepositReplacemen
     })
 }
 
-fn exception_audit_payload(response: &CirculationExceptionResponse, mut extra: serde_json::Value) -> serde_json::Value {
+fn exception_audit_payload(
+    response: &CirculationExceptionResponse,
+    mut extra: serde_json::Value,
+) -> serde_json::Value {
     if let Some(obj) = extra.as_object_mut() {
-        obj.insert("loanId".into(), serde_json::json!(response.loan_id.to_string()));
-        obj.insert("itemId".into(), serde_json::json!(response.item_id.to_string()));
-        obj.insert("userId".into(), serde_json::json!(response.user_id.to_string()));
-        obj.insert("itemStatus".into(), serde_json::to_value(response.item_status).unwrap_or(serde_json::Value::Null));
+        obj.insert(
+            "loanId".into(),
+            serde_json::json!(response.loan_id.to_string()),
+        );
+        obj.insert(
+            "itemId".into(),
+            serde_json::json!(response.item_id.to_string()),
+        );
+        obj.insert(
+            "userId".into(),
+            serde_json::json!(response.user_id.to_string()),
+        );
+        obj.insert(
+            "itemStatus".into(),
+            serde_json::to_value(response.item_status).unwrap_or(serde_json::Value::Null),
+        );
         obj.insert("borrowable".into(), serde_json::json!(response.borrowable));
     }
     extra
@@ -525,7 +689,10 @@ fn reject_disallowed_bill(action: CirculationAction, bill: bool) -> AppResult<()
     Ok(())
 }
 
-fn to_response(outcome: CirculationExceptionOutcome, applied: &crate::repository::circulation::CirculationApplyResult) -> CirculationExceptionResponse {
+fn to_response(
+    outcome: CirculationExceptionOutcome,
+    applied: &crate::repository::circulation::CirculationApplyResult,
+) -> CirculationExceptionResponse {
     CirculationExceptionResponse {
         outcome,
         item_status: applied.item_status,
@@ -569,7 +736,10 @@ mod tests {
         use crate::models::dto::circulation::LostFineAction;
 
         let action = LostFineAction::Unchanged;
-        assert_eq!(serde_json::to_value(action).expect("fine action json"), serde_json::json!("unchanged"));
+        assert_eq!(
+            serde_json::to_value(action).expect("fine action json"),
+            serde_json::json!("unchanged")
+        );
     }
 
     #[test]
@@ -584,15 +754,24 @@ mod tests {
             replacement_rate_cents: Some(Cents(1500)),
             item_price_cents: Some(Cents(2000)),
         };
-        assert_eq!(resolve_deposit_bill(&rated, Some(Decimal::new(850, 2))).unwrap(), Cents(1500));
-        assert_eq!(resolve_deposit_bill(&rated, Some(Decimal::ZERO)).unwrap(), Cents(1500));
+        assert_eq!(
+            resolve_deposit_bill(&rated, Some(Decimal::new(850, 2))).unwrap(),
+            Cents(1500)
+        );
+        assert_eq!(
+            resolve_deposit_bill(&rated, Some(Decimal::ZERO)).unwrap(),
+            Cents(1500)
+        );
 
         let priced = DepositReplacement {
             lender_id: 1,
             replacement_rate_cents: None,
             item_price_cents: Some(Cents(2000)),
         };
-        assert_eq!(resolve_deposit_bill(&priced, Some(Decimal::new(850, 2))).unwrap(), Cents(2000));
+        assert_eq!(
+            resolve_deposit_bill(&priced, Some(Decimal::new(850, 2))).unwrap(),
+            Cents(2000)
+        );
         assert_eq!(resolve_deposit_bill(&priced, None).unwrap(), Cents(2000));
 
         let free = DepositReplacement {
@@ -602,7 +781,10 @@ mod tests {
         };
         assert!(resolve_deposit_bill(&free, None).is_err());
         assert!(resolve_deposit_bill(&free, Some(Decimal::ZERO)).is_err());
-        assert_eq!(resolve_deposit_bill(&free, Some(Decimal::new(850, 2))).unwrap(), Cents(850));
+        assert_eq!(
+            resolve_deposit_bill(&free, Some(Decimal::new(850, 2))).unwrap(),
+            Cents(850)
+        );
 
         let unknown = DepositReplacement {
             lender_id: 1,
@@ -610,7 +792,10 @@ mod tests {
             item_price_cents: None,
         };
         assert!(resolve_deposit_bill(&unknown, None).is_err());
-        assert_eq!(resolve_deposit_bill(&unknown, Some(Decimal::new(850, 2))).unwrap(), Cents(850));
+        assert_eq!(
+            resolve_deposit_bill(&unknown, Some(Decimal::new(850, 2))).unwrap(),
+            Cents(850)
+        );
     }
 
     #[test]
@@ -619,7 +804,12 @@ mod tests {
         assert!(CirculationStatus::Damaged.blocks_circulation());
         assert!(CirculationStatus::ClaimedReturned.blocks_circulation());
         assert!(CirculationStatus::ToSearch.blocks_circulation());
-        assert_eq!(CirculationStatus::ToSearch.transition(CirculationAction::MarkLost).unwrap(), CirculationStatus::Lost);
+        assert_eq!(
+            CirculationStatus::ToSearch
+                .transition(CirculationAction::MarkLost)
+                .unwrap(),
+            CirculationStatus::Lost
+        );
         assert!(!CirculationStatus::Available.blocks_circulation());
     }
 }
