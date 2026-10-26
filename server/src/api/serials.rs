@@ -46,6 +46,25 @@ pub fn router() -> axum::Router<crate::AppState> {
                 .delete(delete_numbering_pattern),
         )
         .route("/serials/predictions", post(test_prediction))
+        .route(
+            "/serials/subscriptions",
+            get(super::serial_subscriptions::list_subscriptions)
+                .post(super::serial_subscriptions::create_subscription),
+        )
+        .route(
+            "/serials/subscriptions/:id",
+            get(super::serial_subscriptions::get_subscription)
+                .put(super::serial_subscriptions::update_subscription)
+                .delete(super::serial_subscriptions::delete_subscription),
+        )
+        .route(
+            "/serials/subscriptions/:id/issues",
+            get(super::serial_subscriptions::list_subscription_issues),
+        )
+        .route(
+            "/serials/subscriptions/:id/generate",
+            post(super::serial_subscriptions::generate_subscription),
+        )
 }
 
 #[utoipa::path(

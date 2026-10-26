@@ -14,6 +14,13 @@ use crate::models::serial::{
 /// Hard cap so a preview cannot request an unbounded calendar.
 pub const MAX_PREDICTED_ISSUES: u32 = 500;
 
+/// Months of planned dates one stored horizon may cover.
+pub const HORIZON_MONTHS: u32 = 12;
+
+/// Upper bound for a serial subscription's own length (issues, weeks, or months).
+/// A single stored horizon is still capped at [`MAX_PREDICTED_ISSUES`].
+pub const MAX_SUBSCRIPTION_LENGTH: u32 = 10_000;
+
 pub const MAX_ISSUES_PER_UNIT: i32 = 366;
 pub const MAX_UNITS_PER_ISSUE: i32 = 1_000;
 pub const MAX_EVERY: u32 = 10_000;
@@ -300,6 +307,116 @@ fn validate_counter(rule: &CounterRule, which: &'static str) -> Result<(), Predi
         return Err(PredictionError::InvalidCounter(which));
     }
     Ok(())
+}
+
+/// Issue count for the next stored horizon.
+///
+/// `input.length` is the whole serial subscription length and may be longer
+/// than one preview. The returned length is `issues` and is at most
+/// [`MAX_PREDICTED_ISSUES`], so [`predict`] accepts it. Planned dates must be
+/// strictly before the earlier of: [`HORIZON_MONTHS`] after this horizon's
+/// first slot, the subscription length measured from `first_issue_date`, and
+/// the day after `end_date` when that date is set. `already_emitted` counts
+/// issues already stored and only limits an `issues` length.
+pub fn horizon_length(
+    input: &PredictionInput,
+    already_emitted: u32,
+    end_date: Option<NaiveDate>,
+) -> Result<SubscriptionLength, PredictionError> {
+    if input.length.count == 0 || input.length.count > MAX_SUBSCRIPTION_LENGTH {
+        return Err(PredictionError::InvalidLength);
+    }
+    if input.start_slot == 0 {
+        return Err(PredictionError::InvalidStartSlot);
+    }
+    let horizon_start = date_for_slot(
+        input.first_issue_date,
+        &input.frequency,
+        input.start_slot - 1,
+    )?;
+    let mut exclusive_end = add_months(
+        horizon_start,
+        i32::try_from(HORIZON_MONTHS).map_err(|_| PredictionError::DateOverflow)?,
+    )?;
+    match input.length.kind {
+        LengthKind::Issues => {}
+        LengthKind::Weeks => {
+            let days = i64::from(input.length.count).saturating_mul(7);
+            let subscription_end = add_days(input.first_issue_date, days)?;
+            if subscription_end < exclusive_end {
+                exclusive_end = subscription_end;
+            }
+        }
+        LengthKind::Months => {
+            let months =
+                i32::try_from(input.length.count).map_err(|_| PredictionError::DateOverflow)?;
+            let subscription_end = add_months(input.first_issue_date, months)?;
+            if subscription_end < exclusive_end {
+                exclusive_end = subscription_end;
+            }
+        }
+    }
+    if let Some(end_date) = end_date {
+        let day_after = end_date.succ_opt().ok_or(PredictionError::DateOverflow)?;
+        if day_after < exclusive_end {
+            exclusive_end = day_after;
+        }
+    }
+    if horizon_start >= exclusive_end {
+        return Err(PredictionError::EmptyHorizon);
+    }
+
+    let max_issues = match input.length.kind {
+        LengthKind::Issues => {
+            let remaining = input.length.count.saturating_sub(already_emitted);
+            if remaining == 0 {
+                return Err(PredictionError::EmptyHorizon);
+            }
+            remaining.min(MAX_PREDICTED_ISSUES)
+        }
+        LengthKind::Weeks | LengthKind::Months => MAX_PREDICTED_ISSUES,
+    };
+
+    let mut best = None;
+    let mut low = 1u32;
+    let mut high = max_issues;
+    while low <= high {
+        let mid = low + (high - low) / 2;
+        let mut trial = input.clone();
+        trial.length = SubscriptionLength {
+            kind: LengthKind::Issues,
+            count: mid,
+        };
+        match predict(&trial) {
+            Ok(output) => {
+                let inside = output
+                    .issues
+                    .last()
+                    .is_some_and(|issue| issue.planned_date < exclusive_end);
+                if inside {
+                    best = Some(mid);
+                    low = mid.saturating_add(1);
+                } else if mid == 1 {
+                    break;
+                } else {
+                    high = mid - 1;
+                }
+            }
+            Err(PredictionError::LimitExceeded) => {
+                if mid == 1 {
+                    return Err(PredictionError::LimitExceeded);
+                }
+                high = mid - 1;
+            }
+            Err(err) => return Err(err),
+        }
+    }
+
+    best.map(|count| SubscriptionLength {
+        kind: LengthKind::Issues,
+        count,
+    })
+    .ok_or(PredictionError::EmptyHorizon)
 }
 
 /// Exclusive end of a weeks or months window. `start` is the planned date of
@@ -1321,6 +1438,80 @@ mod tests {
             "{kind:?}"
         );
         assert_eq!(second.next_state, full.next_state, "{kind:?}");
+    }
+
+    #[test]
+    fn twelve_month_stored_horizons_match_one_length_with_an_august_skip() {
+        let mut input = base(monthly(), numbering("n° {X}"));
+        input.first_issue_date = date(2026, 1, 31);
+        input.starting.x = 412;
+        input.length = SubscriptionLength {
+            kind: LengthKind::Months,
+            count: 24,
+        };
+        input.recurring_skips = vec![RecurringSkip {
+            month: 8,
+            day: None,
+        }];
+        let full = run(input.clone());
+
+        let first_len = horizon_length(&input, 0, None).expect("first horizon");
+        assert_eq!(first_len.kind, LengthKind::Issues);
+        let mut first_input = input.clone();
+        first_input.length = first_len;
+        let first = run(first_input);
+
+        let mut second_input = input.clone();
+        second_input.start_slot = first.next_state.next_slot;
+        second_input.starting = CounterValues {
+            x: first.next_state.x,
+            y: first.next_state.y,
+            z: first.next_state.z,
+        };
+        second_input.inner = CounterInners {
+            x: first.next_state.inner_x,
+            y: first.next_state.inner_y,
+            z: first.next_state.inner_z,
+        };
+        let second_len =
+            horizon_length(&second_input, first.issues.len() as u32, None).expect("second horizon");
+        second_input.length = second_len;
+        let second = run(second_input);
+
+        let combined: Vec<_> = first
+            .issues
+            .iter()
+            .chain(second.issues.iter())
+            .map(issue_fingerprint)
+            .collect();
+        assert_eq!(
+            combined,
+            full.issues
+                .iter()
+                .map(issue_fingerprint)
+                .collect::<Vec<_>>()
+        );
+        let slots: Vec<u32> = combined.iter().map(|issue| issue.0).collect();
+        let unique = slots.iter().collect::<std::collections::HashSet<_>>();
+        assert_eq!(unique.len(), slots.len());
+        assert_eq!(second.next_state, full.next_state);
+
+        let mut third = input;
+        third.start_slot = second.next_state.next_slot;
+        third.starting = CounterValues {
+            x: second.next_state.x,
+            y: second.next_state.y,
+            z: second.next_state.z,
+        };
+        third.inner = CounterInners {
+            x: second.next_state.inner_x,
+            y: second.next_state.inner_y,
+            z: second.next_state.inner_z,
+        };
+        assert_eq!(
+            horizon_length(&third, combined.len() as u32, None),
+            Err(PredictionError::EmptyHorizon)
+        );
     }
 
     fn issue_fingerprint(issue: &PredictedIssue) -> (u32, NaiveDate, String, i32, i32, i32) {

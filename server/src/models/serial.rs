@@ -224,6 +224,27 @@ pub enum LengthKind {
     Months,
 }
 
+impl LengthKind {
+    #[must_use]
+    pub fn as_db_str(self) -> &'static str {
+        match self {
+            Self::Issues => "issues",
+            Self::Weeks => "weeks",
+            Self::Months => "months",
+        }
+    }
+
+    #[must_use]
+    pub fn from_db_str(value: &str) -> Option<Self> {
+        match value {
+            "issues" => Some(Self::Issues),
+            "weeks" => Some(Self::Weeks),
+            "months" => Some(Self::Months),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct SubscriptionLength {
@@ -445,4 +466,314 @@ pub struct PredictionState {
 pub struct PredictionResponse {
     pub issues: Vec<PredictedIssue>,
     pub next_state: PredictionState,
+}
+
+/// Open, expired, or closed serial subscription. `active` is the open status.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum SerialSubscriptionStatus {
+    #[default]
+    Active,
+    Expired,
+    Closed,
+}
+
+impl SerialSubscriptionStatus {
+    #[must_use]
+    pub fn as_db_str(self) -> &'static str {
+        match self {
+            Self::Active => "active",
+            Self::Expired => "expired",
+            Self::Closed => "closed",
+        }
+    }
+
+    #[must_use]
+    pub fn from_db_str(value: &str) -> Option<Self> {
+        match value {
+            "active" => Some(Self::Active),
+            "expired" => Some(Self::Expired),
+            "closed" => Some(Self::Closed),
+            _ => None,
+        }
+    }
+}
+
+/// Stored issue status. Prediction writes `expected`. Receipt fills the rest.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum SerialIssueStatus {
+    Expected,
+    Arrived,
+    Late,
+    Missing,
+    Claimed,
+    NotAvailable,
+    Deleted,
+    Bound,
+}
+
+impl SerialIssueStatus {
+    #[must_use]
+    pub fn as_db_str(self) -> &'static str {
+        match self {
+            Self::Expected => "expected",
+            Self::Arrived => "arrived",
+            Self::Late => "late",
+            Self::Missing => "missing",
+            Self::Claimed => "claimed",
+            Self::NotAvailable => "not_available",
+            Self::Deleted => "deleted",
+            Self::Bound => "bound",
+        }
+    }
+
+    #[must_use]
+    pub fn from_db_str(value: &str) -> Option<Self> {
+        match value {
+            "expected" => Some(Self::Expected),
+            "arrived" => Some(Self::Arrived),
+            "late" => Some(Self::Late),
+            "missing" => Some(Self::Missing),
+            "claimed" => Some(Self::Claimed),
+            "not_available" => Some(Self::NotAvailable),
+            "deleted" => Some(Self::Deleted),
+            "bound" => Some(Self::Bound),
+            _ => None,
+        }
+    }
+}
+
+fn default_true() -> bool {
+    true
+}
+
+/// Create or replace a serial subscription.
+///
+/// `x`/`y`/`z` and the inner loops are the prediction cursor. On create they
+/// are the starting values. After the first horizon they are `nextState`, and
+/// a later update must send that cursor back unchanged.
+#[serde_as]
+#[derive(Debug, Clone, Deserialize, Validate, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SerialSubscriptionWrite {
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub biblio_id: i64,
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub site_id: i64,
+    #[serde(default)]
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub vendor_id: Option<i64>,
+    #[serde(default)]
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub fund_id: Option<i64>,
+    /// Annual serial subscription cost in integer euro cents. Never copied to the item price.
+    #[serde(default)]
+    pub cost_cents: Option<i64>,
+    /// Price of one issue, in cents. Null leaves the received item price empty.
+    #[serde(default)]
+    pub issue_price_cents: Option<i32>,
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub frequency_id: i64,
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub numbering_pattern_id: i64,
+    pub first_issue_date: NaiveDate,
+    #[serde(default)]
+    pub start_date: Option<NaiveDate>,
+    #[serde(default)]
+    pub end_date: Option<NaiveDate>,
+    pub x: i32,
+    pub y: i32,
+    pub z: i32,
+    #[serde(default)]
+    pub inner_x: u32,
+    #[serde(default)]
+    pub inner_y: u32,
+    #[serde(default)]
+    pub inner_z: u32,
+    pub length: SubscriptionLength,
+    #[serde(default)]
+    pub irregularities: Vec<u32>,
+    #[serde(default)]
+    pub recurring_skips: Vec<RecurringSkip>,
+    #[serde(default)]
+    pub combined_issues: Vec<CombinedIssue>,
+    /// Null uses the frequency-derived default. `0` is an explicit override.
+    #[serde(default)]
+    pub grace_days: Option<i32>,
+    #[serde(default)]
+    pub status: SerialSubscriptionStatus,
+    #[serde(default = "default_true")]
+    pub create_items: bool,
+    #[serde(default = "default_true")]
+    pub latest_issue_library_use_only: bool,
+    #[serde(default)]
+    #[validate(length(max = 4000))]
+    pub holdings_statement: Option<String>,
+    #[serde(default)]
+    #[validate(length(max = 100))]
+    pub call_number: Option<String>,
+    #[serde(default)]
+    #[validate(length(max = 200))]
+    pub location: Option<String>,
+    #[serde(default)]
+    #[validate(length(max = 4000))]
+    pub public_note: Option<String>,
+    #[serde(default)]
+    #[validate(length(max = 4000))]
+    pub internal_note: Option<String>,
+    #[serde(default)]
+    #[validate(length(max = 4000))]
+    pub notes: Option<String>,
+}
+
+/// Search serial subscriptions by title, ISSN, site, vendor, or status.
+#[serde_as]
+#[derive(Debug, Clone, Deserialize, IntoParams, ToSchema, Default)]
+#[serde(rename_all = "camelCase")]
+#[into_params(parameter_in = Query)]
+pub struct SerialSubscriptionQuery {
+    /// Title or ISSN substring. ISSN matches a linked series or collection.
+    pub q: Option<String>,
+    #[serde(default)]
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub site_id: Option<i64>,
+    #[serde(default)]
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub vendor_id: Option<i64>,
+    pub status: Option<SerialSubscriptionStatus>,
+    pub page: Option<i64>,
+    pub per_page: Option<i64>,
+}
+
+/// One predicted or received issue row.
+#[serde_as]
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SerialIssue {
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub id: i64,
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub serial_subscription_id: i64,
+    pub planned_date: NaiveDate,
+    pub display_label: String,
+    /// Absent for a supplement (hors-série). Regular predicted issues always have a sequence.
+    pub sequence: Option<u32>,
+    /// Absent for a supplement (hors-série). Regular predicted issues always have a slot.
+    pub slot: Option<u32>,
+    pub x: i32,
+    pub y: i32,
+    pub z: i32,
+    pub status: SerialIssueStatus,
+    pub supplement: bool,
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub item_id: Option<i64>,
+    pub received_at: Option<DateTime<Utc>>,
+    pub notes: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// Serial subscription at one site, plus the prediction cursor.
+#[serde_as]
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SerialSubscription {
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub id: i64,
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub biblio_id: i64,
+    pub biblio_title: Option<String>,
+    /// ISSNs of series and collections linked to the periodical. Not `biblios.issn`.
+    pub issns: Vec<String>,
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub site_id: i64,
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub vendor_id: Option<i64>,
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub fund_id: Option<i64>,
+    pub cost_cents: Option<i64>,
+    pub issue_price_cents: Option<i32>,
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub frequency_id: i64,
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub numbering_pattern_id: i64,
+    pub first_issue_date: NaiveDate,
+    pub start_date: Option<NaiveDate>,
+    pub end_date: Option<NaiveDate>,
+    pub x: i32,
+    pub y: i32,
+    pub z: i32,
+    pub inner_x: u32,
+    pub inner_y: u32,
+    pub inner_z: u32,
+    pub next_slot: u32,
+    pub length: SubscriptionLength,
+    pub irregularities: Vec<u32>,
+    pub recurring_skips: Vec<RecurringSkip>,
+    pub combined_issues: Vec<CombinedIssue>,
+    /// Stored override. Null means the frequency default applies.
+    pub grace_days: Option<i32>,
+    /// `grace_days` when set, otherwise the frequency default. Null for irregular.
+    pub effective_grace_days: Option<i32>,
+    pub status: SerialSubscriptionStatus,
+    pub create_items: bool,
+    pub latest_issue_library_use_only: bool,
+    pub holdings_statement: Option<String>,
+    pub call_number: Option<String>,
+    pub location: Option<String>,
+    pub public_note: Option<String>,
+    pub internal_note: Option<String>,
+    pub notes: Option<String>,
+    pub issue_count: i64,
+    /// Empty on list responses. Get, create, and update include the stored rows.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub issues: Vec<SerialIssue>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SerialSubscriptionListResponse {
+    pub subscriptions: Vec<SerialSubscription>,
+    pub total: i64,
+}
+
+/// Issues appended by `POST /serials/subscriptions/{id}/generate`.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SerialIssueGenerateResponse {
+    pub subscription: SerialSubscription,
+    pub issues: Vec<SerialIssue>,
+}
+
+/// One issue row to insert. Sequence is the stored sequence, not the engine's per-call index.
+#[derive(Debug, Clone)]
+pub struct NewSerialIssue {
+    pub planned_date: NaiveDate,
+    pub display_label: String,
+    pub sequence: i32,
+    pub slot: i32,
+    pub x: i32,
+    pub y: i32,
+    pub z: i32,
 }
