@@ -159,8 +159,12 @@ pub fn predict(input: &PredictionInput) -> Result<PredictionOutput, PredictionEr
     let mut cursor = Cursors::from_input(input);
     let mut issues = Vec::new();
     let mut slot: u32 = input.start_slot;
+    // Cap slots walked in this horizon, not the absolute slot. A daily at
+    // slot 6000 is still a normal horizon; the old `slot <= 5000` check
+    // refused it.
+    let slot_limit = input.start_slot.saturating_add(MAX_SLOTS);
 
-    while slot <= MAX_SLOTS {
+    while slot < slot_limit {
         let date = date_for_slot(input.first_issue_date, &input.frequency, slot - 1)?;
         if horizon_end.is_some_and(|end| date >= end) {
             break;
@@ -1141,6 +1145,35 @@ mod tests {
             predict(&blocked).unwrap_err(),
             PredictionError::EmptyHorizon
         );
+    }
+
+    #[test]
+    fn a_late_daily_horizon_is_not_capped_by_the_absolute_slot() {
+        let anchor = date(2026, 1, 1) + chrono::Duration::days(5_999);
+        let mut input = base(
+            FrequencySpec {
+                unit: Some(FrequencyUnit::Day),
+                issues_per_unit: 1,
+                units_per_issue: 1,
+            },
+            numbering("{X}"),
+        );
+        input.first_issue_date = date(2026, 1, 1);
+        input.start_slot = 6_000;
+        input.length = SubscriptionLength {
+            kind: LengthKind::Weeks,
+            count: 2,
+        };
+        let out = run(input);
+        assert_eq!(out.issues.len(), 14);
+        assert_eq!(out.issues[0].slot, 6_000);
+        assert_eq!(out.issues[0].planned_date, anchor);
+        assert_eq!(out.issues[13].slot, 6_013);
+        assert_eq!(
+            out.issues[13].planned_date,
+            anchor + chrono::Duration::days(13)
+        );
+        assert_eq!(out.next_state.next_slot, 6_014);
     }
 
     #[test]
