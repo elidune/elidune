@@ -35,3 +35,5 @@ export { default as UnsubscribeEventsPage } from './UnsubscribeEventsPage';
 export { default as PublicEventsPage } from './PublicEventsPage';
 export { default as AcquisitionsPage } from './AcquisitionsPage';
 export { default as AcquisitionsOrderDetailPage } from './AcquisitionsOrderDetailPage';
+export { default as SerialsPage } from './SerialsPage';
+export { default as SerialSubscriptionDetailPage } from './SerialSubscriptionDetailPage';

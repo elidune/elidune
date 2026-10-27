@@ -116,7 +116,7 @@ export function useFocusTrap({
       cancelAnimationFrame(frame);
       document.removeEventListener('keydown', handleKeyDown);
       if (previouslyFocused && document.contains(previouslyFocused) && typeof previouslyFocused.focus === 'function') {
-        previouslyFocused.focus();
+        previouslyFocused.focus({ focusVisible: true } as FocusOptions);
       }
     };
   }, [enabled, containerRef, skipCloseControl]);

@@ -187,6 +187,15 @@ import type {
   PurchaseSuggestionStatus,
   CreatePurchaseSuggestion,
   ReviewPurchaseSuggestion,
+  PredictedSerialIssue,
+  SerialFrequency,
+  SerialIssue,
+  SerialIssueStaffStatus,
+  SerialNumberingPattern,
+  SerialSubscription,
+  SerialSubscriptionListResponse,
+  SerialSubscriptionStatus,
+  SerialSubscriptionWrite,
 } from '@/types';
 import { normalizePaginatedResponse } from '@/utils/serverJson';
 import {
@@ -2543,6 +2552,111 @@ class ApiService {
       `/suggestions/${id}/refuse`,
       data ?? {},
     );
+    return response.data;
+  }
+
+  // ─── Serials ────────────────────────────────────────────────────
+
+  async listSerialFrequencies(): Promise<{ frequencies: SerialFrequency[]; total: number }> {
+    const response = await this.client.get<{ frequencies: SerialFrequency[]; total: number }>(
+      '/serials/frequencies',
+      { params: { perPage: 100 } },
+    );
+    return response.data;
+  }
+
+  async listSerialPatterns(): Promise<{ patterns: SerialNumberingPattern[]; total: number }> {
+    const response = await this.client.get<{ patterns: SerialNumberingPattern[]; total: number }>(
+      '/serials/numbering-patterns',
+      { params: { perPage: 100 } },
+    );
+    return response.data;
+  }
+
+  async predictSerialIssues(body: {
+    frequencyId: string;
+    patternId: string;
+    firstIssueDate: string;
+    starting: { x: number; y: number; z: number };
+    inner: { x: number; y: number; z: number };
+    startSlot: number;
+    length: { kind: string; count: number };
+    irregularities: number[];
+    recurringSkips: Array<{ month: number; day?: number }>;
+    combinedIssues: Array<{ months: number[]; monthName: string }>;
+  }): Promise<{ issues: PredictedSerialIssue[] }> {
+    const response = await this.client.post<{ issues: PredictedSerialIssue[] }>('/serials/predictions', body);
+    return response.data;
+  }
+
+  async listSerialSubscriptions(params: {
+    q?: string;
+    siteId?: string;
+    vendorId?: string;
+    status?: SerialSubscriptionStatus;
+    page?: number;
+    perPage?: number;
+  }): Promise<SerialSubscriptionListResponse> {
+    const response = await this.client.get<SerialSubscriptionListResponse>('/serials/subscriptions', { params });
+    return response.data;
+  }
+
+  async getSerialSubscription(id: string): Promise<SerialSubscription> {
+    const response = await this.client.get<SerialSubscription>(`/serials/subscriptions/${id}`);
+    return response.data;
+  }
+
+  async createSerialSubscription(body: SerialSubscriptionWrite): Promise<SerialSubscription> {
+    const response = await this.client.post<SerialSubscription>('/serials/subscriptions', body);
+    return response.data;
+  }
+
+  async updateSerialSubscription(id: string, body: SerialSubscriptionWrite): Promise<SerialSubscription> {
+    const response = await this.client.put<SerialSubscription>(`/serials/subscriptions/${id}`, body);
+    return response.data;
+  }
+
+  async generateSerialIssues(id: string): Promise<{ subscription: SerialSubscription; issues: SerialIssue[] }> {
+    const response = await this.client.post<{ subscription: SerialSubscription; issues: SerialIssue[] }>(
+      `/serials/subscriptions/${id}/generate`,
+    );
+    return response.data;
+  }
+
+  async receiveSerialIssue(
+    subscriptionId: string,
+    issueId: string,
+    body: { barcode?: string | null; receivedOn?: string | null },
+  ): Promise<SerialIssue> {
+    const response = await this.client.post<SerialIssue>(
+      `/serials/subscriptions/${subscriptionId}/issues/${issueId}/receive`,
+      body,
+    );
+    return response.data;
+  }
+
+  async setSerialIssueStatus(
+    subscriptionId: string,
+    issueId: string,
+    status: SerialIssueStaffStatus,
+  ): Promise<SerialIssue> {
+    const response = await this.client.post<SerialIssue>(
+      `/serials/subscriptions/${subscriptionId}/issues/${issueId}/status`,
+      { status },
+    );
+    return response.data;
+  }
+
+  async markSerialIssuesLate(id: string): Promise<{ issues: SerialIssue[] }> {
+    const response = await this.client.post<{ issues: SerialIssue[] }>(`/serials/subscriptions/${id}/mark-late`);
+    return response.data;
+  }
+
+  async createSerialSupplement(
+    id: string,
+    body: { plannedDate: string; displayLabel: string; notes?: string | null },
+  ): Promise<SerialIssue> {
+    const response = await this.client.post<SerialIssue>(`/serials/subscriptions/${id}/supplements`, body);
     return response.data;
   }
 }

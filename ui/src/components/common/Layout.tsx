@@ -24,6 +24,7 @@ import {
   Truck,
   ShoppingCart,
   Lightbulb,
+  Newspaper,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import Button from './Button';
@@ -64,6 +65,7 @@ function LayoutShell({ children }: LayoutProps) {
   const features = libraryInfo?.enabledFeatures;
   const access = effectiveStaffAccess(user, api.getToken(), features);
   const showAcquisitions = access.acquisitions;
+  const showSerials = access.serials && isFeatureEnabled(features, 'serials');
   const showWeeding = access.weeding;
   const navigate = useNavigate();
 
@@ -127,6 +129,12 @@ function LayoutShell({ children }: LayoutProps) {
           href: '/acquisitions',
           icon: ShoppingCart,
           show: showAcquisitions,
+        },
+        {
+          name: t('nav.serials'),
+          href: '/serials',
+          icon: Newspaper,
+          show: showSerials,
         },
         { name: t('nav.weeding'), href: '/weeding', icon: Leaf, show: showWeeding },
         {

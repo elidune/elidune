@@ -16,6 +16,7 @@ const ALL_ENABLED: EnabledFeatures = {
   importIso: true,
   stats: true,
   visitorCounts: true,
+  serials: true,
 };
 
 /** Normalize partial/absent `enabledFeatures` — missing keys default to enabled (compat). */
@@ -35,6 +36,7 @@ export function resolveEnabledFeatures(
     importIso: features.importIso ?? true,
     stats: features.stats ?? true,
     visitorCounts: features.visitorCounts ?? true,
+    serials: features.serials ?? true,
   };
 }
 
@@ -59,6 +61,7 @@ export function effectiveStaffAccess(
   return {
     ...access,
     acquisitions: access.acquisitions && f.acquisitions,
+    serials: access.serials && f.serials,
     weeding: access.weeding && f.weeding,
     holdsStaff: access.holdsStaff, // pick-list stays; transits nav gated separately
     stats: access.stats && f.stats,

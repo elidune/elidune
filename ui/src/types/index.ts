@@ -1,5 +1,6 @@
 import {
   readAcquisitionsRightsFromJwt,
+  readSerialsRightsFromJwt,
   readHoldsRightsFromJwt,
   readItemsArchiveRightsFromJwt,
   readItemsRightsFromJwt,
@@ -24,6 +25,8 @@ export interface EnabledFeatures {
   importIso: boolean;
   stats: boolean;
   visitorCounts: boolean;
+  /** Periodicals. Missing on older library-info payloads means enabled. */
+  serials: boolean;
 }
 
 /** Admin `PUT /admin/config/features` body (snake_case on the wire, like reminders). */
@@ -145,6 +148,8 @@ export interface AuthMeRights {
   borrowsRights?: string | null;
   /** Acquisitions (`n`/`r`/`w` or `none`/`read`/`write`) — distinct from cataloging. */
   acquisitionsRights?: string | null;
+  /** Serial subscriptions (`n`/`r`/`w`). Missing means no access. */
+  serialsRights?: string | null;
   /** Weeding list/export (`r`/`w`) and withdraw (`w`). Missing means `n`. */
   weedingRights?: string | null;
   /** Cancel an active withdrawal (`w`). Missing means `n`. */
@@ -182,6 +187,8 @@ export interface User {
   holdsRights?: string | null;
   /** Acquisitions permission when exposed on the profile (`n`/`r`/`w` or `none`/`read`/`write`). */
   acquisitionsRights?: string | null;
+  /** Serials permission when exposed on the profile (`n`/`r`/`w`). */
+  serialsRights?: string | null;
   weedingRights?: string | null;
   weedingCancelRights?: string | null;
   itemsArchiveRights?: string | null;
@@ -2404,6 +2411,32 @@ export const canManageAcquisitions = (
   return resolveAcquisitionsRights(user, authToken) === 'w';
 };
 
+export function resolveSerialsRights(
+  user: Pick<User, 'serialsRights' | 'rights'> | null | undefined,
+  authToken?: string | null,
+): AccountTypeRightLevel | null {
+  const fromJwt = authToken ? readSerialsRightsFromJwt(authToken) : null;
+  if (fromJwt) return fromJwt;
+  if (!user) return null;
+  const nested = user.rights && typeof user.rights === 'object' ? user.rights : null;
+  return normalizeAcquisitionsRightsLevel(nested?.serialsRights ?? user.serialsRights);
+}
+
+/** Staff serials list and detail (`r` or `w`). Absent claim is deny. */
+export const canViewSerials = (
+  user: Pick<User, 'accountType' | 'serialsRights' | 'rights'> | null | undefined,
+  authToken?: string | null,
+): boolean => {
+  const level = resolveSerialsRights(user, authToken);
+  return level === 'r' || level === 'w';
+};
+
+/** Create, edit, receive, and status changes require serials write. */
+export const canManageSerials = (
+  user: Pick<User, 'accountType' | 'serialsRights' | 'rights'> | null | undefined,
+  authToken?: string | null,
+): boolean => resolveSerialsRights(user, authToken) === 'w';
+
 type WeedingRightUser = Pick<
   User,
   'weedingRights' | 'weedingCancelRights' | 'itemsArchiveRights' | 'itemsRights' | 'rights'
@@ -3709,4 +3742,146 @@ export interface ReviewPurchaseSuggestion {
 export interface PurchaseSuggestionListResponse {
   suggestions: PurchaseSuggestion[];
   total: number;
+}
+
+export type SerialSubscriptionStatus = 'active' | 'expired' | 'closed';
+
+export type SerialIssueStatus =
+  | 'expected'
+  | 'arrived'
+  | 'late'
+  | 'missing'
+  | 'claimed'
+  | 'notAvailable'
+  | 'deleted'
+  | 'bound';
+
+export type SerialIssueStaffStatus = 'late' | 'missing' | 'claimed' | 'notAvailable' | 'deleted';
+
+export type SerialLengthKind = 'issues' | 'weeks' | 'months';
+
+export interface SerialFrequency {
+  id: string;
+  description: string;
+  unit: 'day' | 'week' | 'month' | 'year' | null;
+  issuesPerUnit: number;
+  unitsPerIssue: number;
+  displayOrder: number;
+}
+
+export interface SerialNumberingPattern {
+  id: string;
+  label: string;
+  description?: string | null;
+  formula: string;
+  displayOrder: number;
+}
+
+export interface SerialIssue {
+  id: string;
+  serialSubscriptionId: string;
+  plannedDate: string;
+  displayLabel: string;
+  sequence?: number | null;
+  slot?: number | null;
+  x: number;
+  y: number;
+  z: number;
+  status: SerialIssueStatus;
+  supplement: boolean;
+  itemId?: string | null;
+  receivedAt?: string | null;
+  notes?: string | null;
+}
+
+export interface PredictedSerialIssue {
+  sequence: number;
+  slot: number;
+  plannedDate: string;
+  displayLabel: string;
+  x: number;
+  y: number;
+  z: number;
+}
+
+export interface SerialSubscription {
+  id: string;
+  biblioId: string;
+  biblioTitle?: string | null;
+  issns: string[];
+  siteId: string;
+  vendorId?: string | null;
+  fundId?: string | null;
+  costCents?: number | null;
+  issuePriceCents?: number | null;
+  frequencyId: string;
+  numberingPatternId: string;
+  firstIssueDate: string;
+  startDate?: string | null;
+  endDate?: string | null;
+  x: number;
+  y: number;
+  z: number;
+  innerX: number;
+  innerY: number;
+  innerZ: number;
+  nextSlot: number;
+  length: { kind: SerialLengthKind; count: number };
+  irregularities: number[];
+  recurringSkips: Array<{ month: number; day?: number | null }>;
+  combinedIssues: Array<{ months: number[]; monthName: string }>;
+  graceDays?: number | null;
+  effectiveGraceDays?: number | null;
+  status: SerialSubscriptionStatus;
+  createItems: boolean;
+  latestIssueLibraryUseOnly: boolean;
+  holdingsStatement?: string | null;
+  callNumber?: string | null;
+  location?: string | null;
+  publicNote?: string | null;
+  internalNote?: string | null;
+  notes?: string | null;
+  issueCount: number;
+  issues?: SerialIssue[];
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface SerialSubscriptionListResponse {
+  subscriptions: SerialSubscription[];
+  total: number;
+}
+
+export interface SerialSubscriptionWrite {
+  biblioId: string;
+  siteId: string;
+  vendorId?: string | null;
+  fundId?: string | null;
+  costCents?: number | null;
+  issuePriceCents?: number | null;
+  frequencyId: string;
+  numberingPatternId: string;
+  firstIssueDate: string;
+  startDate?: string | null;
+  endDate?: string | null;
+  x: number;
+  y: number;
+  z: number;
+  innerX?: number;
+  innerY?: number;
+  innerZ?: number;
+  length: { kind: SerialLengthKind; count: number };
+  irregularities?: number[];
+  recurringSkips?: Array<{ month: number; day?: number | null }>;
+  combinedIssues?: Array<{ months: number[]; monthName: string }>;
+  graceDays?: number | null;
+  status?: SerialSubscriptionStatus;
+  createItems?: boolean;
+  latestIssueLibraryUseOnly?: boolean;
+  holdingsStatement?: string | null;
+  callNumber?: string | null;
+  location?: string | null;
+  publicNote?: string | null;
+  internalNote?: string | null;
+  notes?: string | null;
 }
