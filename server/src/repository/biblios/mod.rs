@@ -3,6 +3,8 @@
 //! Split across `read`, `search`, `write`, `items`, and `meili` submodules.
 
 mod items;
+
+pub(crate) use items::insert_item_row;
 mod meili;
 mod read;
 mod search;

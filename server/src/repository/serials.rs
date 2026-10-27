@@ -1,18 +1,21 @@
 //! Frequencies and numbering patterns for serial subscriptions.
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use snowflaked::Generator;
 use sqlx::FromRow;
 
 use super::Repository;
 use crate::{
     error::{AppError, AppResult},
-    models::serial::{
-        CounterFormat, CounterRule, FrequencyUnit, FrequencyWrite, NewSerialIssue,
-        NumberingPatternWrite, PredictionState, SerialFrequency, SerialIssue, SerialListQuery,
-        SerialLocale, SerialNumberingPattern, SerialSubscription, SerialSubscriptionQuery,
-        SerialSubscriptionWrite,
+    models::{
+        item::Item,
+        serial::{
+            CounterFormat, CounterRule, FrequencyUnit, FrequencyWrite, NewSerialIssue,
+            NumberingPatternWrite, PredictionState, SerialFrequency, SerialIssue,
+            SerialIssueStatus, SerialListQuery, SerialLocale, SerialNumberingPattern,
+            SerialSubscription, SerialSubscriptionQuery, SerialSubscriptionWrite,
+        },
     },
 };
 
@@ -265,6 +268,52 @@ pub trait SerialsRepository: Send + Sync {
         issues: &[NewSerialIssue],
     ) -> AppResult<()>;
     async fn subscriptions_delete(&self, id: i64) -> AppResult<()>;
+
+    async fn allocate_item_barcode(&self) -> AppResult<String>;
+    async fn subscription_issue(
+        &self,
+        subscription_id: i64,
+        issue_id: i64,
+    ) -> AppResult<SerialIssue>;
+    async fn issues_mark_arrived(
+        &self,
+        subscription_id: i64,
+        issue_id: i64,
+        received_at: DateTime<Utc>,
+        item_id: Option<i64>,
+    ) -> AppResult<Option<SerialIssue>>;
+    /// Lock the issue, then insert its copy and mark it arrived in that same transaction.
+    async fn receive_serial_issue(
+        &self,
+        subscription_id: i64,
+        issue_id: i64,
+        received_at: DateTime<Utc>,
+        biblio_id: i64,
+        item: Option<Item>,
+        hold_latest_in_library: bool,
+    ) -> AppResult<SerialIssue>;
+    async fn library_zone(&self) -> AppResult<chrono_tz::Tz>;
+    async fn issues_set_status(
+        &self,
+        subscription_id: i64,
+        issue_id: i64,
+        status: SerialIssueStatus,
+        from: &[SerialIssueStatus],
+    ) -> AppResult<Option<SerialIssue>>;
+    async fn issues_insert_supplement(
+        &self,
+        subscription_id: i64,
+        planned_date: NaiveDate,
+        display_label: &str,
+        notes: Option<String>,
+    ) -> AppResult<SerialIssue>;
+    async fn issues_mark_late(
+        &self,
+        subscription_id: i64,
+        grace_days: i32,
+        today: NaiveDate,
+    ) -> AppResult<Vec<SerialIssue>>;
+    async fn apply_latest_issue_borrowable(&self, subscription_id: i64) -> AppResult<()>;
 }
 
 #[async_trait]
@@ -362,6 +411,84 @@ impl SerialsRepository for Repository {
     }
     async fn subscriptions_delete(&self, id: i64) -> AppResult<()> {
         Repository::subscriptions_delete(self, id).await
+    }
+    async fn allocate_item_barcode(&self) -> AppResult<String> {
+        Repository::allocate_item_barcode(self).await
+    }
+    async fn subscription_issue(
+        &self,
+        subscription_id: i64,
+        issue_id: i64,
+    ) -> AppResult<SerialIssue> {
+        Repository::subscription_issue(self, subscription_id, issue_id).await
+    }
+    async fn issues_mark_arrived(
+        &self,
+        subscription_id: i64,
+        issue_id: i64,
+        received_at: DateTime<Utc>,
+        item_id: Option<i64>,
+    ) -> AppResult<Option<SerialIssue>> {
+        Repository::issues_mark_arrived(self, subscription_id, issue_id, received_at, item_id).await
+    }
+    async fn receive_serial_issue(
+        &self,
+        subscription_id: i64,
+        issue_id: i64,
+        received_at: DateTime<Utc>,
+        biblio_id: i64,
+        item: Option<Item>,
+        hold_latest_in_library: bool,
+    ) -> AppResult<SerialIssue> {
+        Repository::receive_serial_issue(
+            self,
+            subscription_id,
+            issue_id,
+            received_at,
+            biblio_id,
+            item,
+            hold_latest_in_library,
+        )
+        .await
+    }
+    async fn library_zone(&self) -> AppResult<chrono_tz::Tz> {
+        Repository::library_zone(self).await
+    }
+    async fn issues_set_status(
+        &self,
+        subscription_id: i64,
+        issue_id: i64,
+        status: SerialIssueStatus,
+        from: &[SerialIssueStatus],
+    ) -> AppResult<Option<SerialIssue>> {
+        Repository::issues_set_status(self, subscription_id, issue_id, status, from).await
+    }
+    async fn issues_insert_supplement(
+        &self,
+        subscription_id: i64,
+        planned_date: NaiveDate,
+        display_label: &str,
+        notes: Option<String>,
+    ) -> AppResult<SerialIssue> {
+        Repository::issues_insert_supplement(
+            self,
+            subscription_id,
+            planned_date,
+            display_label,
+            notes.as_deref(),
+        )
+        .await
+    }
+    async fn issues_mark_late(
+        &self,
+        subscription_id: i64,
+        grace_days: i32,
+        today: NaiveDate,
+    ) -> AppResult<Vec<SerialIssue>> {
+        Repository::issues_mark_late(self, subscription_id, grace_days, today).await
+    }
+    async fn apply_latest_issue_borrowable(&self, subscription_id: i64) -> AppResult<()> {
+        Repository::apply_latest_issue_borrowable(self, subscription_id).await
     }
 }
 

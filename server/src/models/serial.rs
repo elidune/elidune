@@ -766,6 +766,87 @@ pub struct SerialIssueGenerateResponse {
     pub issues: Vec<SerialIssue>,
 }
 
+/// Receive an expected or late issue. An empty body allocates a barcode when the subscription creates items.
+#[derive(Debug, Clone, Deserialize, Validate, ToSchema, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ReceiveSerialIssue {
+    /// Scanned barcode. Omitted allocates one. Ignored only when absent; a barcode on a subscription that does not create items is rejected.
+    #[serde(default)]
+    #[validate(length(max = 100))]
+    pub barcode: Option<String>,
+    /// Calendar date the issue arrived. Omitted means today.
+    #[serde(default)]
+    pub received_on: Option<NaiveDate>,
+}
+
+/// Staff status for an issue that has not been received.
+///
+/// `missing` is claim-ready: the row can later move to `claimed`. Sending the claim is a later phase.
+/// `notAvailable` is a issue that will not be published.
+#[derive(Debug, Clone, Copy, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum SerialIssueStaffStatus {
+    Late,
+    Missing,
+    Claimed,
+    NotAvailable,
+    Deleted,
+}
+
+impl SerialIssueStaffStatus {
+    #[must_use]
+    pub fn as_issue_status(self) -> SerialIssueStatus {
+        match self {
+            Self::Late => SerialIssueStatus::Late,
+            Self::Missing => SerialIssueStatus::Missing,
+            Self::Claimed => SerialIssueStatus::Claimed,
+            Self::NotAvailable => SerialIssueStatus::NotAvailable,
+            Self::Deleted => SerialIssueStatus::Deleted,
+        }
+    }
+
+    /// Statuses this target may replace. `claimed` may also follow `missing`.
+    #[must_use]
+    pub fn allowed_from(self) -> &'static [SerialIssueStatus] {
+        match self {
+            Self::Claimed => &[
+                SerialIssueStatus::Expected,
+                SerialIssueStatus::Late,
+                SerialIssueStatus::Missing,
+            ],
+            Self::Late | Self::Missing | Self::NotAvailable | Self::Deleted => {
+                &[SerialIssueStatus::Expected, SerialIssueStatus::Late]
+            }
+        }
+    }
+}
+
+/// Body of `POST /serials/subscriptions/{id}/issues/{issueId}/status`.
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SetSerialIssueStatus {
+    pub status: SerialIssueStaffStatus,
+}
+
+/// A hors-série. Slot and sequence stay null so prediction is unchanged.
+#[derive(Debug, Clone, Deserialize, Validate, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateSerialSupplement {
+    pub planned_date: NaiveDate,
+    #[validate(length(min = 1, max = 100))]
+    pub display_label: String,
+    #[serde(default)]
+    #[validate(length(max = 4000))]
+    pub notes: Option<String>,
+}
+
+/// Expected issues moved to `late` by grace.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SerialIssuesMarkedLate {
+    pub issues: Vec<SerialIssue>,
+}
+
 /// One issue row to insert. Sequence is the stored sequence, not the engine's per-call index.
 #[derive(Debug, Clone)]
 pub struct NewSerialIssue {

@@ -7,13 +7,23 @@ use super::serials::next_id;
 use super::Repository;
 use crate::{
     error::{AppError, AppResult},
-    models::serial::{
-        CombinedIssue, FrequencySpec, FrequencyUnit, LengthKind, NewSerialIssue, PredictionState,
-        RecurringSkip, SerialIssue, SerialIssueStatus, SerialSubscription, SerialSubscriptionQuery,
-        SerialSubscriptionStatus, SerialSubscriptionWrite, SubscriptionLength,
+    models::{
+        item::Item,
+        serial::{
+            CombinedIssue, FrequencySpec, FrequencyUnit, LengthKind, NewSerialIssue,
+            PredictionState, RecurringSkip, SerialIssue, SerialIssueStatus, SerialSubscription,
+            SerialSubscriptionQuery, SerialSubscriptionStatus, SerialSubscriptionWrite,
+            SubscriptionLength,
+        },
     },
     serials::grace,
+    services::item_barcode::allocate_local_item_barcode,
 };
+
+const ISSUE_COLUMNS: &str = "\
+id, serial_subscription_id, planned_date, display_label, sequence, slot, \
+value_x, value_y, value_z, status, supplement, item_id, received_at, notes, \
+created_at, updated_at";
 
 const SUBSCRIPTION_FROM: &str = "\
 FROM serial_subscriptions s \
@@ -651,6 +661,390 @@ impl Repository {
         tx.commit().await?;
         Ok(())
     }
+
+    pub async fn allocate_item_barcode(&self) -> AppResult<String> {
+        allocate_local_item_barcode(self).await
+    }
+
+    pub async fn subscription_issue(
+        &self,
+        subscription_id: i64,
+        issue_id: i64,
+    ) -> AppResult<SerialIssue> {
+        let sql = format!(
+            "SELECT {ISSUE_COLUMNS} FROM serial_issues \
+             WHERE id = $1 AND serial_subscription_id = $2"
+        );
+        let row = sqlx::query_as::<_, IssueRow>(&sql)
+            .bind(issue_id)
+            .bind(subscription_id)
+            .fetch_optional(&self.pool)
+            .await?
+            .ok_or_else(|| AppError::NotFound(format!("Serial issue {issue_id} not found")))?;
+        issue_from_row(row)
+    }
+
+    pub async fn issues_mark_arrived(
+        &self,
+        subscription_id: i64,
+        issue_id: i64,
+        received_at: DateTime<Utc>,
+        item_id: Option<i64>,
+    ) -> AppResult<Option<SerialIssue>> {
+        let mut tx = self.pool.begin().await?;
+        lock_subscription(&mut tx, subscription_id).await?;
+        let sql = format!(
+            "UPDATE serial_issues \
+             SET status = 'arrived', received_at = $3, item_id = $4, updated_at = now() \
+             WHERE id = $1 AND serial_subscription_id = $2 \
+               AND status IN ('expected', 'late') \
+             RETURNING {ISSUE_COLUMNS}"
+        );
+        let row = sqlx::query_as::<_, IssueRow>(&sql)
+            .bind(issue_id)
+            .bind(subscription_id)
+            .bind(received_at)
+            .bind(item_id)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(map_subscription_sql)?;
+        tx.commit().await.map_err(map_subscription_sql)?;
+        row.map(issue_from_row).transpose()
+    }
+
+    pub async fn issues_set_status(
+        &self,
+        subscription_id: i64,
+        issue_id: i64,
+        status: SerialIssueStatus,
+        from: &[SerialIssueStatus],
+    ) -> AppResult<Option<SerialIssue>> {
+        let from_db: Vec<String> = from
+            .iter()
+            .map(|status| status.as_db_str().to_string())
+            .collect();
+        let mut tx = self.pool.begin().await?;
+        lock_subscription(&mut tx, subscription_id).await?;
+        let sql = format!(
+            "UPDATE serial_issues SET status = $3, updated_at = now() \
+             WHERE id = $1 AND serial_subscription_id = $2 AND status = ANY($4) \
+             RETURNING {ISSUE_COLUMNS}"
+        );
+        let row = sqlx::query_as::<_, IssueRow>(&sql)
+            .bind(issue_id)
+            .bind(subscription_id)
+            .bind(status.as_db_str())
+            .bind(&from_db)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(map_subscription_sql)?;
+        tx.commit().await.map_err(map_subscription_sql)?;
+        row.map(issue_from_row).transpose()
+    }
+
+    pub async fn issues_insert_supplement(
+        &self,
+        subscription_id: i64,
+        planned_date: NaiveDate,
+        display_label: &str,
+        notes: Option<&str>,
+    ) -> AppResult<SerialIssue> {
+        let sql = format!(
+            "INSERT INTO serial_issues ( \
+                id, serial_subscription_id, planned_date, display_label, sequence, slot, \
+                value_x, value_y, value_z, status, supplement, notes, created_at, updated_at \
+             ) VALUES ($1, $2, $3, $4, NULL, NULL, 0, 0, 0, 'expected', true, $5, now(), now()) \
+             RETURNING {ISSUE_COLUMNS}"
+        );
+        let row = sqlx::query_as::<_, IssueRow>(&sql)
+            .bind(next_id())
+            .bind(subscription_id)
+            .bind(planned_date)
+            .bind(display_label)
+            .bind(notes)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(map_subscription_sql)?;
+        issue_from_row(row)
+    }
+
+    pub async fn issues_mark_late(
+        &self,
+        subscription_id: i64,
+        grace_days: i32,
+        today: NaiveDate,
+    ) -> AppResult<Vec<SerialIssue>> {
+        let mut tx = self.pool.begin().await?;
+        lock_subscription(&mut tx, subscription_id).await?;
+        let sql = format!(
+            "UPDATE serial_issues \
+             SET status = 'late', updated_at = now() \
+             WHERE serial_subscription_id = $1 \
+               AND status = 'expected' \
+               AND planned_date + $2::integer < $3::date \
+             RETURNING {ISSUE_COLUMNS}"
+        );
+        let rows = sqlx::query_as::<_, IssueRow>(&sql)
+            .bind(subscription_id)
+            .bind(grace_days)
+            .bind(today)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(map_subscription_sql)?;
+        tx.commit().await.map_err(map_subscription_sql)?;
+        rows.into_iter().map(issue_from_row).collect()
+    }
+
+    /// Receive one issue. The subscription row is locked before the issue row, then
+    /// the copy insert shares that transaction, so receipts of one subscription run
+    /// one at a time and a conflicting receipt commits nothing.
+    pub async fn receive_serial_issue(
+        &self,
+        subscription_id: i64,
+        issue_id: i64,
+        received_at: DateTime<Utc>,
+        biblio_id: i64,
+        item: Option<Item>,
+        hold_latest_in_library: bool,
+    ) -> AppResult<SerialIssue> {
+        let mut tx = self.pool.begin().await?;
+        lock_subscription(&mut tx, subscription_id).await?;
+        let status: Option<String> = sqlx::query_scalar(
+            "SELECT status FROM serial_issues \
+             WHERE id = $1 AND serial_subscription_id = $2 \
+             FOR UPDATE",
+        )
+        .bind(issue_id)
+        .bind(subscription_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(map_subscription_sql)?;
+        let Some(status) = status else {
+            return Err(AppError::NotFound(format!(
+                "Serial issue {issue_id} not found"
+            )));
+        };
+        if status != "expected" && status != "late" {
+            return Err(AppError::Conflict(
+                "This issue was updated and can no longer be received".into(),
+            ));
+        }
+
+        let item_id = if let Some(item) = item {
+            let archived: Option<Option<DateTime<Utc>>> =
+                sqlx::query_scalar("SELECT archived_at FROM biblios WHERE id = $1")
+                    .bind(biblio_id)
+                    .fetch_optional(&mut *tx)
+                    .await
+                    .map_err(map_subscription_sql)?;
+            match archived {
+                None => {
+                    return Err(AppError::NotFound(format!(
+                        "Biblio '{biblio_id}' not found"
+                    )));
+                }
+                Some(Some(_)) => {
+                    return Err(AppError::Gone(format!(
+                        "Biblio '{biblio_id}' has been archived"
+                    )));
+                }
+                Some(None) => {}
+            }
+            if let Some(barcode) = item.barcode.as_deref().filter(|value| !value.is_empty()) {
+                let taken: bool = sqlx::query_scalar(
+                    "SELECT EXISTS(SELECT 1 FROM items WHERE barcode = $1 AND archived_at IS NULL)",
+                )
+                .bind(barcode)
+                .fetch_one(&mut *tx)
+                .await
+                .map_err(map_subscription_sql)?;
+                if taken {
+                    if let Some(existing) = self.items_find_short_by_barcode(barcode, None).await? {
+                        return Err(AppError::DuplicateBarcodeNeedsConfirmation {
+                            existing_id: existing.id,
+                            existing_item: Box::new(existing),
+                            message: format!("An item with barcode {barcode} already exists."),
+                        });
+                    }
+                    return Err(AppError::Conflict(format!(
+                        "An item with barcode {barcode} already exists."
+                    )));
+                }
+            }
+            let created =
+                match super::biblios::insert_item_row(&mut *tx, biblio_id, &item, item.site_id)
+                    .await
+                {
+                    Ok(created) => created,
+                    Err(err) if barcode_unique_violation(&err) => {
+                        return Err(AppError::Conflict(
+                            "An item with this barcode already exists.".into(),
+                        ));
+                    }
+                    Err(err) => return Err(err),
+                };
+            Some(
+                created
+                    .id
+                    .ok_or_else(|| AppError::Internal("Created item is missing id".into()))?,
+            )
+        } else {
+            None
+        };
+
+        let sql = format!(
+            "UPDATE serial_issues \
+             SET status = 'arrived', received_at = $3, item_id = $4, updated_at = now() \
+             WHERE id = $1 AND serial_subscription_id = $2 \
+               AND status IN ('expected', 'late') \
+             RETURNING {ISSUE_COLUMNS}"
+        );
+        let row = sqlx::query_as::<_, IssueRow>(&sql)
+            .bind(issue_id)
+            .bind(subscription_id)
+            .bind(received_at)
+            .bind(item_id)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(map_subscription_sql)?;
+        let Some(row) = row else {
+            return Err(AppError::Conflict(
+                "This issue was updated and can no longer be received".into(),
+            ));
+        };
+        if hold_latest_in_library && item_id.is_some() {
+            apply_latest_issue_borrowable_tx(&mut tx, subscription_id).await?;
+        }
+        tx.commit().await.map_err(map_subscription_sql)?;
+        issue_from_row(row)
+    }
+
+    /// Hold only the newest arrived regular issue in the library.
+    ///
+    /// The new latest copy becomes non-borrowable. The copy this rule previously
+    /// held returns to the `borrowable` value saved on that row. Every other copy
+    /// stays as it is, including one a librarian marked non-borrowable.
+    /// The subscription row is locked before any issue row.
+    pub async fn apply_latest_issue_borrowable(&self, subscription_id: i64) -> AppResult<()> {
+        let mut tx = self.pool.begin().await?;
+        lock_subscription(&mut tx, subscription_id).await?;
+        apply_latest_issue_borrowable_tx(&mut tx, subscription_id).await?;
+        tx.commit().await.map_err(map_subscription_sql)?;
+        Ok(())
+    }
+}
+
+/// Lock the subscription before any of its issue rows.
+///
+/// Receipt and every status change that can move the latest issue take this lock
+/// first, so two transactions cannot lock an issue and then the subscription in
+/// opposite orders.
+async fn lock_subscription(tx: &mut sqlx::PgConnection, subscription_id: i64) -> AppResult<()> {
+    let id: Option<i64> =
+        sqlx::query_scalar("SELECT id FROM serial_subscriptions WHERE id = $1 FOR UPDATE")
+            .bind(subscription_id)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(map_subscription_sql)?;
+    if id.is_none() {
+        return Err(AppError::NotFound(format!(
+            "Serial subscription {subscription_id} not found"
+        )));
+    }
+    Ok(())
+}
+
+async fn apply_latest_issue_borrowable_tx(
+    tx: &mut sqlx::PgConnection,
+    subscription_id: i64,
+) -> AppResult<()> {
+    let latest = sqlx::query_as::<_, (i64, i64, Option<bool>)>(
+        "SELECT id, item_id, library_only_borrowable_before \
+             FROM serial_issues \
+             WHERE serial_subscription_id = $1 \
+               AND supplement = false \
+               AND status = 'arrived' \
+               AND item_id IS NOT NULL \
+             ORDER BY planned_date DESC, slot DESC NULLS LAST, id DESC \
+             LIMIT 1 \
+             FOR UPDATE",
+    )
+    .bind(subscription_id)
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(map_subscription_sql)?;
+    let Some((latest_id, latest_item, latest_saved)) = latest else {
+        return Ok(());
+    };
+
+    let held = sqlx::query_as::<_, (i64, i64, bool)>(
+        "SELECT id, item_id, library_only_borrowable_before \
+             FROM serial_issues \
+             WHERE serial_subscription_id = $1 \
+               AND library_only_borrowable_before IS NOT NULL \
+               AND id <> $2 \
+               AND item_id IS NOT NULL \
+             FOR UPDATE",
+    )
+    .bind(subscription_id)
+    .bind(latest_id)
+    .fetch_all(&mut *tx)
+    .await
+    .map_err(map_subscription_sql)?;
+    for (issue_id, item_id, borrowable_before) in held {
+        sqlx::query("UPDATE items SET borrowable = $2, updated_at = now() WHERE id = $1")
+            .bind(item_id)
+            .bind(borrowable_before)
+            .execute(&mut *tx)
+            .await
+            .map_err(map_subscription_sql)?;
+        sqlx::query(
+            "UPDATE serial_issues \
+                 SET library_only_borrowable_before = NULL, updated_at = now() \
+                 WHERE id = $1",
+        )
+        .bind(issue_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(map_subscription_sql)?;
+    }
+
+    if latest_saved.is_none() {
+        let borrowable_before: bool =
+            sqlx::query_scalar("SELECT borrowable FROM items WHERE id = $1 FOR UPDATE")
+                .bind(latest_item)
+                .fetch_one(&mut *tx)
+                .await
+                .map_err(map_subscription_sql)?;
+        sqlx::query(
+            "UPDATE serial_issues \
+                 SET library_only_borrowable_before = $2, updated_at = now() \
+                 WHERE id = $1",
+        )
+        .bind(latest_id)
+        .bind(borrowable_before)
+        .execute(&mut *tx)
+        .await
+        .map_err(map_subscription_sql)?;
+        sqlx::query("UPDATE items SET borrowable = false, updated_at = now() WHERE id = $1")
+            .bind(latest_item)
+            .execute(&mut *tx)
+            .await
+            .map_err(map_subscription_sql)?;
+    }
+
+    Ok(())
+}
+
+fn barcode_unique_violation(err: &AppError) -> bool {
+    let AppError::Database(sql) = err else {
+        return false;
+    };
+    let sqlx::Error::Database(db) = sql.as_ref() else {
+        return false;
+    };
+    db.code().as_deref() == Some("23505")
+        && db.constraint() == Some("idx_items_barcode_active_unique")
 }
 
 fn irregularities_of(slots: &[u32]) -> AppResult<Vec<i32>> {

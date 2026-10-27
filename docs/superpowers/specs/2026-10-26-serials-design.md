@@ -286,14 +286,23 @@ Stored as text, not Koha's integers.
 
 ### Receipt (MVP 3)
 
+`POST /serials/subscriptions/{id}/issues/{issueId}/receive` moves an `expected` or `late` issue to `arrived` and sets `received_at`. It does not change any other issue's status. The handler locks the subscription row (`SELECT … FROM serial_subscriptions WHERE id = $1 FOR UPDATE`), then that issue row, then inserts the copy and marks the issue arrived in the same transaction. Receipts of the same subscription therefore run one at a time, so only the newest arrived regular issue stays non-borrowable. A second receipt of the same issue that loses the race returns 409 and leaves no copy. Status changes that can move which issue is latest take that same subscription lock before any issue row. An expected issue becomes `late` only through `POST /serials/subscriptions/{id}/mark-late`, when the library's local date (`library_info.timezone`, via `local_date`) is after that issue's own `planned_date` plus the effective grace (`grace_days` when stored, including 0, otherwise the frequency default). An irregular subscription with no grace is not auto-marked. The scheduler that calls this remains Phase 2.
+
+`POST /serials/subscriptions/{id}/issues/{issueId}/status` moves an unreceived issue to `late`, `missing` (claim-ready; no claim is sent), `claimed` (from expected, late, or missing; still no email), `notAvailable` (will not be published), or `deleted`. `arrived` is only the receive route.
+
+`POST /serials/subscriptions/{id}/supplements` inserts a hors-série with `supplement` true and null `slot` and `sequence`. Prediction is unchanged.
+
 For each issue moved to `arrived`, when `create_items` is true:
 
 - Barcode from the scan, otherwise `allocate_local_item_barcode`.
-- `CatalogService::create_item` on the periodical biblio.
+- The copy is `Item::received_copy`, the same constructor acquisitions receipt uses. The insert is the statement `CatalogService::create_item` uses (`insert_item_row`), run inside the receipt transaction after the subscription row and the issue row are locked. The search index is updated after that transaction commits.
 - `volume_designation` = `display_label`.
 - `site_id` = the serial subscription site.
+- `call_number`, `public_note`, and `internal_note` are copied. `notes` is copied into the item internal note only when `internal_note` is empty. `location` stays on the subscription: `items.place` is a numeric shelf code, not free text.
 - `items.price` = `issue_price_cents` when that column is set. When it is null, the item price stays empty. `cost_cents` is not the item price.
-- `borrowable` follows `latest_issue_library_use_only`: the new copy stays non-borrowable, and the previous issue's copy becomes borrowable, in the Phase 2 circulation rules.
+- `borrowable` follows `latest_issue_library_use_only`. The latest issue is the arrived regular issue with the most recent `planned_date` (then the highest slot), not the most recently received one. Supplements never count. The rule touches two copies only: the new latest copy becomes non-borrowable, and the previous latest copy becomes borrowable again only when this rule had made it non-borrowable. `serial_issues.library_only_borrowable_before` stores that previous `items.borrowable` while the rule holds the copy. A librarian's own non-borrowable choice, including one made before the issue became the latest, is left as it is. Receiving n° 413 does not mark n° 412 arrived; if 412 arrives later it is loanable immediately and 413 stays in the library.
+
+No migration `006`: receipt uses the columns from `005`.
 
 Irregular issues (extra skips) and supplements are staff edits on rows, not a second prediction model.
 
@@ -303,7 +312,7 @@ Per serial subscription: keep the last N arrived issues, or the last N months. I
 
 ### Circulation (Phase 2)
 
-Previous issue becomes lendable when the next one arrives, if the setting is on. Holds stay copy-level on the received item. No new hold type.
+The in-library-only copy is the arrived regular issue with the most recent planned date, if the setting is on. An older issue that arrives later is lendable. Holds stay copy-level on the received item. No new hold type.
 
 ### Renewal and purchase orders (Phase 2 close/reopen, Phase 4 order line)
 
@@ -320,7 +329,7 @@ Phase 3 shows the latest arrived issues and the free-text holdings statement. It
 - **Phase 0.** This spec.
 - **MVP 1 (this change).** Migration `004`: `serials_rights` (`NOT NULL DEFAULT 'n'`, like `weeding_rights`), `serial_frequencies` with the seed, `serial_numbering_patterns` with three seeded patterns. Pure prediction engine and its unit tests. Read/CRUD for frequencies and patterns, `POST /serials/predictions`, OpenAPI, rights, integration tests. No serial subscription rows. Frequency translation keys are in the UI locales; no frequency screen yet.
 - **MVP 2.** Migration `005`: `serial_subscriptions` per site, optional vendor, fund, annual `cost_cents`, and `issue_price_cents`, `grace_days`, anchor date, and `next_slot`. Horizon generation into `serial_issues` continues from that cursor. A supplement may omit `slot`. No subscription UI (MVP 4).
-- **MVP 3.** Receive issues onto persisted rows, create items through `CatalogService::create_item`, statuses, irregular skips, supplements.
+- **MVP 3.** Receive expected or late issues onto persisted rows, create items through `Item::received_copy` and `CatalogService::create_item`, staff statuses (late, missing, claimed, not published, deleted), grace-based late detection, and supplements with a null slot and sequence. The latest in-library copy is the arrived regular issue with the newest planned date.
 - **MVP 4.** UI: serial subscription form with the prediction preview, the `create_items` checkbox beside the frequency, serial collection, receive screen, search. Frequency labels use `serials.frequencies.*`. Account-type settings already expose `serialsRights` from MVP 1.
 - **Phase 2.** Late-issue scheduler job and vendor claims (email + CSV). Expiration, renewal, close/reopen. Circulation: previous issue lendable, issue-level holds. Retention rule via weeding.
 - **Phase 3.** OPAC latest issues and holdings text. Patron new-issue alerts. Routing lists.

@@ -246,33 +246,13 @@ impl AcquisitionsService {
             for spec in specs.iter() {
                 let barcode = spec.barcode.clone().filter(|s| !s.trim().is_empty());
                 let price = copy_price(spec, unit_price)?;
-                let borrowable = Item::ready_to_circulate(
-                    barcode.as_deref(),
-                    spec.site_id,
-                    spec.site_name.as_deref(),
-                );
-
-                let weeding_status = crate::models::item::WeedingStatus::OnShelf;
-                let (availability, can_hold_item) =
-                    crate::models::item::ItemAvailability::local_pair(
-                        false,
-                        borrowable,
-                        None,
-                        weeding_status,
-                    );
-                let item = Item {
-                    lender_barcode: None,
-                    id: None,
-                    biblio_id: Some(biblio_id),
-                    site_id: spec.site_id,
+                let item = Item::received_copy(crate::models::item::ReceivedCopy {
+                    biblio_id,
                     barcode,
+                    site_id: spec.site_id,
+                    site_name: spec.site_name.clone(),
                     call_number: spec.call_number.clone(),
                     volume_designation: None,
-                    place: None,
-                    borrowable,
-                    circulation_status: None,
-                    weeding_status,
-                    weeding_reason: None,
                     public_note: None,
                     internal_note: Some(format!(
                         "Received from purchase order {}",
@@ -280,25 +260,8 @@ impl AcquisitionsService {
                     )),
                     price,
                     price_deferred: spec.price_deferred,
-                    created_at: None,
-                    updated_at: None,
-                    archived_at: None,
-                    site_name: spec.site_name.clone(),
-                    borrowed: false,
-                    loan_id: None,
-                    availability,
-                    can_hold_item,
-                    hold_user_id: None,
-                    hold_user_barcode: None,
-                    hold_user_firstname: None,
-                    hold_user_lastname: None,
-                    due_date: None,
-                    expected_return_date: None,
-                    on_hold: false,
-                    deposit_batch_id: None,
-                    deposit: None,
-                    legacy_notes_present: false,
-                };
+                    borrowable: None,
+                });
 
                 let created_item = self.catalog.create_item(biblio_id, item).await?;
                 let item_id = created_item
