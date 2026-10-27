@@ -2,6 +2,8 @@ import {
   canCreateHold,
   canManageAcquisitions,
   canManageItems,
+  canManageSerials,
+  canViewSerials,
   canManageWeeding,
   canReadHoldsStaff,
   canReadItems,
@@ -29,6 +31,7 @@ export type AccessUser = Pick<
   | 'weedingCancelRights'
   | 'itemsArchiveRights'
   | 'acquisitionsRights'
+  | 'serialsRights'
   | 'rights'
 > | null | undefined;
 
@@ -46,6 +49,8 @@ export interface StaffAccess {
   eventsWrite: boolean;
   weeding: boolean;
   acquisitions: boolean;
+  /** Serial subscriptions and issue receiving (`serialsRights` read or write). */
+  serials: boolean;
   /** Home statistics cards call `GET /stats` (`itemsRights` read) and only for the staff view. */
   homeStats: boolean;
   stats: boolean;
@@ -86,6 +91,7 @@ export function staffAccess(user: AccessUser, authToken?: string | null): StaffA
     eventsWrite,
     weeding: canViewWeeding(user, authToken),
     acquisitions: canViewAcquisitions(user, authToken),
+    serials: canViewSerials(user, authToken),
     homeStats: internalCatalog && canReadItems(user, authToken),
     stats: canViewStats(user, authToken),
     librarySettings: settingsRead && (settingsWrite || internalCatalog),
@@ -95,6 +101,7 @@ export function staffAccess(user: AccessUser, authToken?: string | null): StaffA
       settingsWrite ||
       eventsWrite ||
       canManageWeeding(user, authToken) ||
-      canManageAcquisitions(user, authToken),
+      canManageAcquisitions(user, authToken) ||
+      canManageSerials(user, authToken),
   };
 }

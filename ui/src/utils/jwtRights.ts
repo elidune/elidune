@@ -73,6 +73,10 @@ export function readAcquisitionsRightsFromJwt(accessToken: string | null | undef
   return readRightsLevelFromJwt(accessToken, 'acquisitionsRights');
 }
 
+export function readSerialsRightsFromJwt(accessToken: string | null | undefined): 'n' | 'r' | 'w' | null {
+  return readRightsLevelFromJwt(accessToken, 'serialsRights');
+}
+
 function readRightsLevelFromJwt(
   accessToken: string | null | undefined,
   field: string,

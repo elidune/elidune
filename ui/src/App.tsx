@@ -44,6 +44,8 @@ import {
   PublicEventsPage,
   AcquisitionsPage,
   AcquisitionsOrderDetailPage,
+  SerialsPage,
+  SerialSubscriptionDetailPage,
 } from '@/pages';
 import api from '@/services/api';
 import { useLibrary } from '@/contexts/LibraryContext';
@@ -539,6 +541,31 @@ function AppRoutes() {
             <RightsRoute allow={(access) => access.acquisitions}>
               <Navigate to="/acquisitions?tab=suggestions" replace />
             </RightsRoute>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/serials/:id"
+        element={
+          <ProtectedRoute>
+            <FeatureRoute feature="serials">
+              <RightsRoute allow={(access) => access.serials}>
+                <SerialSubscriptionDetailPage />
+              </RightsRoute>
+            </FeatureRoute>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/serials"
+        element={
+          <ProtectedRoute>
+            <FeatureRoute feature="serials">
+              <RightsRoute allow={(access) => access.serials}>
+                <SerialsPage />
+              </RightsRoute>
+            </FeatureRoute>
           </ProtectedRoute>
         }
       />
