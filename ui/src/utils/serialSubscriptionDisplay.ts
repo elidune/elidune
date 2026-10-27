@@ -236,6 +236,64 @@ export function focusReceiveButton(issueId: string): void {
   }, 0);
 }
 
+const MONTHS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] as const;
+
+export function skipMonths(raw: string): number[] {
+  const parsed = parseRecurringSkips(raw);
+  if (!parsed.ok) return [];
+  return [...new Set(parsed.skips.map((skip) => skip.month))].sort((left, right) => left - right);
+}
+
+/** Month checkboxes replace the free-text skip field. A toggle stores months only. */
+export function toggleSkipMonth(raw: string, month: number): string {
+  const selected = new Set(skipMonths(raw));
+  if (selected.has(month)) selected.delete(month);
+  else selected.add(month);
+  return [...selected].sort((left, right) => left - right).join(', ');
+}
+
+export function monthChoices(): readonly number[] {
+  return MONTHS;
+}
+
+export function monthName(month: number, locale: string): string {
+  return new Date(2026, month - 1, 1).toLocaleDateString(locale, { month: 'long' });
+}
+
+function dateParts(value: string): { year: number; month: number; day: number } | null {
+  const [year, month, day] = value.slice(0, 10).split('-').map(Number);
+  if (!year || !month || !day) return null;
+  return { year, month, day };
+}
+
+function longDate(value: string, locale: string, withYear: boolean): string {
+  const parts = dateParts(value);
+  if (!parts) return value;
+  return new Date(parts.year, parts.month - 1, parts.day).toLocaleDateString(locale, {
+    day: 'numeric',
+    month: 'long',
+    ...(withYear ? { year: 'numeric' as const } : {}),
+  });
+}
+
+/** First and last planned dates for the short preview announcement. */
+export function previewDateSpan(
+  issues: Array<{ plannedDate: string }>,
+  locale: string,
+): { from: string; to: string } | null {
+  const dates = issues.map((issue) => issue.plannedDate).filter(Boolean).sort();
+  const from = dates[0];
+  const to = dates[dates.length - 1];
+  if (!from || !to) return null;
+  const start = dateParts(from);
+  const end = dateParts(to);
+  const sameYear = start != null && end != null && start.year === end.year;
+  return {
+    from: longDate(from, locale, !sameYear),
+    to: longDate(to, locale, true),
+  };
+}
+
 export function formatIsoDate(value: string | null | undefined, locale: string): string {
   if (!value) return '—';
   const [year, month, day] = value.slice(0, 10).split('-').map(Number);

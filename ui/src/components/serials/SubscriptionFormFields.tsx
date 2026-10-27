@@ -2,6 +2,7 @@ import { useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import CollapsibleFormSection from '@/components/common/CollapsibleFormSection';
 import Input from '@/components/common/Input';
+import Typeahead from '@/components/common/Typeahead';
 import type { PredictedSerialIssue, SerialFrequency, SerialNumberingPattern, Site } from '@/types';
 import type { AcquisitionFund, AcquisitionVendor, BiblioShortStaff } from '@/types';
 import { formChoiceControlClass, formChoiceLabelClass, formControlClass, formLabelClass } from '@/utils/formControl';
@@ -9,6 +10,11 @@ import {
   frequencyGracePlaceholder,
   formatIsoDate,
   frequencyLabel,
+  monthChoices,
+  monthName,
+  previewDateSpan,
+  skipMonths,
+  toggleSkipMonth,
   type SubscriptionFormValues,
 } from '@/utils/serialSubscriptionDisplay';
 
@@ -37,6 +43,10 @@ export interface SubscriptionFormFieldsProps {
   previewLoading: boolean;
   previewError: string | null;
   emptyHorizon: boolean;
+  /** Closed and expired are edit-only. Creation stays on the open status. */
+  showStatus?: boolean;
+  /** Tests open the advanced section; the form starts collapsed. */
+  initialAdvancedOpen?: boolean;
 }
 
 export default function SubscriptionFormFields({
@@ -58,13 +68,22 @@ export default function SubscriptionFormFields({
   previewLoading,
   previewError,
   emptyHorizon,
+  showStatus = false,
+  initialAdvancedOpen = false,
 }: SubscriptionFormFieldsProps) {
   const { t, i18n } = useTranslation();
   const previewErrorId = useId();
-  const [advancedOpen, setAdvancedOpen] = useState(true);
+  const [advancedOpen, setAdvancedOpen] = useState(initialAdvancedOpen);
   const pattern = patterns.find((row) => row.id === values.numberingPatternId);
   const frequency = frequencies.find((row) => row.id === values.frequencyId);
   const gracePlaceholder = frequencyGracePlaceholder(frequency);
+  const selectedMonths = new Set(skipMonths(values.recurringSkips));
+  const previewSpan = previewDateSpan(preview, i18n.language);
+  const previewAnnouncement = previewLoading
+    ? t('serials.form.previewLoading')
+    : previewSpan
+      ? t('serials.form.previewSummary', { count: preview.length, from: previewSpan.from, to: previewSpan.to })
+      : t('serials.form.previewEmpty');
   const fieldError = (key: string) => {
     const code = errors[key];
     return code ? t(FIELD_ERROR[code]) : undefined;
@@ -72,40 +91,29 @@ export default function SubscriptionFormFields({
 
   return (
     <div className="space-y-3">
-      <Input
-        id="serial-periodical-search"
+      <Typeahead
         label={t('serials.form.periodical')}
         value={values.biblioId ? values.biblioTitle : biblioQuery}
-        onChange={(event) => {
+        onChange={(value) => {
           onChange({ biblioId: '', biblioTitle: '' });
-          onBiblioQuery(event.target.value);
+          onBiblioQuery(value);
         }}
+        items={!values.biblioId && biblioQuery.trim().length >= 2 ? biblioResults : []}
+        getItemId={(biblio) => biblio.id}
+        onSelect={(biblio) => onSelectBiblio(biblio.id, biblio.title?.trim() || biblio.id)}
+        renderItem={(biblio) => biblio.title || biblio.id}
         placeholder={t('serials.form.periodicalSearch')}
-        error={fieldError('biblioId')}
-        autoComplete="off"
         disabled={predictionLocked && Boolean(values.biblioId)}
+        loading={biblioSearching}
+        selectedId={values.biblioId || null}
+        error={fieldError('biblioId')}
+        hint={
+          !values.biblioId && biblioQuery.trim().length >= 2 && !biblioSearching && biblioResults.length === 0
+            ? t('serials.form.periodicalEmpty')
+            : undefined
+        }
+        variant="dropdown"
       />
-      {!values.biblioId && biblioQuery.trim().length >= 2 ? (
-        <ul className="max-h-40 overflow-y-auto rounded-lg border border-gray-200 dark:border-gray-700" aria-label={t('serials.form.periodical')}>
-          {biblioSearching ? (
-            <li className="px-3 py-2 text-sm text-gray-500 dark:text-gray-400">{t('common.loading')}</li>
-          ) : biblioResults.length === 0 ? (
-            <li className="px-3 py-2 text-sm text-gray-500 dark:text-gray-400">{t('serials.form.periodicalEmpty')}</li>
-          ) : (
-            biblioResults.map((biblio) => (
-              <li key={biblio.id}>
-                <button
-                  type="button"
-                  className="w-full px-3 py-2 text-left text-sm text-gray-900 hover:bg-amber-50 dark:text-gray-100 dark:hover:bg-gray-800"
-                  onClick={() => onSelectBiblio(biblio.id, biblio.title?.trim() || biblio.id)}
-                >
-                  {biblio.title || biblio.id}
-                </button>
-              </li>
-            ))
-          )}
-        </ul>
-      ) : null}
 
       <div className="grid gap-3 sm:grid-cols-2">
         <div>
@@ -169,21 +177,23 @@ export default function SubscriptionFormFields({
             ))}
           </select>
         </div>
-        <div>
-          <label htmlFor="serial-status" className={formLabelClass()}>
-            {t('common.status')}
-          </label>
-          <select
-            id="serial-status"
-            className={formControlClass()}
-            value={values.status}
-            onChange={(event) => onChange({ status: event.target.value as SubscriptionFormValues['status'] })}
-          >
-            <option value="active">{t('serials.status.active')}</option>
-            <option value="expired">{t('serials.status.expired')}</option>
-            <option value="closed">{t('serials.status.closed')}</option>
-          </select>
-        </div>
+        {showStatus ? (
+          <div>
+            <label htmlFor="serial-status" className={formLabelClass()}>
+              {t('common.status')}
+            </label>
+            <select
+              id="serial-status"
+              className={formControlClass()}
+              value={values.status}
+              onChange={(event) => onChange({ status: event.target.value as SubscriptionFormValues['status'] })}
+            >
+              <option value="active">{t('serials.status.active')}</option>
+              <option value="expired">{t('serials.status.expired')}</option>
+              <option value="closed">{t('serials.status.closed')}</option>
+            </select>
+          </div>
+        ) : null}
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2">
@@ -311,48 +321,58 @@ export default function SubscriptionFormFields({
         error={fieldError('graceDays')}
       />
 
+      <div>
+        <label htmlFor="serial-pattern" className={formLabelClass()}>
+          {t('serials.form.pattern')}
+        </label>
+        <select
+          id="serial-pattern"
+          className={formControlClass({ error: Boolean(errors.numberingPatternId) })}
+          value={values.numberingPatternId}
+          disabled={predictionLocked}
+          aria-invalid={errors.numberingPatternId ? true : undefined}
+          aria-describedby={errors.numberingPatternId ? 'serial-pattern-error' : undefined}
+          onChange={(event) => onChange({ numberingPatternId: event.target.value })}
+        >
+          <option value="">{t('serials.form.pattern')}</option>
+          {patterns.map((row) => (
+            <option key={row.id} value={row.id}>
+              {row.label}
+            </option>
+          ))}
+        </select>
+        {pattern ? <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{pattern.formula}</p> : null}
+        {errors.numberingPatternId ? (
+          <p id="serial-pattern-error" className="mt-1 text-sm text-red-600 dark:text-red-400">
+            {fieldError('numberingPatternId')}
+          </p>
+        ) : null}
+      </div>
+
       <CollapsibleFormSection
         title={t('serials.form.advanced')}
-        summary={pattern ? `${pattern.label} · ${pattern.formula}` : null}
         open={advancedOpen}
         onToggle={() => setAdvancedOpen((open) => !open)}
       >
-        <div>
-          <label htmlFor="serial-pattern" className={formLabelClass()}>
-            {t('serials.form.pattern')}
-          </label>
-          <select
-            id="serial-pattern"
-            className={formControlClass({ error: Boolean(errors.numberingPatternId) })}
-            value={values.numberingPatternId}
-            disabled={predictionLocked}
-            aria-invalid={errors.numberingPatternId ? true : undefined}
-            aria-describedby={errors.numberingPatternId ? 'serial-pattern-error' : undefined}
-            onChange={(event) => onChange({ numberingPatternId: event.target.value })}
-          >
-            <option value="">{t('serials.form.pattern')}</option>
-            {patterns.map((row) => (
-              <option key={row.id} value={row.id}>
-                {row.label}
-              </option>
+        <fieldset disabled={predictionLocked} className="min-w-0">
+          <legend className={formLabelClass()}>{t('serials.form.recurringSkips')}</legend>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {monthChoices().map((month) => (
+              <label key={month} className={formChoiceLabelClass()}>
+                <input
+                  type="checkbox"
+                  className={formChoiceControlClass()}
+                  checked={selectedMonths.has(month)}
+                  onChange={() => onChange({ recurringSkips: toggleSkipMonth(values.recurringSkips, month) })}
+                />
+                {monthName(month, i18n.language)}
+              </label>
             ))}
-          </select>
-          {pattern ? <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{pattern.formula}</p> : null}
-          {errors.numberingPatternId ? (
-            <p id="serial-pattern-error" className="mt-1 text-sm text-red-600 dark:text-red-400">
-              {fieldError('numberingPatternId')}
-            </p>
+          </div>
+          {errors.recurringSkips ? (
+            <p className="mt-1 text-sm text-red-600 dark:text-red-400">{fieldError('recurringSkips')}</p>
           ) : null}
-        </div>
-        <Input
-          id="serial-skips"
-          label={t('serials.form.recurringSkips')}
-          value={values.recurringSkips}
-          onChange={(event) => onChange({ recurringSkips: event.target.value })}
-          hint={t('serials.form.recurringSkipsHint')}
-          error={fieldError('recurringSkips')}
-          disabled={predictionLocked}
-        />
+        </fieldset>
         <Input
           id="serial-irregularities"
           label={t('serials.form.irregularities')}
@@ -404,7 +424,10 @@ export default function SubscriptionFormFields({
         <p className="text-sm text-gray-600 dark:text-gray-300">{t('serials.form.predictionLocked')}</p>
       ) : null}
 
-      <div aria-live="polite" aria-atomic="true" className="rounded-lg border border-gray-200 dark:border-gray-700">
+      <p aria-live="polite" aria-atomic="true" className="text-sm text-gray-800 dark:text-gray-100">
+        {previewAnnouncement}
+      </p>
+      <div className="rounded-lg border border-gray-200 dark:border-gray-700">
         <table className="w-full text-sm">
           <caption className="px-3 py-2 text-left text-sm font-medium text-gray-900 dark:text-white">
             {t('serials.form.previewCaption')}

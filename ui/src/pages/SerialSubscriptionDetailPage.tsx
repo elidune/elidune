@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -242,16 +242,29 @@ export default function SerialSubscriptionDetailPage() {
         }
       />
 
-      <Card className="grid gap-2 p-4 text-sm text-gray-800 dark:text-gray-100 sm:grid-cols-2">
-        <p>{t('serials.column.issn')}: {subscription.issns.length ? subscription.issns.join(', ') : '—'}</p>
-        <p>{t('serials.form.cost')}: {formatSerialCents(subscription.costCents, i18n.language)}</p>
-        <p>{t('serials.form.issuePrice')}: {formatSerialCents(subscription.issuePriceCents, i18n.language)}</p>
-        <p>
-          {t('serials.form.graceDays')}:{' '}
-          {subscription.graceDays == null
-            ? t('serials.detail.graceDefault', { days: subscription.effectiveGraceDays ?? '—' })
-            : subscription.graceDays}
-        </p>
+      <Card className="p-4">
+        <dl className="grid gap-3 text-sm sm:grid-cols-2">
+          <div>
+            <dt className="text-gray-500 dark:text-gray-400">{t('serials.column.issn')}</dt>
+            <dd className="text-gray-900 dark:text-white">{subscription.issns.length ? subscription.issns.join(', ') : '—'}</dd>
+          </div>
+          <div>
+            <dt className="text-gray-500 dark:text-gray-400">{t('serials.form.cost')}</dt>
+            <dd className="text-gray-900 dark:text-white">{formatSerialCents(subscription.costCents, i18n.language)}</dd>
+          </div>
+          <div>
+            <dt className="text-gray-500 dark:text-gray-400">{t('serials.form.issuePrice')}</dt>
+            <dd className="text-gray-900 dark:text-white">{formatSerialCents(subscription.issuePriceCents, i18n.language)}</dd>
+          </div>
+          <div>
+            <dt className="text-gray-500 dark:text-gray-400">{t('serials.form.graceDays')}</dt>
+            <dd className="text-gray-900 dark:text-white">
+              {subscription.graceDays == null
+                ? t('serials.detail.graceDefault', { days: subscription.effectiveGraceDays ?? '—' })
+                : subscription.graceDays}
+            </dd>
+          </div>
+        </dl>
       </Card>
 
       {receivedCopy ? (
@@ -457,39 +470,137 @@ function IssueActions({
   onStatus: (status: SerialIssueStaffStatus) => void;
 }) {
   const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
   const fromExpected = issue.status === 'expected' || issue.status === 'late';
   const canClaim = fromExpected || issue.status === 'missing';
+  const label = issue.displayLabel;
+  const actions: Array<{ status: SerialIssueStaffStatus; text: string; name: string }> = [];
+  if (issue.status === 'expected') {
+    actions.push({
+      status: 'late',
+      text: t('serials.issues.markLate'),
+      name: t('serials.issues.markLateLabel', { label }),
+    });
+  }
+  if (fromExpected) {
+    actions.push({
+      status: 'missing',
+      text: t('serials.issues.markMissing'),
+      name: t('serials.issues.markMissingLabel', { label }),
+    });
+  }
+  if (canClaim) {
+    actions.push({
+      status: 'claimed',
+      text: t('serials.issues.markClaimed'),
+      name: t('serials.issues.markClaimedLabel', { label }),
+    });
+  }
+  if (fromExpected) {
+    actions.push({
+      status: 'notAvailable',
+      text: t('serials.issues.markNotPublished'),
+      name: t('serials.issues.markNotPublishedLabel', { label }),
+    });
+    actions.push({
+      status: 'deleted',
+      text: t('serials.issues.deleted'),
+      name: t('serials.issues.deleteLabel', { label }),
+    });
+  }
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointer = (event: MouseEvent) => {
+      if (!wrapRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onPointer);
+    return () => document.removeEventListener('mousedown', onPointer);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    wrapRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
+  }, [open]);
+
+  const onMenuKey = (event: KeyboardEvent<HTMLDivElement>) => {
+    const items = [...(wrapRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? [])];
+    const index = items.indexOf(document.activeElement as HTMLButtonElement);
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      setOpen(false);
+      menuButtonRef.current?.focus();
+      return;
+    }
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      items[(index + 1) % items.length]?.focus();
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      items[(index - 1 + items.length) % items.length]?.focus();
+    } else if (event.key === 'Home') {
+      event.preventDefault();
+      items[0]?.focus();
+    } else if (event.key === 'End') {
+      event.preventDefault();
+      items[items.length - 1]?.focus();
+    }
+  };
+
   return (
-    <div className="flex flex-wrap gap-1">
+    <div className="relative flex flex-wrap items-center gap-1" ref={wrapRef}>
       {canReceiveIssue(issue.status) ? (
-        <Button type="button" size="sm" data-serial-receive={issue.id} onClick={onReceive}>
+        <Button
+          type="button"
+          size="sm"
+          data-serial-receive={issue.id}
+          aria-label={t('serials.issues.receiveLabel', { label })}
+          onClick={onReceive}
+        >
           {t('serials.issues.receive')}
         </Button>
       ) : null}
-      {issue.status === 'expected' ? (
-        <Button type="button" size="sm" variant="secondary" onClick={() => onStatus('late')}>
-          {t('serials.issueStatus.late')}
-        </Button>
-      ) : null}
-      {fromExpected ? (
-        <Button type="button" size="sm" variant="secondary" onClick={() => onStatus('missing')}>
-          {t('serials.issues.missing')}
-        </Button>
-      ) : null}
-      {canClaim ? (
-        <Button type="button" size="sm" variant="secondary" onClick={() => onStatus('claimed')}>
-          {t('serials.issues.claimed')}
-        </Button>
-      ) : null}
-      {fromExpected ? (
-        <Button type="button" size="sm" variant="secondary" onClick={() => onStatus('notAvailable')}>
-          {t('serials.issues.notPublished')}
-        </Button>
-      ) : null}
-      {fromExpected ? (
-        <Button type="button" size="sm" variant="danger" onClick={() => onStatus('deleted')}>
-          {t('serials.issues.deleted')}
-        </Button>
+      {actions.length > 0 ? (
+        <>
+          <Button
+            ref={menuButtonRef}
+            type="button"
+            size="sm"
+            variant="secondary"
+            aria-haspopup="menu"
+            aria-expanded={open}
+            aria-label={t('serials.issues.moreLabel', { label })}
+            onClick={() => setOpen((current) => !current)}
+          >
+            {t('serials.issues.more')}
+          </Button>
+          {open ? (
+            <div
+              role="menu"
+              aria-label={t('serials.issues.moreLabel', { label })}
+              className="absolute left-0 top-full z-20 mt-1 min-w-56 max-w-[calc(100vw-2rem)] rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-gray-700 dark:bg-gray-900"
+              onKeyDown={onMenuKey}
+            >
+              {actions.map((action) => (
+                <button
+                  key={action.status}
+                  type="button"
+                  role="menuitem"
+                  className="block w-full px-3 py-2 text-left text-sm text-gray-900 hover:bg-gray-100 dark:text-gray-100 dark:hover:bg-gray-800"
+                  aria-label={action.name}
+                  onClick={() => {
+                    setOpen(false);
+                    onStatus(action.status);
+                  }}
+                >
+                  {action.text}
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </>
       ) : null}
     </div>
   );

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import BarcodeScanField from '@/components/common/BarcodeScanField';
 import Button from '@/components/common/Button';
-import Input from '@/components/common/Input';
 import Modal from '@/components/common/Modal';
 
 interface ReceiveIssueDialogProps {
@@ -37,7 +37,7 @@ export default function ReceiveIssueDialog({
           <Button type="button" variant="secondary" onClick={onClose} disabled={isSaving}>
             {t('common.cancel')}
           </Button>
-          <Button type="submit" form="serial-receive-form" isLoading={isSaving}>
+          <Button type="submit" form="serial-receive-form" isLoading={isSaving} aria-label={t('serials.issues.receiveLabel', { label })}>
             {t('serials.receive.confirm')}
           </Button>
         </div>
@@ -53,11 +53,12 @@ export default function ReceiveIssueDialog({
       >
         <p className="text-sm text-gray-800 dark:text-gray-100">{label}</p>
         {createItems ? (
-          <Input
+          <BarcodeScanField
             id="serial-receive-barcode"
             label={t('serials.receive.barcode')}
             value={barcode}
             onChange={(event) => setBarcode(event.target.value)}
+            onCameraScan={setBarcode}
             hint={t('serials.receive.barcodeHint')}
             autoFocus
             autoComplete="off"

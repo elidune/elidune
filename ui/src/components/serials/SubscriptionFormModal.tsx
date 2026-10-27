@@ -146,6 +146,7 @@ export default function SubscriptionFormModal({
           previewLoading={previewQuery.isFetching}
           previewError={previewError}
           emptyHorizon={emptyHorizon}
+          showStatus={subscription != null}
         />
         {submitMessage && !submitEmpty ? (
           <p role="alert" className="text-sm text-red-600 dark:text-red-400">
