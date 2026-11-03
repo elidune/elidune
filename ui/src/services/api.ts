@@ -147,6 +147,7 @@ import type {
   BatchCreateResponse,
   MarkLostRequest,
   MarkMissingRequest,
+  MarkItemFoundRequest,
   MarkDamagedRequest,
   MarkClaimedReturnedRequest,
   ResolveClaimsReturnedRequest,
@@ -1111,6 +1112,17 @@ class ApiService {
   ): Promise<CirculationExceptionResponse> {
     const response = await this.client.post<CirculationExceptionResponse>(
       `/items/${encodeURIComponent(itemId)}/missing`,
+      data,
+    );
+    return response.data;
+  }
+
+  async markItemFound(
+    itemId: string,
+    data: MarkItemFoundRequest = {},
+  ): Promise<CirculationExceptionResponse> {
+    const response = await this.client.post<CirculationExceptionResponse>(
+      `/items/${encodeURIComponent(itemId)}/found`,
       data,
     );
     return response.data;

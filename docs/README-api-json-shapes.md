@@ -352,6 +352,13 @@ When the copy is lost, the same response adds `wasLost: true` and, when a replac
 
 Declares the copy missing (`circulationStatus` 5). No loan close, no charge.
 
+### `MarkItemFoundRequest` (POST /items/:id/found)
+```json
+{ "disposition": "circulate", "notes": null }
+```
+
+`disposition` applies to lost copies only: `circulate` (default) or `damaged`. `leave` is refused. Missing / to-search ignore it and clear to available.
+
 ### `MarkLostRequest` (POST /loans/:id/lost and POST /items/:id/lost)
 ```json
 { "bill": true, "amount": "12.50", "useItemPrice": true, "notes": null }
@@ -373,7 +380,7 @@ Item-level lost closes an open loan when one exists. Replacement `amount` is alw
 }
 ```
 
-`outcome`: `lost` | `damaged` | `missing` | `claimedReturned` | `claimsResolvedFound` | `claimsResolvedNotFound`. `loanId` / `userId` are omitted when no open loan was involved. Shelf deposit replacement charges may have null `loanId` / `userId` on `charge`.
+`outcome`: `lost` | `damaged` | `missing` | `found` | `claimedReturned` | `claimsResolvedFound` | `claimsResolvedNotFound`. `loanId` / `userId` are omitted when no open loan was involved. Shelf deposit replacement charges may have null `loanId` / `userId` on `charge`.
 
 ### `ResolveLostFoundRequest` (POST /loans/items/:itemId/lost-found)
 ```json

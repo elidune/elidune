@@ -51,6 +51,16 @@ pub struct MarkMissingRequest {
     pub notes: Option<String>,
 }
 
+/// Accept a lost / missing / to-search copy back onto the shelf from the item card.
+#[derive(Debug, Clone, Default, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct MarkItemFoundRequest {
+    /// For a lost copy: `circulate` (default) or `damaged`. Ignored for missing / to-search.
+    /// `leave` is refused — use lost-found leave from the return desk if needed.
+    pub disposition: Option<LostFoundDisposition>,
+    pub notes: Option<String>,
+}
+
 /// Flag an active loan/item for the claims-returned queue. Does not close the loan.
 /// Investigation only — `bill` is rejected if true.
 #[derive(Debug, Clone, Default, Deserialize, ToSchema)]
@@ -107,6 +117,7 @@ pub enum CirculationExceptionOutcome {
     Lost,
     Damaged,
     Missing,
+    Found,
     ClaimedReturned,
     ClaimsResolvedFound,
     ClaimsResolvedNotFound,

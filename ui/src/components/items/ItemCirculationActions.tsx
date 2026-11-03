@@ -1,11 +1,11 @@
 import { useState } from 'react';
-import { SearchX, CircleAlert } from 'lucide-react';
+import { SearchX, CircleAlert, SearchCheck } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useMutation } from '@tanstack/react-query';
 import { ConfirmDialog, Input } from '@/components/common';
 import { useAuth } from '@/contexts/AuthContext';
 import api from '@/services/api';
-import type { ItemStaffView } from '@/types';
+import type { ItemStaffView, LostFoundDisposition } from '@/types';
 import { canManageLoans } from '@/types';
 import { getApiErrorMessage } from '@/utils/apiError';
 import { CIRCULATION_STATUS } from '@/utils/circulationStatus';
@@ -18,7 +18,7 @@ interface ItemCirculationActionsProps {
   onUpdated?: () => void;
 }
 
-type DialogKind = 'missing' | 'lost' | null;
+type DialogKind = 'missing' | 'lost' | 'found' | null;
 
 function circulationCode(item: ItemStaffView): number | null {
   const value = item.circulationStatus as number | string | null | undefined;
@@ -38,6 +38,7 @@ export default function ItemCirculationActions({ item, onUpdated }: ItemCirculat
   const [notes, setNotes] = useState('');
   const [bill, setBill] = useState(false);
   const [amount, setAmount] = useState('');
+  const [foundDisposition, setFoundDisposition] = useState<LostFoundDisposition>('circulate');
   const [error, setError] = useState<string | null>(null);
 
   const closeDialog = () => {
@@ -45,6 +46,7 @@ export default function ItemCirculationActions({ item, onUpdated }: ItemCirculat
     setNotes('');
     setBill(false);
     setAmount('');
+    setFoundDisposition('circulate');
     setError(null);
   };
 
@@ -53,6 +55,12 @@ export default function ItemCirculationActions({ item, onUpdated }: ItemCirculat
       if (!item.id || !dialog) return;
       if (dialog === 'missing') {
         return api.markItemMissing(item.id, { notes: notes.trim() || undefined });
+      }
+      if (dialog === 'found') {
+        return api.markItemFound(item.id, {
+          notes: notes.trim() || undefined,
+          disposition: foundDisposition,
+        });
       }
       const deposit = isDepositCopy(item.deposit);
       const onLoan = Boolean(item.borrowed || item.loanId);
@@ -80,12 +88,14 @@ export default function ItemCirculationActions({ item, onUpdated }: ItemCirculat
   const code = circulationCode(item);
   const isLost = code === CIRCULATION_STATUS.LOST;
   const isMissing = code === CIRCULATION_STATUS.MISSING;
+  const isToSearch = code === CIRCULATION_STATUS.TO_SEARCH;
   const canDeclareMissing =
     code == null ||
     code === CIRCULATION_STATUS.AVAILABLE ||
     code === CIRCULATION_STATUS.TO_SEARCH;
   const canMarkLost = !isLost;
-  if (!canDeclareMissing && !canMarkLost) {
+  const canMarkFound = isLost || isMissing || isToSearch;
+  if (!canDeclareMissing && !canMarkLost && !canMarkFound) {
     return null;
   }
 
@@ -93,6 +103,7 @@ export default function ItemCirculationActions({ item, onUpdated }: ItemCirculat
   const onLoan = Boolean(item.borrowed || item.loanId);
   const showBillToggle = dialog === 'lost' && !deposit && onLoan;
   const showAmount = dialog === 'lost' && (deposit || (showBillToggle && bill));
+  const showFoundDisposition = dialog === 'found' && isLost;
 
   const amountState = replacementAmountFieldState({
     kind: 'lost',
@@ -102,6 +113,33 @@ export default function ItemCirculationActions({ item, onUpdated }: ItemCirculat
   });
 
   const confirmDisabled = mutation.isPending || (dialog === 'lost' && amountState.invalid);
+
+  const dialogTitle =
+    dialog === 'missing'
+      ? t('items.circulation.missingTitle')
+      : dialog === 'found'
+        ? t('items.circulation.foundTitle')
+        : t('items.circulation.lostTitle');
+
+  const dialogMessage =
+    dialog === 'missing'
+      ? t('items.circulation.missingMessage')
+      : dialog === 'found'
+        ? isLost
+          ? t('items.circulation.foundLostMessage')
+          : t('items.circulation.foundMissingMessage')
+        : deposit
+          ? t('items.circulation.lostDepositMessage')
+          : onLoan
+            ? t('items.circulation.lostOnLoanMessage')
+            : t('items.circulation.lostShelfMessage');
+
+  const confirmLabel =
+    dialog === 'missing'
+      ? t('items.circulation.declareMissing')
+      : dialog === 'found'
+        ? t('items.circulation.markFound')
+        : t('items.circulation.markLost');
 
   return (
     <div className="mt-3 space-y-2 border-t border-gray-200 pt-3 dark:border-gray-600">
@@ -137,34 +175,36 @@ export default function ItemCirculationActions({ item, onUpdated }: ItemCirculat
             {t('items.circulation.markLost')}
           </button>
         ) : null}
+        {canMarkFound ? (
+          <button
+            type="button"
+            disabled={mutation.isPending}
+            onClick={() => {
+              setError(null);
+              setFoundDisposition('circulate');
+              setDialog('found');
+            }}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 px-3 py-1.5 text-sm text-emerald-800 hover:bg-emerald-50 dark:border-emerald-900/50 dark:text-emerald-200 dark:hover:bg-emerald-950/30"
+          >
+            <SearchCheck className="h-4 w-4" aria-hidden />
+            {t('items.circulation.markFound')}
+          </button>
+        ) : null}
       </div>
       {isMissing ? (
         <p className="text-xs text-gray-600 dark:text-gray-400">{t('items.circulation.missingHint')}</p>
+      ) : null}
+      {isLost ? (
+        <p className="text-xs text-gray-600 dark:text-gray-400">{t('items.circulation.lostHint')}</p>
       ) : null}
 
       <ConfirmDialog
         isOpen={dialog != null}
         onClose={closeDialog}
         onConfirm={() => mutation.mutate()}
-        title={
-          dialog === 'missing'
-            ? t('items.circulation.missingTitle')
-            : t('items.circulation.lostTitle')
-        }
-        message={
-          dialog === 'missing'
-            ? t('items.circulation.missingMessage')
-            : deposit
-              ? t('items.circulation.lostDepositMessage')
-              : onLoan
-                ? t('items.circulation.lostOnLoanMessage')
-                : t('items.circulation.lostShelfMessage')
-        }
-        confirmLabel={
-          dialog === 'missing'
-            ? t('items.circulation.declareMissing')
-            : t('items.circulation.markLost')
-        }
+        title={dialogTitle}
+        message={dialogMessage}
+        confirmLabel={confirmLabel}
         confirmVariant={dialog === 'lost' ? 'danger' : 'primary'}
         isLoading={mutation.isPending}
         confirmDisabled={confirmDisabled}
@@ -173,6 +213,34 @@ export default function ItemCirculationActions({ item, onUpdated }: ItemCirculat
           <p className="mt-3 text-sm text-red-600 dark:text-red-400" role="alert">
             {error}
           </p>
+        ) : null}
+
+        {showFoundDisposition ? (
+          <fieldset className="mt-4 space-y-2">
+            <legend className={formLabelClass()}>{t('items.circulation.foundDisposition')}</legend>
+            <label className={formChoiceLabelClass()}>
+              <input
+                type="radio"
+                name="found-disposition"
+                value="circulate"
+                checked={foundDisposition === 'circulate'}
+                onChange={() => setFoundDisposition('circulate')}
+                disabled={mutation.isPending}
+              />
+              {t('loans.lostFound.circulate')}
+            </label>
+            <label className={formChoiceLabelClass()}>
+              <input
+                type="radio"
+                name="found-disposition"
+                value="damaged"
+                checked={foundDisposition === 'damaged'}
+                onChange={() => setFoundDisposition('damaged')}
+                disabled={mutation.isPending}
+              />
+              {t('loans.lostFound.damaged')}
+            </label>
+          </fieldset>
         ) : null}
 
         {showBillToggle ? (

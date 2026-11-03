@@ -12,12 +12,12 @@ use rust_decimal::Decimal;
 use crate::{
     error::{AppError, AppResult},
     models::{
-        circulation::{CirculationAction, ClaimsResolveOutcome},
+        circulation::{CirculationAction, CirculationStatus, ClaimsResolveOutcome},
         dto::circulation::{
             CirculationExceptionOutcome, CirculationExceptionResponse, ClaimsReturnedQueueItem,
             LostFineAction, LostFoundDisposition, LostFoundResolution, MarkClaimedReturnedRequest,
-            MarkDamagedRequest, MarkLostRequest, MarkMissingRequest, ResolveClaimsReturnedRequest,
-            ResolveLostFoundRequest,
+            MarkDamagedRequest, MarkItemFoundRequest, MarkLostRequest, MarkMissingRequest,
+            ResolveClaimsReturnedRequest, ResolveLostFoundRequest,
         },
         fine::{Cents, FineChargeType},
     },
@@ -187,6 +187,96 @@ impl CirculationService {
             }),
         );
         Ok(response)
+    }
+
+    /// Accept a lost, missing, or to-search copy back onto the shelf.
+    ///
+    /// Lost copies reuse the lost-found settlement path (`circulate` or `damaged`).
+    /// Missing / to-search copies clear to available without touching fines.
+    pub async fn mark_item_found(
+        &self,
+        item_id: i64,
+        req: MarkItemFoundRequest,
+        actor: Option<i64>,
+        client_ip: Option<String>,
+    ) -> AppResult<CirculationExceptionResponse> {
+        let item = self.repository.items_get_active_by_id(item_id).await?;
+        let status = CirculationStatus::from_db(item.circulation_status);
+        match status {
+            CirculationStatus::Lost => {
+                let disposition = match req.disposition.unwrap_or(LostFoundDisposition::Circulate) {
+                    LostFoundDisposition::Leave => {
+                        return Err(AppError::BusinessRule(
+                            "Leave is not a found action; use the return-desk lost-found leave choice"
+                                .into(),
+                        ));
+                    }
+                    other => other,
+                };
+                let resolution = self
+                    .resolve_lost_found(
+                        item_id,
+                        ResolveLostFoundRequest {
+                            disposition,
+                            notes: req.notes,
+                        },
+                        actor,
+                        client_ip,
+                    )
+                    .await?;
+                Ok(CirculationExceptionResponse {
+                    outcome: CirculationExceptionOutcome::Found,
+                    item_status: resolution.item_status,
+                    borrowable: resolution.borrowable,
+                    loan_closed: false,
+                    loan_id: None,
+                    item_id: resolution.item_id,
+                    user_id: None,
+                    charge: None,
+                })
+            }
+            CirculationStatus::Missing | CirculationStatus::ToSearch => {
+                let applied = self
+                    .repository
+                    .circulation_apply(CirculationApplyParams {
+                        item_id,
+                        loan_id: None,
+                        action: CirculationAction::ClearMissing,
+                        disposition: None,
+                        bill_amount: None,
+                        charge_type: None,
+                        notes: req.notes.as_deref(),
+                    })
+                    .await?;
+                if let Some(ref hold) = applied.readied_hold {
+                    self.notify_resolved_hold(
+                        hold,
+                        None,
+                        item.barcode.as_deref(),
+                        actor,
+                        client_ip.clone(),
+                    )
+                    .await;
+                }
+                let response = to_response(CirculationExceptionOutcome::Found, &applied);
+                self.audit_exception(
+                    audit::event::ITEM_FOUND_ON_SHELF,
+                    actor,
+                    client_ip,
+                    &response,
+                    serde_json::json!({
+                        "fromStatus": status.as_api_str(),
+                        "loanClosed": false,
+                        "billed": false,
+                    }),
+                );
+                Ok(response)
+            }
+            other => Err(AppError::BusinessRule(format!(
+                "Cannot mark found from status {}",
+                other.as_api_str()
+            ))),
+        }
     }
 
     pub async fn mark_damaged(

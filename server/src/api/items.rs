@@ -14,7 +14,7 @@ use crate::{
     error::{AppError, AppResult},
     models::catalog_view::{sees_internal_catalog, BiblioPublicView},
     models::dto::circulation::{
-        CirculationExceptionResponse, MarkLostRequest, MarkMissingRequest,
+        CirculationExceptionResponse, MarkItemFoundRequest, MarkLostRequest, MarkMissingRequest,
     },
     models::dto::weeding::SetWeedingRequest,
     models::item::Item,
@@ -34,6 +34,7 @@ pub fn router() -> axum::Router<crate::AppState> {
         .route("/items/:id/weeding", post(set_item_weeding))
         .route("/items/:id/missing", post(mark_item_missing))
         .route("/items/:id/lost", post(mark_item_lost))
+        .route("/items/:id/found", post(mark_item_found))
 }
 
 /// Get the bibliographic record for a physical copy.
@@ -401,6 +402,39 @@ pub async fn mark_item_lost(
         .services
         .circulation
         .mark_item_lost(item_id, None, body, Some(claims.user_id), ip)
+        .await?;
+    Ok(Json(result))
+}
+
+/// Accept a lost, missing, or to-search copy back onto the shelf.
+///
+/// Lost copies settle via the lost-found path (`circulate` default, or `damaged`).
+/// Missing / to-search clear to available without touching fines. `leave` is refused.
+#[utoipa::path(
+    post,
+    path = "/items/{id}/found",
+    tag = "items",
+    security(("bearer_auth" = [])),
+    params(("id" = i64, Path, description = "Physical copy (item) ID")),
+    request_body = MarkItemFoundRequest,
+    responses(
+        (status = 200, description = "Item marked found / back on shelf", body = CirculationExceptionResponse),
+        (status = 404, description = "Item not found or archived"),
+        (status = 422, description = "Invalid status or disposition")
+    )
+)]
+pub async fn mark_item_found(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    ClientIp(ip): ClientIp,
+    Path(item_id): Path<i64>,
+    Json(body): Json<MarkItemFoundRequest>,
+) -> AppResult<Json<CirculationExceptionResponse>> {
+    claims.require_write_loans()?;
+    let result = state
+        .services
+        .circulation
+        .mark_item_found(item_id, body, Some(claims.user_id), ip)
         .await?;
     Ok(Json(result))
 }

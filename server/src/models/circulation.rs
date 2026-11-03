@@ -34,6 +34,8 @@ pub enum CirculationAction {
     MarkDamaged,
     /// Declare the copy missing (shelf search closed). No loan close, no billing.
     MarkMissing,
+    /// Clear [`CirculationStatus::Missing`] or [`CirculationStatus::ToSearch`] back to available.
+    ClearMissing,
     ClaimReturned,
     ResolveFound,
     ResolveNotFound,
@@ -151,6 +153,15 @@ impl CirculationStatus {
                 Self::Lost | Self::Damaged | Self::ClaimedReturned,
                 CirculationAction::MarkMissing,
             ) => Err("Cannot declare missing from the current circulation status"),
+            (Self::Missing | Self::ToSearch, CirculationAction::ClearMissing) => {
+                Ok(Self::Available)
+            }
+            (Self::Available, CirculationAction::ClearMissing) => {
+                Err("Item is already available")
+            }
+            (_, CirculationAction::ClearMissing) => {
+                Err("Only a missing or to-search copy can be cleared this way; use lost-found for a lost copy")
+            }
             (Self::Available | Self::Damaged, CirculationAction::MarkDamaged) => Ok(Self::Damaged),
             (Self::Lost, CirculationAction::MarkDamaged) => {
                 Err("Cannot mark a lost item as damaged")
@@ -198,6 +209,7 @@ impl CirculationAction {
         match self {
             Self::MarkLost | Self::ResolveFound | Self::ResolveNotFound => true,
             Self::MarkMissing
+            | Self::ClearMissing
             | Self::ClaimReturned
             | Self::AcceptFound
             | Self::AcceptFoundDamaged => false,
@@ -207,7 +219,10 @@ impl CirculationAction {
 
     #[must_use]
     pub fn notify_holds(self) -> bool {
-        matches!(self, Self::ResolveFound | Self::AcceptFound)
+        matches!(
+            self,
+            Self::ResolveFound | Self::AcceptFound | Self::ClearMissing
+        )
     }
 
     /// Billing is a lost/damaged *transition effect* only.
@@ -405,6 +420,31 @@ mod tests {
                 .expect("escalate"),
             CirculationStatus::Lost
         );
+    }
+
+    #[test]
+    fn clear_missing_returns_to_shelf_and_notifies_holds() {
+        assert_eq!(
+            CirculationStatus::Missing
+                .transition(CirculationAction::ClearMissing)
+                .expect("missing"),
+            CirculationStatus::Available
+        );
+        assert_eq!(
+            CirculationStatus::ToSearch
+                .transition(CirculationAction::ClearMissing)
+                .expect("toSearch"),
+            CirculationStatus::Available
+        );
+        assert!(!CirculationAction::ClearMissing.closes_loan(None));
+        assert!(CirculationAction::ClearMissing.notify_holds());
+        assert!(!CirculationAction::ClearMissing.allows_billing());
+        assert!(CirculationStatus::Lost
+            .transition(CirculationAction::ClearMissing)
+            .is_err());
+        assert!(CirculationStatus::Available
+            .transition(CirculationAction::ClearMissing)
+            .is_err());
     }
 
     #[test]

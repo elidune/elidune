@@ -197,11 +197,13 @@ impl Repository {
             };
             self.loans_archive_and_delete_tx(&mut tx, loan, now, closure_reason)
                 .await?;
-            if notify_holds {
-                readied_hold = self
-                    .holds_notify_next_tx(&mut tx, params.item_id, self.hold_ready_expiry_days())
-                    .await?;
-            }
+        }
+        // Holds can be served when a copy returns to the shelf without closing a
+        // loan (clear missing / to-search, or lost-found via its own path).
+        if notify_holds {
+            readied_hold = self
+                .holds_notify_next_tx(&mut tx, params.item_id, self.hold_ready_expiry_days())
+                .await?;
         }
 
         Ok(CirculationApplyPending {

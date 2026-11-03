@@ -683,3 +683,83 @@ async fn mark_item_missing_then_escalate_to_lost() {
     assert_eq!(body["itemStatus"], "lost");
     assert!(body["charge"].is_null(), "{body}");
 }
+
+#[tokio::test]
+async fn mark_item_found_clears_missing_to_available() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    unlock_admin(&app, &admin_token).await;
+    let item_id = create_shelf_item(&app, &admin_token, None).await;
+
+    let (status, _) = app
+        .post_json(
+            &format!("/api/v1/items/{item_id}/missing"),
+            &json!({}),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (status, body) = app
+        .post_json(
+            &format!("/api/v1/items/{item_id}/found"),
+            &json!({ "notes": "back on shelf" }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "found: {body}");
+    assert_eq!(body["outcome"], "found");
+    assert_eq!(body["itemStatus"], "available");
+    assert_eq!(body["borrowable"], true);
+
+    let item = item_copy(&app, &admin_token, item_id).await;
+    assert_eq!(item["circulationStatus"], 0);
+    assert_eq!(item["borrowable"], true);
+    assert!(audit_has(&app, &admin_token, "item.found_on_shelf").await);
+}
+
+#[tokio::test]
+async fn mark_item_found_circulates_lost_copy() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    unlock_admin(&app, &admin_token).await;
+    let item_id = create_shelf_item(&app, &admin_token, Some("11.00")).await;
+
+    let (status, _) = app
+        .post_json(
+            &format!("/api/v1/items/{item_id}/lost"),
+            &json!({}),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (status, leave) = app
+        .post_json(
+            &format!("/api/v1/items/{item_id}/found"),
+            &json!({ "disposition": "leave" }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{leave}");
+
+    let (status, body) = app
+        .post_json(
+            &format!("/api/v1/items/{item_id}/found"),
+            &json!({ "disposition": "circulate" }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "found lost: {body}");
+    assert_eq!(body["outcome"], "found");
+    assert_eq!(body["itemStatus"], "available");
+    assert_eq!(body["borrowable"], true);
+
+    let item = item_copy(&app, &admin_token, item_id).await;
+    assert_eq!(item["circulationStatus"], 0);
+    assert!(audit_has(&app, &admin_token, "item.lost_found_resolved").await);
+}

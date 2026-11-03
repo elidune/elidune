@@ -1340,6 +1340,7 @@ export type CirculationExceptionOutcome =
   | 'lost'
   | 'damaged'
   | 'missing'
+  | 'found'
   | 'claimedReturned'
   | 'claimsResolvedFound'
   | 'claimsResolvedNotFound';
@@ -1352,6 +1353,12 @@ export interface MarkLostRequest {
 }
 
 export interface MarkMissingRequest {
+  notes?: string;
+}
+
+export interface MarkItemFoundRequest {
+  /** For lost copies: `circulate` (default) or `damaged`. Ignored for missing / to-search. */
+  disposition?: LostFoundDisposition;
   notes?: string;
 }
 
