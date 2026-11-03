@@ -1,8 +1,17 @@
+import { ExternalLink } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import Badge from '@/components/common/Badge';
 import type { ItemDeposit, ItemDepositPublic } from '@/types';
 import type { AvailabilityAudience } from '@/utils/itemAvailability';
-import { depositBadgeText, depositLossNotifiedText, uniqueDeposits, type DepositCopyRef } from '@/utils/deposits';
+import {
+  depositBadgeText,
+  depositBadgeTooltip,
+  depositLossNotifiedText,
+  isDepositCopy,
+  uniqueDeposits,
+  type DepositCopyRef,
+} from '@/utils/deposits';
 
 interface DepositBadgeProps {
   deposit?: ItemDeposit | ItemDepositPublic | null;
@@ -10,16 +19,35 @@ interface DepositBadgeProps {
   audience?: AvailabilityAudience;
 }
 
-/** Sober pill. Own stock (`deposit` null) renders nothing. */
+/** Sober pill. Own stock (`deposit` null) renders nothing. Staff: tooltip + link to the batch. */
 export default function DepositBadge({ deposit, size = 'sm', audience = 'staff' }: DepositBadgeProps) {
   const { t, i18n } = useTranslation();
   const label = depositBadgeText(deposit, t, i18n.language, audience);
   if (!label) return null;
-  return (
+  const tooltip = depositBadgeTooltip(deposit, t, i18n.language, audience);
+  const linkable = audience === 'staff' && isDepositCopy(deposit);
+  const pill = (
     <Badge variant="default" size={size}>
-      {label}
+      <span className="inline-flex max-w-full items-center gap-1">
+        <span className="truncate">{label}</span>
+        {linkable ? <ExternalLink className="h-3 w-3 shrink-0 opacity-70" aria-hidden /> : null}
+      </span>
     </Badge>
   );
+  if (linkable) {
+    return (
+      <Link
+        to={`/deposits/${deposit.batchId}`}
+        title={tooltip ?? undefined}
+        aria-label={t('deposits.badgeOpen', { lender: deposit.lenderName, reference: deposit.reference })}
+        className="inline-flex max-w-full rounded-full hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+        onClick={(event) => event.stopPropagation()}
+      >
+        {pill}
+      </Link>
+    );
+  }
+  return <span className="inline-flex max-w-full">{pill}</span>;
 }
 
 /** Staff-only line. Own stock and copies not yet reported render nothing. */

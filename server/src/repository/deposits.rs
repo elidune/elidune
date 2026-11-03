@@ -323,9 +323,9 @@ impl Repository {
 
     /// Deposit copies declared lost or damaged.
     ///
-    /// `notified` false is `deposit_loss_notified_at IS NULL`. The row is the
-    /// latest replacement or damage fine on that copy. `amount_cents` is that
-    /// fine's frozen amount.
+    /// Includes copies with a replacement/damage fine **or** circulation status
+    /// lost/damaged (amount may be null when no fine was created). `notified`
+    /// false is `deposit_loss_notified_at IS NULL`.
     pub async fn deposit_losses_list(
         &self,
         lender_id: Option<i64>,
@@ -340,7 +340,11 @@ impl Repository {
                   ($2::bool IS FALSE AND i.deposit_loss_notified_at IS NULL)
                   OR ($2::bool IS TRUE AND i.deposit_loss_notified_at IS NOT NULL)
               )
-            ORDER BY fine.created_at DESC, i.id
+              AND (
+                  fine.id IS NOT NULL
+                  OR COALESCE(i.circulation_status, 0) IN (1, 2)
+              )
+            ORDER BY COALESCE(fine.created_at, i.updated_at) DESC, i.id
             "#
         );
         let rows = sqlx::query_as::<_, crate::models::deposit::DepositLoss>(&sql)
@@ -351,8 +355,8 @@ impl Repository {
         Ok(rows)
     }
 
-    /// Lock one item and refuse unless it is a deposit copy with a replacement
-    /// or damage fine that has not been notified yet.
+    /// Lock one item and refuse unless it is a deposit copy declared lost or
+    /// damaged (fine and/or circulation status) that has not been notified yet.
     ///
     /// Returns the lender id. `deposit_loss_already_notified` does not write
     /// an audit row; the caller must not continue the transaction.
@@ -366,10 +370,13 @@ impl Repository {
             SELECT i.deposit_batch_id,
                    db.lender_id,
                    i.deposit_loss_notified_at,
-                   EXISTS (
-                       SELECT 1 FROM fines f
-                       WHERE f.item_id = i.id
-                         AND f.charge_type IN ('replacement', 'damage')
+                   (
+                       EXISTS (
+                           SELECT 1 FROM fines f
+                           WHERE f.item_id = i.id
+                             AND f.charge_type IN ('replacement', 'damage')
+                       )
+                       OR COALESCE(i.circulation_status, 0) IN (1, 2)
                    ) AS declared
             FROM items i
             LEFT JOIN deposit_batches db ON db.id = i.deposit_batch_id
@@ -939,10 +946,15 @@ const DEPOSIT_LOSS_SELECT: &str = r#"
     l.name AS lender_name,
     db.id AS batch_id,
     db.reference,
-    CASE fine.charge_type WHEN 'damage' THEN 'damaged' ELSE 'lost' END AS kind,
+    CASE
+        WHEN fine.charge_type = 'damage' THEN 'damaged'
+        WHEN fine.charge_type = 'replacement' THEN 'lost'
+        WHEN COALESCE(i.circulation_status, 0) = 2 THEN 'damaged'
+        ELSE 'lost'
+    END AS kind,
     fine.amount AS amount_cents,
     fine.id AS fine_id,
-    fine.created_at AS declared_at,
+    COALESCE(fine.created_at, i.updated_at) AS declared_at,
     i.deposit_loss_notified_at
 "#;
 
@@ -951,7 +963,7 @@ const DEPOSIT_LOSS_FROM: &str = r#"
     JOIN deposit_batches db ON db.id = i.deposit_batch_id
     JOIN lenders l ON l.id = db.lender_id
     JOIN biblios b ON b.id = i.biblio_id
-    JOIN LATERAL (
+    LEFT JOIN LATERAL (
         SELECT f.id, f.amount, f.charge_type, f.created_at
         FROM fines f
         WHERE f.item_id = i.id

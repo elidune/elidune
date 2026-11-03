@@ -508,7 +508,7 @@ pub async fn close_deposit_batch(
     security(("bearer_auth" = [])),
     params(DepositLossListQuery),
     responses(
-        (status = 200, description = "Deposit copies declared lost or damaged. `notified` defaults to false (`depositLossNotifiedAt` null). Each row is the latest replacement or damage fine. `kind` is `lost` or `damaged`. `amountCents` is that fine's frozen amount. `itemId`, `lenderId`, `batchId`, and `fineId` are strings.", body = Vec<DepositLoss>),
+        (status = 200, description = "Deposit copies declared lost or damaged (circulation status and/or a replacement/damage fine). `notified` defaults to false (`depositLossNotifiedAt` null). `kind` is `lost` or `damaged`. `amountCents` / `fineId` are omitted when there is no charge. `itemId`, `lenderId`, `batchId`, and `fineId` (when present) are strings.", body = Vec<DepositLoss>),
         (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
         (status = 403, description = "Insufficient permissions", body = crate::error::ErrorResponse),
         (status = 404, description = "Lender not found", body = crate::error::ErrorResponse)

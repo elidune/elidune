@@ -528,11 +528,14 @@ pub struct DepositLoss {
     /// Batch agreement reference.
     pub reference: String,
     pub kind: DepositLossKind,
-    /// Frozen fine amount in integer cents.
-    pub amount_cents: Cents,
-    #[serde_as(as = "DisplayFromStr")]
-    #[schema(value_type = String)]
-    pub fine_id: i64,
+    /// Frozen fine amount in integer cents. Null when lost/damaged without a charge.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub amount_cents: Option<Cents>,
+    /// Null when lost/damaged without a replacement or damage fine.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub fine_id: Option<i64>,
     pub declared_at: DateTime<Utc>,
     pub deposit_loss_notified_at: Option<DateTime<Utc>>,
 }

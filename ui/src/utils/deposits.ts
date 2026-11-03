@@ -97,23 +97,34 @@ export function uniqueDeposits(
   return out;
 }
 
-/** « Dépôt · lender · retour le … ». Null for own stock. Public audience never shows the return date. */
+/** « Dépôt: lender ». Null for own stock. Return date and batch id live in the tooltip. */
 export function depositBadgeText(
+  deposit: ItemDeposit | ItemDepositPublic | null | undefined,
+  t: TFunction,
+  _language?: string,
+  _audience: AvailabilityAudience = 'staff',
+): string | null {
+  if (!isDepositCopy(deposit)) return null;
+  return t('deposits.badge', { lender: deposit.lenderName });
+}
+
+/**
+ * Staff tooltip: batch reference and return due date.
+ * Null for own stock or public audience (no reference / return date).
+ */
+export function depositBadgeTooltip(
   deposit: ItemDeposit | ItemDepositPublic | null | undefined,
   t: TFunction,
   language: string,
   audience: AvailabilityAudience = 'staff',
 ): string | null {
-  if (!isDepositCopy(deposit)) return null;
-  if (audience === 'public') {
-    return t('deposits.badgeReader', { lender: deposit.lenderName });
-  }
+  if (!isDepositCopy(deposit) || audience !== 'staff') return null;
   const returnDueOn = 'returnDueOn' in deposit ? deposit.returnDueOn : null;
   if (!returnDueOn?.trim()) {
-    return t('deposits.badgePermanent', { lender: deposit.lenderName });
+    return t('deposits.badgeTooltipPermanent', { reference: deposit.reference });
   }
-  return t('deposits.badge', {
-    lender: deposit.lenderName,
+  return t('deposits.badgeTooltip', {
+    reference: deposit.reference,
     date: formatCatalogDate(returnDueOn, language),
   });
 }

@@ -1558,7 +1558,7 @@ Otherwise `user` is exactly `{ id, cardNumber, initials }`. `email`, `phone`, `f
 
 `deposit_loss_notified` is written by `POST /items/{id}/deposit-loss-notified` in the same transaction as `items.deposit_loss_notified_at`. Payload is `{ lenderId, itemId }`, both strings. A second call does not write another row.
 
-`GET /deposit-losses?lenderId=&notified=false|true` lists those copies. `notified` defaults to false (`depositLossNotifiedAt` null).
+`GET /deposit-losses?lenderId=&notified=false|true` lists those copies. `notified` defaults to false (`depositLossNotifiedAt` null). A deposit copy appears when it has a replacement/damage fine **or** circulation status lost/damaged (no charge required).
 
 ```json
 {
@@ -1577,7 +1577,7 @@ Otherwise `user` is exactly `{ id, cardNumber, initials }`. `email`, `phone`, `f
 }
 ```
 
-`kind` is `lost` or `damaged`. `amountCents` is the frozen fine amount. Ids are strings.
+`kind` is `lost` or `damaged`. `amountCents` / `fineId` are omitted when the copy was declared without a charge. Ids are strings.
 
 `POST /items/{id}/deposit-loss-notified` accepts an empty body or `{ "notifiedOn": "2026-10-19" }` (start of that day in the library timezone) or an RFC 3339 timestamp. The response is one row of the list above.
 

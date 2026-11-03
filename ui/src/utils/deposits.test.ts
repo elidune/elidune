@@ -21,6 +21,7 @@ import {
   activeLoanCopyLabel,
   depositActiveLoanCopies,
   depositBadgeText,
+  depositBadgeTooltip,
   depositLenderInitials,
   depositDueDateNotice,
   depositLossNotifiedText,
@@ -68,25 +69,32 @@ function axiosError(status: number, code: string, message = 'server', extra: Rec
 }
 
 describe('deposit badge', () => {
-  it('formats the sober French badge and hides own stock', async () => {
+  it('formats the short French badge and staff tooltip', async () => {
     const t = await tFor('fr');
-    assert.equal(
-      depositBadgeText(deposit, t, 'fr'),
-      'Dépôt · Médiathèque départementale · retour le 1 septembre 2026',
-    );
+    assert.equal(depositBadgeText(deposit, t, 'fr'), 'Dépôt: Médiathèque départementale');
     assert.equal(
       depositBadgeText(deposit, t, 'fr', 'public'),
-      'Dépôt · Médiathèque départementale',
+      'Dépôt: Médiathèque départementale',
     );
+    assert.equal(
+      depositBadgeTooltip(deposit, t, 'fr'),
+      'LOT-2026 · retour le 1 septembre 2026',
+    );
+    assert.equal(depositBadgeTooltip(deposit, t, 'fr', 'public'), null);
     assert.equal(depositBadgeText(null, t, 'fr'), null);
     assert.equal(depositBadgeText(undefined, t, 'fr'), null);
   });
 
-  it('formats the English badge', async () => {
+  it('formats the English badge and permanent tooltip', async () => {
     const t = await tFor('en');
+    assert.equal(depositBadgeText(deposit, t, 'en'), 'Deposit: Médiathèque départementale');
     assert.equal(
-      depositBadgeText(deposit, t, 'en'),
-      'Deposit · Médiathèque départementale · return on September 1, 2026',
+      depositBadgeTooltip(deposit, t, 'en'),
+      'LOT-2026 · return on September 1, 2026',
+    );
+    assert.equal(
+      depositBadgeTooltip({ ...deposit, returnDueOn: null }, t, 'en'),
+      'LOT-2026 · no return date',
     );
   });
 });

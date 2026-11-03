@@ -1737,6 +1737,43 @@ async fn shelf_deposit_lost_amount_is_optional_when_no_rate_or_price() {
     assert_eq!(body["outcome"], "lost");
     assert!(body["charge"].is_null(), "optional amount → no fine: {body}");
 
+    let unbilled_key = items[0].0.to_string();
+    let (status, losses) = app
+        .get_json_with_auth(
+            &format!("/api/v1/deposit-losses?lenderId={unrated}"),
+            &token,
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{losses}");
+    let unbilled_row = losses
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["itemId"].as_str() == Some(unbilled_key.as_str()))
+        .expect("unbilled shelf deposit loss listed");
+    assert_eq!(unbilled_row["kind"], "lost", "{unbilled_row}");
+    assert!(
+        unbilled_row.get("amountCents").is_none() || unbilled_row["amountCents"].is_null(),
+        "no charge → no amountCents: {unbilled_row}"
+    );
+    assert!(
+        unbilled_row.get("fineId").is_none() || unbilled_row["fineId"].is_null(),
+        "no charge → no fineId: {unbilled_row}"
+    );
+
+    let (status, notified) = app
+        .post_json(
+            &format!("/api/v1/items/{}/deposit-loss-notified", items[0].0),
+            &json!({}),
+            Some(&token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{notified}");
+    assert!(
+        notified["depositLossNotifiedAt"].as_str().is_some(),
+        "{notified}"
+    );
+
     let (status, lost) = app
         .post_json(
             &format!("/api/v1/items/{}/lost", items[1].0),

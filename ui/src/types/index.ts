@@ -807,9 +807,10 @@ export interface DepositLoss {
   batchId: string;
   reference: string;
   kind: DepositLossKind;
-  /** Frozen replacement amount in integer cents. */
-  amountCents: number;
-  fineId: string;
+  /** Frozen replacement amount in integer cents. Null when declared without a charge. */
+  amountCents?: number | null;
+  /** Null when declared without a replacement or damage fine. */
+  fineId?: string | null;
   declaredAt: string;
   depositLossNotifiedAt: string | null;
 }
