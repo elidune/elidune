@@ -159,6 +159,9 @@ pub struct ItemStaffView {
     pub lender_barcode: Option<String>,
     pub call_number: Option<String>,
     pub volume_designation: Option<String>,
+    /// Issue number and cover date when this copy is a received periodical.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub serial_issue: Option<crate::models::item::SerialCopyCaption>,
     pub place: Option<i16>,
     pub borrowable: bool,
     pub circulation_status: Option<i16>,
@@ -218,6 +221,7 @@ impl From<Item> for ItemStaffView {
             lender_barcode: item.lender_barcode,
             call_number: item.call_number,
             volume_designation: item.volume_designation,
+            serial_issue: item.serial_issue.clone(),
             place: item.place,
             borrowable: item.borrowable,
             circulation_status: item.circulation_status,
@@ -271,6 +275,9 @@ pub struct ItemPublicView {
     pub barcode: Option<String>,
     pub call_number: Option<String>,
     pub volume_designation: Option<String>,
+    /// Issue number and cover date when this copy is a received periodical.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub serial_issue: Option<crate::models::item::SerialCopyCaption>,
     pub place: Option<i16>,
     pub borrowable: bool,
     /// Copy note safe for patrons and the OPAC. Null when the copy has none.
@@ -318,6 +325,7 @@ impl From<Item> for ItemPublicView {
             barcode: item.barcode,
             call_number: item.call_number,
             volume_designation: item.volume_designation,
+            serial_issue: item.serial_issue,
             place: item.place,
             borrowable: item.borrowable,
             public_note: item.public_note,
@@ -432,6 +440,10 @@ pub struct BiblioStaffView {
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[schema(value_type = Option<String>)]
     pub isbn: Option<Isbn>,
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub issn: Option<Isbn>,
     pub title: Option<String>,
     pub subject: Option<String>,
     pub dewey: Option<String>,
@@ -482,6 +494,7 @@ impl From<Biblio> for BiblioStaffView {
             id: biblio.id,
             media_type: biblio.media_type,
             isbn: biblio.isbn,
+            issn: biblio.issn,
             title: biblio.title,
             subject: biblio.subject,
             dewey: biblio.dewey,
@@ -531,6 +544,10 @@ pub struct BiblioPublicView {
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[schema(value_type = Option<String>)]
     pub isbn: Option<Isbn>,
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub issn: Option<Isbn>,
     pub title: Option<String>,
     pub subject: Option<String>,
     pub dewey: Option<String>,
@@ -576,6 +593,7 @@ impl From<Biblio> for BiblioPublicView {
             id: biblio.id,
             media_type: biblio.media_type,
             isbn: biblio.isbn,
+            issn: biblio.issn,
             title: biblio.title,
             subject: biblio.subject,
             dewey: biblio.dewey,
@@ -625,6 +643,10 @@ pub struct BiblioShortStaff {
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[schema(value_type = Option<String>)]
     pub isbn: Option<Isbn>,
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub issn: Option<Isbn>,
     pub title: Option<String>,
     pub date: Option<String>,
     pub status: i16,
@@ -641,6 +663,7 @@ impl From<BiblioShort> for BiblioShortStaff {
             id: biblio.id,
             media_type: biblio.media_type,
             isbn: biblio.isbn,
+            issn: biblio.issn,
             title: biblio.title,
             date: biblio.date,
             status: biblio.status,
@@ -665,6 +688,10 @@ pub struct BiblioShortPublic {
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[schema(value_type = Option<String>)]
     pub isbn: Option<Isbn>,
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub issn: Option<Isbn>,
     pub title: Option<String>,
     pub date: Option<String>,
     pub status: i16,
@@ -680,6 +707,7 @@ impl From<BiblioShort> for BiblioShortPublic {
             id: biblio.id,
             media_type: biblio.media_type,
             isbn: biblio.isbn,
+            issn: biblio.issn,
             title: biblio.title,
             date: biblio.date,
             status: biblio.status,
@@ -1503,6 +1531,7 @@ mod tests {
             on_hold: false,
             deposit_batch_id: None,
             deposit: None,
+            serial_issue: None,
             legacy_notes_present: false,
         }
     }
@@ -1666,6 +1695,7 @@ mod tests {
             on_hold: false,
             deposit_batch_id: None,
             deposit: None,
+            serial_issue: None,
             legacy_notes_present: false,
         };
         let public_body = serde_json::to_value(ItemPublicView::from(item.clone())).unwrap();

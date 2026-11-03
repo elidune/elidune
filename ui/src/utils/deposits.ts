@@ -445,7 +445,9 @@ export function replacementAmountFieldState(input: {
   serverRequiresAmount: boolean;
 }): { bill: boolean; required: boolean; invalid: boolean } {
   const mayBill = input.kind === 'lost' || input.kind === 'damaged';
-  const required = mayBill && input.serverRequiresAmount;
+  // Lost amount is always optional (deposit rate/price may still auto-bill).
+  // Damaged can still require an amount after `deposit_replacement_amount_required`.
+  const required = input.kind === 'damaged' && mayBill && input.serverRequiresAmount;
   const bill = required || input.bill;
   const positive = isPositiveEuroAmount(input.amount);
   const invalid = required ? !positive : input.kind === 'damaged' && bill && !positive;

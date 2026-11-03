@@ -18,6 +18,7 @@ import {
 import { Link } from 'react-router-dom';
 import LegalModalLink from '@/components/legal/LegalModalLink';
 import { useAuth } from '@/contexts/AuthContext';
+import { serialCopyHeading } from '@/utils/serialCopyCaption';
 import { useLibrary } from '@/contexts/LibraryContext';
 import { Card, Input, Button, LibraryInfoSection, SectionTabBar } from '@/components/common';
 import NoticeHoldsWaiting from '@/components/holds/NoticeHoldsWaiting';
@@ -373,8 +374,13 @@ function BiblioDetailPane({
                 <p className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-2">{t('items.specimens')}</p>
                 <div className="space-y-1.5">
                   {detail.items.map((item) => {
+                    const issueName = serialCopyHeading(item.serialIssue, i18n.language)
+                      ?? (detail.mediaType === 'periodic' ? item.volumeDesignation?.trim() || null : null);
                     return (
                       <div key={item.id} className="flex flex-col gap-1 px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-800/60">
+                        {issueName ? (
+                          <p className="text-sm font-medium text-gray-900 dark:text-white">{issueName}</p>
+                        ) : null}
                         <div className="flex flex-wrap items-center gap-2">
                           <ItemAvailabilityBadge
                             availability={item.availability}

@@ -70,6 +70,7 @@ function applyZ3950BiblioToForm(
   prev: {
     title: string;
     isbn: string;
+    issn: string;
     mediaType: MediaType;
     publicationDate: string;
     subject: string;
@@ -88,6 +89,7 @@ function applyZ3950BiblioToForm(
   return {
     ...prev,
     isbn: formatIsbnDisplay(item.isbn || '') || item.isbn || prev.isbn,
+    issn: formatIsbnDisplay(item.issn || '') || item.issn || prev.issn,
     title: item.title || prev.title,
     mediaType: (item.mediaType || prev.mediaType) as MediaType,
     publicationDate: item.publicationDate || prev.publicationDate,
@@ -205,6 +207,7 @@ export default function BiblioEditorForm({
       return {
         title: b.title || '',
         isbn: formatIsbnDisplay(b.isbn || '') || b.isbn || '',
+        issn: formatIsbnDisplay(b.issn || '') || b.issn || '',
         publicationDate: b.publicationDate || '',
         abstract: b.abstract || '',
         keywords: Array.isArray(b.keywords) ? b.keywords.join(', ') : b.keywords || '',
@@ -223,6 +226,7 @@ export default function BiblioEditorForm({
     return {
       title: '',
       isbn: '',
+      issn: '',
       publicationDate: '',
       abstract: '',
       keywords: '',
@@ -384,6 +388,7 @@ export default function BiblioEditorForm({
     return {
       title: formData.title,
       isbn: formData.isbn || undefined,
+      issn: formData.issn || undefined,
       mediaType: formData.mediaType,
       publicationDate: formData.publicationDate || undefined,
       abstract: formData.abstract || undefined,
@@ -525,6 +530,7 @@ export default function BiblioEditorForm({
       const updateData: Partial<Biblio> = {
         title: formData.title || undefined,
         isbn: formData.isbn || undefined,
+        issn: formData.issn || undefined,
         publicationDate: formData.publicationDate || undefined,
         abstract: formData.abstract || undefined,
         keywords: formData.keywords || undefined,
@@ -574,6 +580,19 @@ export default function BiblioEditorForm({
             }}
             className="font-mono"
             placeholder={t('z3950.isbnPlaceholder')}
+          />
+          <Input
+            label={t('items.issn')}
+            value={formData.issn}
+            onChange={(e) => setFormData({ ...formData, issn: e.target.value })}
+            onBlur={() => {
+              const raw = formData.issn.trim();
+              if (!raw) return;
+              const f = formatIsbnDisplay(raw);
+              if (f) setFormData((prev) => (prev.issn === f ? prev : { ...prev, issn: f }));
+            }}
+            className="font-mono"
+            placeholder={t('items.issnPlaceholder')}
           />
           <Input
             label={t('items.titleField')}

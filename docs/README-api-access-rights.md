@@ -108,6 +108,8 @@ Staff versus public JSON on catalog reads (`GET /biblios`, `GET /biblios/:id`, `
 | `POST /biblios/:id/items` | JWT + `require_write_items()` |
 | `PUT /items/:id` | JWT + `require_write_items()` |
 | `DELETE /items/:id` | JWT + `require_write_items()` |
+| `POST /items/:id/missing` | JWT + `require_write_loans()`. Declares the copy missing (no loan close, no bill). |
+| `POST /items/:id/lost` | JWT + `require_write_loans()`. Marks the copy lost; closes an open loan when one exists. Replacement amount is optional. Deposit copies bill when rate/price/amount resolve. Own-stock shelf copies never bill. |
 | `GET /biblios/export.csv` | JWT + `require_read_items()` |
 | `POST /biblios/load-marc` | JWT + `require_read_items()` |
 | `POST /biblios/import-marc-batch` | JWT + `require_write_items()` |

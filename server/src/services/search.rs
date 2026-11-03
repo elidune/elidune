@@ -65,6 +65,7 @@ impl MeilisearchService {
                 "subject",
                 "keywords",
                 "isbn",
+                "issn",
                 "publisher_name",
                 "series_name",
                 "collection_name",

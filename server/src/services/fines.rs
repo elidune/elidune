@@ -613,7 +613,7 @@ mod tests {
     fn sample_fine(id: i64, loan_id: i64, user_id: i64, amount: Cents) -> Fine {
         Fine {
             id,
-            loan_id,
+            loan_id: Some(loan_id),
             user_id: Some(user_id),
             amount,
             paid_amount: Cents::ZERO,
@@ -714,7 +714,7 @@ mod tests {
             let g = self.state.lock().unwrap_or_else(|e| e.into_inner());
             Ok(g.fines
                 .iter()
-                .find(|f| f.loan_id == loan_id && f.status.is_open())
+                .find(|f| f.loan_id == Some(loan_id) && f.status.is_open())
                 .cloned())
         }
         async fn fines_upsert_open(
@@ -728,7 +728,7 @@ mod tests {
             if let Some(existing) = g
                 .fines
                 .iter_mut()
-                .find(|f| f.loan_id == loan_id && f.status.is_open())
+                .find(|f| f.loan_id == Some(loan_id) && f.status.is_open())
             {
                 let unchanged = existing.amount == amount;
                 existing.amount = amount;

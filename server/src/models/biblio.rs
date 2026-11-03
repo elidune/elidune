@@ -415,6 +415,11 @@ pub struct Biblio {
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[schema(value_type = Option<String>)]
     pub isbn: Option<Isbn>,
+    /// ISSN of this resource (MARC 022). Distinct from series/collection ISSN.
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    #[serde(default)]
+    pub issn: Option<Isbn>,
     pub title: Option<String>,
     pub subject: Option<String>,
     pub dewey: Option<String>,
@@ -502,6 +507,10 @@ pub struct BiblioShort {
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[schema(value_type = Option<String>)]
     pub isbn: Option<Isbn>,
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    #[serde(default)]
+    pub issn: Option<Isbn>,
     pub title: Option<String>,
     pub date: Option<String>,
     pub status: i16,
@@ -521,6 +530,7 @@ impl From<Biblio> for BiblioShort {
             id: biblio.id.unwrap_or(0),
             media_type: biblio.media_type,
             isbn: biblio.isbn,
+            issn: biblio.issn,
             title: biblio.title,
             date: biblio.publication_date,
             status: 0,
@@ -629,6 +639,8 @@ pub struct MeiliBiblioDocument {
     pub id: i64,
     pub media_type: String,
     pub isbn: Option<String>,
+    #[serde(default)]
+    pub issn: Option<String>,
     pub title: Option<String>,
     pub author_names: String,
     pub subject: Option<String>,
@@ -718,6 +730,8 @@ pub struct UpdateCollection {
 pub struct BiblioQuery {
     pub media_type: Option<String>,
     pub isbn: Option<Isbn>,
+    /// Exact normalized ISSN match (`biblios.issn`).
+    pub issn: Option<Isbn>,
     pub barcode: Option<String>,
     pub author: Option<String>,
     pub title: Option<String>,
@@ -838,6 +852,7 @@ mod tests {
             id: 12345,
             media_type: MediaType::Unknown,
             isbn: None,
+            issn: None,
             title: Some("Test".to_string()),
             date: None,
             status: 0,

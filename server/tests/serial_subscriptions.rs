@@ -98,7 +98,7 @@ async fn create_periodical(app: &TestApp, token: &str, title: &str, issn: &str) 
                 "title": title,
                 "mediaType": "periodic",
                 "lang": "french",
-                "series": [{ "name": format!("Series {title}"), "issn": issn }]
+                "issn": issn
             }),
             Some(token),
         )
@@ -304,6 +304,8 @@ async fn serial_subscription_crud_search_and_rights() {
     assert_eq!(created["internalNote"], "Do not bind");
     assert_eq!(created["status"], "active");
     assert_eq!(created["biblioTitle"], title);
+    assert_eq!(created["itemCount"], 0);
+    assert!(created["latestItemId"].is_null(), "{created}");
     assert!(
         created["issns"]
             .as_array()
@@ -412,7 +414,42 @@ async fn serial_subscription_crud_search_and_rights() {
         .await;
     assert_eq!(status, StatusCode::CONFLICT, "{rejected}");
 
-    let mut closed = saved.clone();
+    let mut suspended = saved.clone();
+    suspended["status"] = json!("suspended");
+    let (status, suspended_body) = app
+        .put_json(
+            &format!("/api/v1/serials/subscriptions/{id}"),
+            &suspended,
+            Some(&admin),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{suspended_body}");
+    assert_eq!(suspended_body["status"], "suspended");
+    assert_eq!(suspended_body["nextSlot"], saved["nextSlot"]);
+
+    let (status, generate_while_paused) = app
+        .post_json(
+            &format!("/api/v1/serials/subscriptions/{id}/generate"),
+            &json!({}),
+            Some(&admin),
+        )
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{generate_while_paused}");
+
+    let mut resumed = suspended_body.clone();
+    resumed["status"] = json!("active");
+    let (status, resumed_body) = app
+        .put_json(
+            &format!("/api/v1/serials/subscriptions/{id}"),
+            &resumed,
+            Some(&admin),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{resumed_body}");
+    assert_eq!(resumed_body["status"], "active");
+    assert_eq!(resumed_body["nextSlot"], saved["nextSlot"]);
+
+    let mut closed = resumed_body.clone();
     closed["status"] = json!("closed");
     let (status, closed_body) = app
         .put_json(

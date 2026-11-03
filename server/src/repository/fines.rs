@@ -239,12 +239,15 @@ impl Repository {
     }
 
     /// Create a charge inside an open transaction (circulation exceptions).
+    ///
+    /// `loan_id` / `user_id` are null for shelf-level deposit replacement charges
+    /// that are not tied to a patron loan.
     #[allow(clippy::too_many_arguments)]
     pub async fn fines_create_charge_tx(
         &self,
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-        loan_id: i64,
-        user_id: i64,
+        loan_id: Option<i64>,
+        user_id: Option<i64>,
         item_id: i64,
         amount: Cents,
         charge_type: FineChargeType,

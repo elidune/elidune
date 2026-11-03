@@ -316,6 +316,12 @@ export function staffUnavailableDetailKey(item: {
   if (value === CIRCULATION_STATUS.CLAIMED_RETURNED || value === 'claimedReturned') {
     return 'loans.exceptions.claimedReturned';
   }
+  if (value === CIRCULATION_STATUS.TO_SEARCH || value === 'toSearch') {
+    return 'items.circulation.toSearch';
+  }
+  if (value === CIRCULATION_STATUS.MISSING || value === 'missing') {
+    return 'items.circulation.missing';
+  }
   if (item.borrowable === false) return 'items.incompleteNotCirculable';
   return null;
 }

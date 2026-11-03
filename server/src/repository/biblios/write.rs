@@ -144,22 +144,23 @@ impl Repository {
         let id = sqlx::query_scalar::<_, i64>(
             r#"
             INSERT INTO biblios (
-                media_type, isbn, publication_date,
+                media_type, isbn, issn, publication_date,
                 lang, lang_orig, title, subject, dewey, genre,
                 audience_type, page_extent, format, table_of_contents, accompanying_material,
                 abstract, notes, keywords, is_valid,
                 edition_id, created_at, updated_at
             ) VALUES (
-                $1, $2, $3,
-                $4, $5, $6, $7, $8, $9,
-                $10, $11, $12, $13, $14,
-                $15, $16, $17, $18,
-                $19, $20, $21
+                $1, $2, $3, $4,
+                $5, $6, $7, $8, $9, $10,
+                $11, $12, $13, $14, $15,
+                $16, $17, $18, $19,
+                $20, $21, $22
             ) RETURNING id
             "#,
         )
         .bind(&biblio.media_type)
         .bind(biblio.isbn.as_ref().map(|i| i.to_string()))
+        .bind(biblio.issn.as_ref().map(|i| i.to_string()))
         .bind(&biblio.publication_date)
         .bind(biblio.lang)
         .bind(biblio.lang_orig)
@@ -268,14 +269,16 @@ impl Repository {
             UPDATE biblios SET
                 media_type = COALESCE($1::text, media_type),
                 isbn = COALESCE($2::text, isbn),
-                title = COALESCE($3::text, title),
-                edition_id = $4,
-                updated_at = $5
-            WHERE id = $6
+                issn = COALESCE($3::text, issn),
+                title = COALESCE($4::text, title),
+                edition_id = $5,
+                updated_at = $6
+            WHERE id = $7
             "#,
         )
         .bind(&biblio.media_type)
         .bind(biblio.isbn.as_ref().map(|i| i.to_string()))
+        .bind(biblio.issn.as_ref().map(|i| i.to_string()))
         .bind(&biblio.title)
         .bind(biblio.edition_id)
         .bind(biblio.updated_at)
@@ -344,30 +347,32 @@ impl Repository {
             UPDATE biblios SET
                 media_type = $1,
                 isbn = $2,
-                publication_date = $3,
-                lang = $4,
-                lang_orig = $5,
-                title = $6,
-                subject = $7,
-                dewey = $8,
-                genre = $9,
-                audience_type = $10,
-                page_extent = $11,
-                format = $12,
-                table_of_contents = $13,
-                accompanying_material = $14,
-                abstract = $15,
-                notes = $16,
-                keywords = $17,
-                is_valid = $18,
-                edition_id = $19,
-                updated_at = $20,
-                marc_record = $21
-            WHERE id = $22 AND archived_at IS NULL
+                issn = $3,
+                publication_date = $4,
+                lang = $5,
+                lang_orig = $6,
+                title = $7,
+                subject = $8,
+                dewey = $9,
+                genre = $10,
+                audience_type = $11,
+                page_extent = $12,
+                format = $13,
+                table_of_contents = $14,
+                accompanying_material = $15,
+                abstract = $16,
+                notes = $17,
+                keywords = $18,
+                is_valid = $19,
+                edition_id = $20,
+                updated_at = $21,
+                marc_record = $22
+            WHERE id = $23 AND archived_at IS NULL
             "#,
         )
         .bind(&biblio.media_type)
         .bind(biblio.isbn.as_ref().map(|i| i.to_string()))
+        .bind(biblio.issn.as_ref().map(|i| i.to_string()))
         .bind(&biblio.publication_date)
         .bind(biblio.lang)
         .bind(biblio.lang_orig)

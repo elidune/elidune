@@ -38,6 +38,16 @@ async fn main() -> anyhow::Result<()> {
         }
         return Ok(());
     }
+    if args
+        .first()
+        .is_some_and(|arg| arg == "migrate-periodics")
+    {
+        if let Err(err) = elidune_server::periodics_migrate::run(&args[1..]).await {
+            eprintln!("error: {err}");
+            std::process::exit(err.exit_code());
+        }
+        return Ok(());
+    }
 
     dotenvy::dotenv().ok();
 

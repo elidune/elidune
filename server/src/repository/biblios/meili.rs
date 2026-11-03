@@ -16,6 +16,7 @@ impl Repository {
                 b.id,
                 b.media_type,
                 b.isbn::text AS isbn,
+                b.issn::text AS issn,
                 b.title,
                 COALESCE(
                     string_agg(DISTINCT concat_ws(' ', a.lastname, a.firstname), ', ')
@@ -97,6 +98,7 @@ impl Repository {
                 b.id,
                 b.media_type,
                 b.isbn::text AS isbn,
+                b.issn::text AS issn,
                 b.title,
                 COALESCE(
                     string_agg(DISTINCT concat_ws(' ', a.lastname, a.firstname), ', ')

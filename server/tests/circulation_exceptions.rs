@@ -527,3 +527,159 @@ async fn physical_return_clears_claims_returned_without_resolve_endpoint() {
     assert_eq!(item["circulationStatus"], 0);
     assert_eq!(item["borrowable"], true);
 }
+
+async fn create_shelf_item(app: &TestApp, admin_token: &str, price: Option<&str>) -> i64 {
+    let mut item = json!({
+        "barcode": format!("SHELF-{}", fixtures::unique_suffix()),
+        "borrowable": true
+    });
+    if let Some(price) = price {
+        item["price"] = json!(price);
+    }
+    let (status, body) = app
+        .post_json(
+            "/api/v1/biblios",
+            &json!({
+                "title": format!("Shelf Book {}", fixtures::unique_suffix()),
+                "mediaType": "printedText",
+                "lang": "french",
+                "items": [item]
+            }),
+            Some(admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "create biblio: {body}");
+    fixtures::json_id(&body["biblio"]["items"][0]["id"])
+}
+
+#[tokio::test]
+async fn mark_item_lost_on_shelf_own_stock_without_fine() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    unlock_admin(&app, &admin_token).await;
+    let item_id = create_shelf_item(&app, &admin_token, Some("12.00")).await;
+
+    let (status, body) = app
+        .post_json(
+            &format!("/api/v1/items/{item_id}/lost"),
+            &json!({ "bill": true, "notes": "missing after inventory" }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "mark item lost: {body}");
+    assert_eq!(body["outcome"], "lost");
+    assert_eq!(body["itemStatus"], "lost");
+    assert_eq!(body["borrowable"], false);
+    assert_eq!(body["loanClosed"], false);
+    assert!(body["loanId"].is_null() || body.get("loanId").is_none(), "{body}");
+    assert!(body["charge"].is_null(), "own-stock shelf must not bill: {body}");
+
+    let item = item_copy(&app, &admin_token, item_id).await;
+    assert_eq!(item["circulationStatus"], 1);
+    assert_eq!(item["borrowable"], false);
+    assert!(audit_has(&app, &admin_token, "item.marked_lost").await);
+}
+
+#[tokio::test]
+async fn mark_item_missing_from_available() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    unlock_admin(&app, &admin_token).await;
+    let item_id = create_shelf_item(&app, &admin_token, None).await;
+
+    let (status, body) = app
+        .post_json(
+            &format!("/api/v1/items/{item_id}/missing"),
+            &json!({ "notes": "not on shelf" }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "mark missing: {body}");
+    assert_eq!(body["outcome"], "missing");
+    assert_eq!(body["itemStatus"], "missing");
+    assert_eq!(body["borrowable"], false);
+    assert_eq!(body["loanClosed"], false);
+    assert!(body["charge"].is_null(), "{body}");
+
+    let item = item_copy(&app, &admin_token, item_id).await;
+    assert_eq!(item["circulationStatus"], 5);
+    assert!(audit_has(&app, &admin_token, "item.marked_missing").await);
+
+    let (status, again) = app
+        .post_json(
+            &format!("/api/v1/items/{item_id}/missing"),
+            &json!({}),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{again}");
+}
+
+#[tokio::test]
+async fn mark_item_lost_with_open_loan_closes_and_can_bill() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    unlock_admin(&app, &admin_token).await;
+    let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "itemlostloan").await;
+    let (loan_id, item_id) =
+        create_loan_with_priced_item(&app, &admin_token, reader_id, "9.50").await;
+
+    let (status, body) = app
+        .post_json(
+            &format!("/api/v1/items/{item_id}/lost"),
+            &json!({ "bill": true }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "item lost with loan: {body}");
+    assert_eq!(body["outcome"], "lost");
+    assert_eq!(body["loanClosed"], true);
+    assert_eq!(body["loanId"], loan_id.to_string());
+    assert_eq!(body["charge"]["chargeType"], "replacement");
+    assert_eq!(decimal_str(&body["charge"]["amount"]), "9.50");
+
+    let (status, again) = app
+        .post_json(
+            &format!("/api/v1/items/{item_id}/lost"),
+            &json!({}),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{again}");
+}
+
+#[tokio::test]
+async fn mark_item_missing_then_escalate_to_lost() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    unlock_admin(&app, &admin_token).await;
+    let item_id = create_shelf_item(&app, &admin_token, None).await;
+
+    let (status, _) = app
+        .post_json(
+            &format!("/api/v1/items/{item_id}/missing"),
+            &json!({}),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (status, body) = app
+        .post_json(
+            &format!("/api/v1/items/{item_id}/lost"),
+            &json!({}),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "escalate: {body}");
+    assert_eq!(body["itemStatus"], "lost");
+    assert!(body["charge"].is_null(), "{body}");
+}

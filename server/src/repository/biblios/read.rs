@@ -19,7 +19,7 @@ impl Repository {
     #[tracing::instrument(skip(self), err)]
     pub async fn biblios_get_by_id(&self, id: i64) -> AppResult<Biblio> {
         let query = r#"
-            SELECT id, media_type, isbn,
+            SELECT id, media_type, isbn, issn,
                    publication_date, lang, lang_orig, title,
                    subject, dewey, genre, audience_type, page_extent, format,
                    table_of_contents, accompanying_material,
@@ -177,7 +177,7 @@ impl Repository {
     pub async fn biblios_get_short_by_id(&self, id: i64) -> AppResult<BiblioShort> {
         let row: BiblioShortRow = sqlx::query_as(
             r#"
-            SELECT b.id, b.media_type, b.isbn, b.title,
+            SELECT b.id, b.media_type, b.isbn, b.issn, b.title,
                    b.publication_date as date, 0::smallint as status,
                    1::smallint as is_local, b.is_valid, b.archived_at,
                    (
@@ -221,7 +221,7 @@ impl Repository {
         }
         let rows: Vec<BiblioShortRow> = sqlx::query_as(
             r#"
-            SELECT b.id, b.media_type, b.isbn, b.title,
+            SELECT b.id, b.media_type, b.isbn, b.issn, b.title,
                    b.publication_date AS date, 0::smallint AS status,
                    1::smallint AS is_local, b.is_valid, b.archived_at,
                    (
@@ -280,7 +280,7 @@ impl Repository {
         }
         let rows: Vec<BiblioShortRow> = sqlx::query_as(
             r#"
-            SELECT b.id, b.media_type, b.isbn, b.title,
+            SELECT b.id, b.media_type, b.isbn, b.issn, b.title,
                    b.publication_date AS date, 0::smallint AS status,
                    1::smallint AS is_local, b.is_valid, b.archived_at,
                    (

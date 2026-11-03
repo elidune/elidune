@@ -28,7 +28,21 @@ created_at, updated_at";
 const SUBSCRIPTION_FROM: &str = "\
 FROM serial_subscriptions s \
 JOIN biblios b ON b.id = s.biblio_id \
-JOIN serial_frequencies f ON f.id = s.frequency_id";
+JOIN serial_frequencies f ON f.id = s.frequency_id \
+LEFT JOIN vendors v ON v.id = s.vendor_id";
+
+/// Copies created at check-in that have not been archived.
+const ITEM_COUNT_SQL: &str = "\
+(SELECT COUNT(*)::bigint FROM serial_issues i \
+  JOIN items it ON it.id = i.item_id AND it.archived_at IS NULL \
+  WHERE i.serial_subscription_id = s.id AND i.status <> 'deleted')";
+
+const LATEST_ITEM_SQL: &str = "\
+(SELECT i.item_id FROM serial_issues i \
+  JOIN items it ON it.id = i.item_id AND it.archived_at IS NULL \
+  WHERE i.serial_subscription_id = s.id AND i.status <> 'deleted' \
+  ORDER BY i.received_at DESC NULLS LAST, i.id DESC \
+  LIMIT 1)";
 
 fn subscription_select() -> String {
     format!(
@@ -43,35 +57,21 @@ fn subscription_select() -> String {
          s.holdings_statement, s.call_number, s.location, s.public_note, s.internal_note, s.notes, \
          s.created_at, s.updated_at, \
          (SELECT COUNT(*)::bigint FROM serial_issues i \
-           WHERE i.serial_subscription_id = s.id AND i.status <> 'deleted') AS issue_count"
+           WHERE i.serial_subscription_id = s.id AND i.status <> 'deleted') AS issue_count, \
+         {ITEM_COUNT_SQL} AS item_count, \
+         {LATEST_ITEM_SQL} AS latest_item_id"
     )
 }
 
 const ISSNS: &str = "\
-COALESCE(( \
-  SELECT array_agg(DISTINCT issn ORDER BY issn) FROM ( \
-    SELECT se.issn::text AS issn FROM biblio_series bs \
-    JOIN series se ON se.id = bs.series_id \
-    WHERE bs.biblio_id = s.biblio_id AND se.issn IS NOT NULL AND btrim(se.issn) <> '' \
-    UNION \
-    SELECT c.issn::text FROM biblio_collections bc \
-    JOIN collections c ON c.id = bc.collection_id \
-    WHERE bc.biblio_id = s.biblio_id AND c.issn IS NOT NULL AND btrim(c.issn) <> '' \
-  ) raw \
-), ARRAY[]::text[])";
+CASE \
+  WHEN b.issn IS NOT NULL AND btrim(b.issn) <> '' THEN ARRAY[b.issn::text] \
+  ELSE ARRAY[]::text[] \
+END";
 
 const SEARCH_WHERE: &str = "\
 ($1::text IS NULL OR strpos(lower(coalesce(b.title, '')), lower($1)) > 0 \
- OR EXISTS ( \
-    SELECT 1 FROM biblio_series bs \
-    JOIN series se ON se.id = bs.series_id \
-    WHERE bs.biblio_id = s.biblio_id \
-      AND strpos(lower(coalesce(se.issn, '')), lower($1)) > 0) \
- OR EXISTS ( \
-    SELECT 1 FROM biblio_collections bc \
-    JOIN collections c ON c.id = bc.collection_id \
-    WHERE bc.biblio_id = s.biblio_id \
-      AND strpos(lower(coalesce(c.issn, '')), lower($1)) > 0)) \
+ OR strpos(lower(coalesce(b.issn, '')), lower($1)) > 0) \
  AND ($2::bigint IS NULL OR s.site_id = $2) \
  AND ($3::bigint IS NULL OR s.vendor_id = $3) \
  AND ($4::text IS NULL OR s.status = $4)";
@@ -120,6 +120,8 @@ struct SubscriptionRow {
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
     issue_count: i64,
+    item_count: i64,
+    latest_item_id: Option<i64>,
 }
 
 #[derive(Debug, sqlx::FromRow)]
@@ -257,6 +259,8 @@ fn subscription_from_row(row: SubscriptionRow) -> AppResult<SerialSubscription> 
         internal_note: row.internal_note,
         notes: row.notes,
         issue_count: row.issue_count,
+        item_count: row.item_count,
+        latest_item_id: row.latest_item_id,
         issues: Vec::new(),
         created_at: row.created_at,
         updated_at: row.updated_at,
@@ -354,7 +358,7 @@ impl Repository {
             ))),
             Some("periodic") => Ok(()),
             Some(_) => Err(AppError::Validation(
-                "Serial subscriptions require a periodical bibliographic record".into(),
+                "A periodical bibliographic record is required".into(),
             )),
         }
     }
@@ -375,9 +379,10 @@ impl Repository {
         .fetch_one(&self.pool)
         .await?;
         let columns = subscription_select();
+        let order = query.order_sql();
         let sql = format!(
             "SELECT {columns} {SUBSCRIPTION_FROM} WHERE {SEARCH_WHERE} \
-             ORDER BY lower(coalesce(b.title, '')), s.id \
+             ORDER BY {order} \
              LIMIT $5 OFFSET $6"
         );
         let rows = sqlx::query_as::<_, SubscriptionRow>(&sql)

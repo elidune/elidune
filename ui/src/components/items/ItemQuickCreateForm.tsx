@@ -21,6 +21,8 @@ type FieldsProps = {
   sites: Site[];
   /** Show volume designation + borrowable (detail modal). */
   showExtendedFields?: boolean;
+  /** Periodical notice: the extra field is the issue number. */
+  periodical?: boolean;
   /** Single row for create-with-notice (barcode | call number | site). */
   layout?: 'stack' | 'row';
   error?: string | null;
@@ -34,6 +36,7 @@ export function ItemQuickCreateFields({
   callNumberSuggestions,
   sites,
   showExtendedFields = false,
+  periodical = false,
   layout = 'stack',
   error = null,
   onClearError,
@@ -116,10 +119,10 @@ export function ItemQuickCreateFields({
       {showExtendedFields ? (
         <>
           <Input
-            label={t('items.volumeDesignation')}
+            label={t(periodical ? 'items.serialIssue' : 'items.volumeDesignation')}
             value={values.volumeDesignation}
             onChange={(e) => set({ volumeDesignation: e.target.value })}
-            placeholder={t('items.volumeDesignationPlaceholder')}
+            placeholder={t(periodical ? 'items.serialIssuePlaceholder' : 'items.volumeDesignationPlaceholder')}
           />
           <div>
             <label className={formLabelClass()}>{t('items.borrowable')}</label>
@@ -190,6 +193,7 @@ type AttachProps = {
   formId: string;
   biblioId: string;
   callNumberSuggestions: CallNumberOption[];
+  periodical?: boolean;
   onLoadingChange: (loading: boolean) => void;
   onSuccess: () => void;
 };
@@ -199,6 +203,7 @@ export default function ItemQuickCreateForm({
   formId,
   biblioId,
   callNumberSuggestions,
+  periodical = false,
   onLoadingChange,
   onSuccess,
 }: AttachProps) {
@@ -253,6 +258,7 @@ export default function ItemQuickCreateForm({
         onChange={setValues}
         callNumberSuggestions={callNumberSuggestions}
         sites={sites}
+        periodical={periodical}
         showExtendedFields
         error={error}
         onClearError={() => setError(null)}

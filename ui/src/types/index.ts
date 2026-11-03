@@ -941,6 +941,7 @@ export interface BiblioShortStaff {
   id: string;
   mediaType: MediaType;
   isbn: string | null;
+  issn?: string | null;
   title: string | null;
   date: string | null;
   status: number;
@@ -960,6 +961,7 @@ export interface BiblioShortPublic {
   id: string;
   mediaType: MediaType;
   isbn: string | null;
+  issn?: string | null;
   title: string | null;
   date: string | null;
   status: number;
@@ -976,6 +978,13 @@ export interface ItemCopyBorrower {
   initials?: string | null;
 }
 
+/** Issue number and cover date of a periodical copy. */
+export interface SerialCopyCaption {
+  label: string;
+  /** Cover date (`YYYY-MM-DD`), not the check-in date. */
+  date: string;
+}
+
 /** Full physical copy (exemplaire) */
 export interface Item {
   id: string;
@@ -984,6 +993,8 @@ export interface Item {
   barcode?: string | null;
   callNumber?: string | null;
   volumeDesignation?: string | null;
+  /** Present when this copy is a received serial issue. */
+  serialIssue?: SerialCopyCaption | null;
   place?: number | null;
   borrowable?: boolean | null;
   /**
@@ -1044,6 +1055,8 @@ export interface ItemStaffView {
   lenderBarcode?: string | null;
   callNumber: string | null;
   volumeDesignation: string | null;
+  /** Present when this copy is a received serial issue. */
+  serialIssue?: SerialCopyCaption | null;
   place: number | null;
   borrowable: boolean;
   circulationStatus: number | null;
@@ -1098,6 +1111,8 @@ export interface ItemPublicView {
   barcode: string | null;
   callNumber: string | null;
   volumeDesignation: string | null;
+  /** Present when this copy is a received serial issue. */
+  serialIssue?: SerialCopyCaption | null;
   place: number | null;
   borrowable: boolean;
   /** Copy note safe for patrons and the OPAC. Null when the copy has none. */
@@ -1134,6 +1149,8 @@ export interface Biblio {
   marcFormat?: string | null;
   mediaType?: MediaType | string | null;
   isbn?: string | null;
+  /** ISSN of the bibliographic resource (periodicals). */
+  issn?: string | null;
   barcode?: string | null;
   callNumber?: string | null;
   price?: string | null;
@@ -1185,6 +1202,7 @@ export interface BiblioStaffView {
   id: string | null;
   mediaType: MediaType;
   isbn: string | null;
+  issn?: string | null;
   title: string | null;
   subject: string | null;
   dewey: string | null;
@@ -1229,6 +1247,7 @@ export interface BiblioPublicView {
   id: string | null;
   mediaType: MediaType;
   isbn: string | null;
+  issn?: string | null;
   title: string | null;
   subject: string | null;
   dewey: string | null;
@@ -1310,10 +1329,17 @@ export interface UpdateItem {
 // Circulation exceptions (lost / damaged / claimed-returned) — staff desk API
 export type DamageDisposition = 'return' | 'keep';
 export type ClaimsResolveOutcome = 'found' | 'notFound';
-export type CirculationStatusName = 'available' | 'lost' | 'damaged' | 'claimedReturned';
+export type CirculationStatusName =
+  | 'available'
+  | 'lost'
+  | 'damaged'
+  | 'claimedReturned'
+  | 'toSearch'
+  | 'missing';
 export type CirculationExceptionOutcome =
   | 'lost'
   | 'damaged'
+  | 'missing'
   | 'claimedReturned'
   | 'claimsResolvedFound'
   | 'claimsResolvedNotFound';
@@ -1322,6 +1348,10 @@ export interface MarkLostRequest {
   bill?: boolean;
   amount?: string;
   useItemPrice?: boolean;
+  notes?: string;
+}
+
+export interface MarkMissingRequest {
   notes?: string;
 }
 
@@ -1347,9 +1377,11 @@ export interface CirculationExceptionResponse {
   itemStatus: CirculationStatusName;
   borrowable: boolean;
   loanClosed: boolean;
-  loanId: string;
+  /** Present when an open loan was involved. */
+  loanId?: string | null;
   itemId: string;
-  userId: string;
+  /** Present when an open loan was involved. */
+  userId?: string | null;
   charge?: Fine | null;
 }
 
@@ -3744,7 +3776,7 @@ export interface PurchaseSuggestionListResponse {
   total: number;
 }
 
-export type SerialSubscriptionStatus = 'active' | 'expired' | 'closed';
+export type SerialSubscriptionStatus = 'active' | 'expired' | 'closed' | 'suspended';
 
 export type SerialIssueStatus =
   | 'expected'
@@ -3842,6 +3874,10 @@ export interface SerialSubscription {
   internalNote?: string | null;
   notes?: string | null;
   issueCount: number;
+  /** Physical copies linked to a received issue of this subscription. */
+  itemCount: number;
+  /** Most recently received copy. Absent when none has been checked in. */
+  latestItemId?: string | null;
   issues?: SerialIssue[];
   createdAt?: string;
   updatedAt?: string;
@@ -3850,6 +3886,36 @@ export interface SerialSubscription {
 export interface SerialSubscriptionListResponse {
   subscriptions: SerialSubscription[];
   total: number;
+}
+
+export interface SerialGift {
+  id: string;
+  itemId: string;
+  biblioId: string;
+  biblioTitle?: string | null;
+  issn?: string | null;
+  siteId: string;
+  siteName?: string | null;
+  volumeLabel: string;
+  coverDate?: string | null;
+  barcode?: string | null;
+  callNumber?: string | null;
+  createdAt: string;
+}
+
+export interface SerialGiftListResponse {
+  gifts: SerialGift[];
+  total: number;
+}
+
+export interface CreateSerialGift {
+  biblioId: string;
+  siteId: string;
+  volumeLabel: string;
+  coverDate?: string | null;
+  barcode?: string | null;
+  callNumber?: string | null;
+  internalNote?: string | null;
 }
 
 export interface SerialSubscriptionWrite {

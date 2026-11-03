@@ -142,9 +142,12 @@ pub struct Fine {
     #[serde_as(as = "DisplayFromStr")]
     #[schema(value_type = String)]
     pub id: i64,
-    #[serde_as(as = "DisplayFromStr")]
-    #[schema(value_type = String)]
-    pub loan_id: i64,
+    /// Set when the charge was created on an open loan. Null for shelf-level
+    /// deposit replacement/damage charges with no patron loan.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub loan_id: Option<i64>,
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[schema(value_type = Option<String>)]
     pub user_id: Option<i64>,

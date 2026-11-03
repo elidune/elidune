@@ -32,6 +32,8 @@ pub enum ClaimsResolveOutcome {
 pub enum CirculationAction {
     MarkLost,
     MarkDamaged,
+    /// Declare the copy missing (shelf search closed). No loan close, no billing.
+    MarkMissing,
     ClaimReturned,
     ResolveFound,
     ResolveNotFound,
@@ -141,6 +143,14 @@ impl CirculationStatus {
                 CirculationAction::MarkLost,
             ) => Ok(Self::Lost),
             (Self::Lost, CirculationAction::MarkLost) => Err("Item is already marked lost"),
+            (Self::Available | Self::ToSearch, CirculationAction::MarkMissing) => Ok(Self::Missing),
+            (Self::Missing, CirculationAction::MarkMissing) => {
+                Err("Item is already marked missing")
+            }
+            (
+                Self::Lost | Self::Damaged | Self::ClaimedReturned,
+                CirculationAction::MarkMissing,
+            ) => Err("Cannot declare missing from the current circulation status"),
             (Self::Available | Self::Damaged, CirculationAction::MarkDamaged) => Ok(Self::Damaged),
             (Self::Lost, CirculationAction::MarkDamaged) => {
                 Err("Cannot mark a lost item as damaged")
@@ -187,7 +197,10 @@ impl CirculationAction {
     pub fn closes_loan(self, disposition: Option<DamageDisposition>) -> bool {
         match self {
             Self::MarkLost | Self::ResolveFound | Self::ResolveNotFound => true,
-            Self::ClaimReturned | Self::AcceptFound | Self::AcceptFoundDamaged => false,
+            Self::MarkMissing
+            | Self::ClaimReturned
+            | Self::AcceptFound
+            | Self::AcceptFoundDamaged => false,
             Self::MarkDamaged => matches!(disposition, Some(DamageDisposition::Return) | None),
         }
     }
@@ -357,9 +370,41 @@ mod tests {
     fn billing_only_for_lost_and_damaged_transitions() {
         assert!(CirculationAction::MarkLost.allows_billing());
         assert!(CirculationAction::MarkDamaged.allows_billing());
+        assert!(!CirculationAction::MarkMissing.allows_billing());
         assert!(!CirculationAction::ResolveNotFound.allows_billing());
         assert!(!CirculationAction::ClaimReturned.allows_billing());
         assert!(!CirculationAction::ResolveFound.allows_billing());
+    }
+
+    #[test]
+    fn mark_missing_from_available_or_to_search_without_loan_or_billing() {
+        assert_eq!(
+            CirculationStatus::Available
+                .transition(CirculationAction::MarkMissing)
+                .expect("available"),
+            CirculationStatus::Missing
+        );
+        assert_eq!(
+            CirculationStatus::ToSearch
+                .transition(CirculationAction::MarkMissing)
+                .expect("toSearch"),
+            CirculationStatus::Missing
+        );
+        assert!(!CirculationStatus::Missing.borrowable_after());
+        assert!(!CirculationAction::MarkMissing.closes_loan(None));
+        assert!(!CirculationAction::MarkMissing.notify_holds());
+        assert!(CirculationStatus::Missing
+            .transition(CirculationAction::MarkMissing)
+            .is_err());
+        assert!(CirculationStatus::Lost
+            .transition(CirculationAction::MarkMissing)
+            .is_err());
+        assert_eq!(
+            CirculationStatus::Missing
+                .transition(CirculationAction::MarkLost)
+                .expect("escalate"),
+            CirculationStatus::Lost
+        );
     }
 
     #[test]

@@ -476,6 +476,8 @@ pub(crate) struct BiblioShortRow {
     id: i64,
     media_type: MediaType,
     isbn: Option<Isbn>,
+    #[sqlx(default)]
+    issn: Option<Isbn>,
     title: Option<String>,
     date: Option<String>,
     status: i16,
@@ -538,6 +540,7 @@ impl From<BiblioShortRow> for BiblioShort {
             id: r.id,
             media_type: r.media_type,
             isbn: r.isbn,
+            issn: r.issn,
             title: r.title,
             date: r.date,
             status: r.status,

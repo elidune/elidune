@@ -1,4 +1,4 @@
-//! Item circulation-exception persistence (lost / damaged / claimed-returned).
+//! Item circulation-exception persistence (lost / damaged / claimed-returned / missing).
 
 use chrono::Utc;
 use sqlx::Row;
@@ -17,8 +17,13 @@ use crate::{
 };
 
 /// Inputs for a single atomic exception apply.
+///
+/// Primary key is [`Self::item_id`]. When [`Self::loan_id`] is set (loan-scoped
+/// desk routes), that exact active loan must exist on the copy. Otherwise any
+/// open loan on the item is closed when the action requires it.
 pub struct CirculationApplyParams<'a> {
-    pub loan_id: i64,
+    pub item_id: i64,
+    pub loan_id: Option<i64>,
     pub action: CirculationAction,
     pub disposition: Option<DamageDisposition>,
     pub bill_amount: Option<Cents>,
@@ -28,9 +33,9 @@ pub struct CirculationApplyParams<'a> {
 
 /// Result of [`Repository::circulation_apply`].
 pub struct CirculationApplyResult {
-    pub loan_id: i64,
+    pub loan_id: Option<i64>,
     pub item_id: i64,
-    pub user_id: i64,
+    pub user_id: Option<i64>,
     pub item_status: CirculationStatus,
     pub borrowable: bool,
     pub loan_closed: bool,
@@ -70,14 +75,6 @@ impl Repository {
         let now = Utc::now();
         let mut tx = self.pool.begin().await?;
 
-        let loan = sqlx::query_as::<_, Loan>(
-            "SELECT * FROM loans WHERE id = $1 AND returned_at IS NULL FOR UPDATE",
-        )
-        .bind(params.loan_id)
-        .fetch_optional(&mut *tx)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("Active loan {} not found", params.loan_id)))?;
-
         let item_row = sqlx::query(
             r#"
             SELECT id, circulation_status, borrowable, price, internal_note
@@ -86,17 +83,45 @@ impl Repository {
             FOR UPDATE
             "#,
         )
-        .bind(loan.item_id)
+        .bind(params.item_id)
         .fetch_optional(&mut *tx)
         .await?
-        .ok_or_else(|| AppError::NotFound(format!("Item {} not found", loan.item_id)))?;
+        .ok_or_else(|| AppError::NotFound(format!("Item {} not found", params.item_id)))?;
+
+        let loan = match params.loan_id {
+            Some(loan_id) => {
+                let loan = sqlx::query_as::<_, Loan>(
+                    "SELECT * FROM loans WHERE id = $1 AND returned_at IS NULL FOR UPDATE",
+                )
+                .bind(loan_id)
+                .fetch_optional(&mut *tx)
+                .await?
+                .ok_or_else(|| {
+                    AppError::NotFound(format!("Active loan {loan_id} not found"))
+                })?;
+                if loan.item_id != params.item_id {
+                    return Err(AppError::BusinessRule(
+                        "Loan does not belong to this item".to_string(),
+                    ));
+                }
+                Some(loan)
+            }
+            None => {
+                sqlx::query_as::<_, Loan>(
+                    "SELECT * FROM loans WHERE item_id = $1 AND returned_at IS NULL FOR UPDATE",
+                )
+                .bind(params.item_id)
+                .fetch_optional(&mut *tx)
+                .await?
+            }
+        };
 
         let current = CirculationStatus::from_db(item_row.get("circulation_status"));
         let next = current
             .transition(params.action)
             .map_err(|msg| AppError::BusinessRule(msg.to_string()))?;
 
-        let close_loan = params.action.closes_loan(params.disposition);
+        let close_loan = params.action.closes_loan(params.disposition) && loan.is_some();
         let notify_holds = params.action.notify_holds();
         let borrowable = next.borrowable_after();
 
@@ -112,7 +137,7 @@ impl Repository {
             WHERE id = $1
             "#,
         )
-        .bind(loan.item_id)
+        .bind(params.item_id)
         .bind(next.as_db())
         .bind(borrowable)
         .bind(&item_notes)
@@ -120,13 +145,15 @@ impl Repository {
         .execute(&mut *tx)
         .await?;
 
-        if let Some(note) = params.notes {
-            if !note.trim().is_empty() {
-                sqlx::query("UPDATE loans SET notes = $2 WHERE id = $1")
-                    .bind(loan.id)
-                    .bind(merge_notes(loan.notes.clone(), Some(note)))
-                    .execute(&mut *tx)
-                    .await?;
+        if let Some(ref loan) = loan {
+            if let Some(note) = params.notes {
+                if !note.trim().is_empty() {
+                    sqlx::query("UPDATE loans SET notes = $2 WHERE id = $1")
+                        .bind(loan.id)
+                        .bind(merge_notes(loan.notes.clone(), Some(note)))
+                        .execute(&mut *tx)
+                        .await?;
+                }
             }
         }
 
@@ -140,9 +167,9 @@ impl Repository {
                 Some(
                     self.fines_create_charge_tx(
                         &mut tx,
-                        loan.id,
-                        loan.user_id,
-                        loan.item_id,
+                        loan.as_ref().map(|l| l.id),
+                        loan.as_ref().map(|l| l.user_id),
+                        params.item_id,
                         amount,
                         charge_type,
                         params.notes,
@@ -154,18 +181,25 @@ impl Repository {
             };
 
         let mut readied_hold = None;
+        let result_loan_id = loan.as_ref().map(|l| l.id);
+        let result_user_id = loan.as_ref().map(|l| l.user_id);
         if close_loan {
+            let Some(ref loan) = loan else {
+                return Err(AppError::Internal(
+                    "close_loan set without an active loan".into(),
+                ));
+            };
             let closure_reason = match params.action {
                 CirculationAction::MarkLost | CirculationAction::ResolveNotFound => {
                     LoanClosureReason::Lost
                 }
                 _ => LoanClosureReason::Returned,
             };
-            self.loans_archive_and_delete_tx(&mut tx, &loan, now, closure_reason)
+            self.loans_archive_and_delete_tx(&mut tx, loan, now, closure_reason)
                 .await?;
             if notify_holds {
                 readied_hold = self
-                    .holds_notify_next_tx(&mut tx, loan.item_id, self.hold_ready_expiry_days())
+                    .holds_notify_next_tx(&mut tx, params.item_id, self.hold_ready_expiry_days())
                     .await?;
             }
         }
@@ -173,9 +207,9 @@ impl Repository {
         Ok(CirculationApplyPending {
             tx,
             apply: CirculationApplyResult {
-                loan_id: loan.id,
-                item_id: loan.item_id,
-                user_id: loan.user_id,
+                loan_id: result_loan_id,
+                item_id: params.item_id,
+                user_id: result_user_id,
                 item_status: next,
                 borrowable,
                 loan_closed: close_loan,

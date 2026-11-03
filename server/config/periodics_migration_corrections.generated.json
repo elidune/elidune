@@ -1,0 +1,1555 @@
+{
+  "version": 1,
+  "aliases": {},
+  "clusterMerges": {},
+  "skipClusters": [],
+  "forceCanonicalBiblioId": {},
+  "clusters": [
+    {
+      "clusterKey": "30 gestes malins et utiles au jardin bio supplement 4 saisons du jardin bio",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 15018,
+      "canonicalTitle": "30 gestes malins et utiles au jardin bio (supplément 4 Saisons du jardin bio mars/avril 2010)"
+    },
+    {
+      "clusterKey": "4 saisonns",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 17163,
+      "canonicalTitle": "4 saisonns n 192",
+      "suggestedMergeInto": "4 saisons"
+    },
+    {
+      "clusterKey": "4 saisons",
+      "memberCount": 26,
+      "itemCount": 25,
+      "canonicalBiblioId": 25403,
+      "canonicalTitle": "4 saisons"
+    },
+    {
+      "clusterKey": "4 saisons du jardin",
+      "memberCount": 2,
+      "itemCount": 2,
+      "canonicalBiblioId": 21002,
+      "canonicalTitle": "4 saisons du jardin 207"
+    },
+    {
+      "clusterKey": "4 saisons du jardin bio",
+      "memberCount": 14,
+      "itemCount": 15,
+      "canonicalBiblioId": 20544,
+      "canonicalTitle": "4 saisons du jardin BIO"
+    },
+    {
+      "clusterKey": "4 saisons du jardin bio 30 ans",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 14812,
+      "canonicalTitle": "4 saisons du jardin bio N° spécial 30 ans"
+    },
+    {
+      "clusterKey": "4 saisons du jardinage 213j",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 22580,
+      "canonicalTitle": "4 saisons du jardinage 213j"
+    },
+    {
+      "clusterKey": "4saisons",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 27229,
+      "canonicalTitle": "4Saisons"
+    },
+    {
+      "clusterKey": "4saisons du jardin bio",
+      "memberCount": 2,
+      "itemCount": 2,
+      "canonicalBiblioId": 22701,
+      "canonicalTitle": "4saisons du jardin bio 215  novembre 2015",
+      "suggestedMergeInto": "4 saisons du jardin bio"
+    },
+    {
+      "clusterKey": "60 millions",
+      "memberCount": 9,
+      "itemCount": 7,
+      "canonicalBiblioId": 2283,
+      "canonicalTitle": "60 millions 386"
+    },
+    {
+      "clusterKey": "60 millions de consommateurs",
+      "memberCount": 13,
+      "itemCount": 13,
+      "canonicalBiblioId": 6892,
+      "canonicalTitle": "60 millions de consommateurs"
+    },
+    {
+      "clusterKey": "60millions de consommateurs",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 26330,
+      "canonicalTitle": "60millions de consommateurs",
+      "suggestedMergeInto": "60 millions de consommateurs"
+    },
+    {
+      "clusterKey": "action auto moto",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 9940,
+      "canonicalTitle": "Action auto moto janvier février 2006"
+    },
+    {
+      "clusterKey": "annonces automobiles",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 7739,
+      "canonicalTitle": "Annonces automobiles n° 156"
+    },
+    {
+      "clusterKey": "auto journal",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 10903,
+      "canonicalTitle": "auto journal 699"
+    },
+    {
+      "clusterKey": "auto moto",
+      "memberCount": 73,
+      "itemCount": 64,
+      "canonicalBiblioId": 6858,
+      "canonicalTitle": "auto moto"
+    },
+    {
+      "clusterKey": "auto moto 47h",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 10899,
+      "canonicalTitle": "auto moto hors série 47H"
+    },
+    {
+      "clusterKey": "auto plus",
+      "memberCount": 4,
+      "itemCount": 4,
+      "canonicalBiblioId": 22645,
+      "canonicalTitle": "Auto Plus"
+    },
+    {
+      "clusterKey": "auto plus 1419 13",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 22761,
+      "canonicalTitle": "Auto Plus 1419 13 11 2015"
+    },
+    {
+      "clusterKey": "auto plus 1420 20 11",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 22762,
+      "canonicalTitle": "Auto PLUS 1420  20.11.2015"
+    },
+    {
+      "clusterKey": "automoto",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 26390,
+      "canonicalTitle": "AUTOMOTO"
+    },
+    {
+      "clusterKey": "autoplus",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 22967,
+      "canonicalTitle": "autoplus 1421"
+    },
+    {
+      "clusterKey": "avantages",
+      "memberCount": 1,
+      "itemCount": 0,
+      "canonicalBiblioId": 8379,
+      "canonicalTitle": "avantages mai 20048055801160"
+    },
+    {
+      "clusterKey": "avions",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 11213,
+      "canonicalTitle": "avions"
+    },
+    {
+      "clusterKey": "belles histoires",
+      "memberCount": 2,
+      "itemCount": 2,
+      "canonicalBiblioId": 18168,
+      "canonicalTitle": "belles histoires"
+    },
+    {
+      "clusterKey": "bricoler",
+      "memberCount": 7,
+      "itemCount": 5,
+      "canonicalBiblioId": 6871,
+      "canonicalTitle": "Bricoler 27"
+    },
+    {
+      "clusterKey": "bricoler cote maison",
+      "memberCount": 2,
+      "itemCount": 2,
+      "canonicalBiblioId": 8382,
+      "canonicalTitle": "Bricoler côté maison 30"
+    },
+    {
+      "clusterKey": "c a m interesse",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 23455,
+      "canonicalTitle": "ç'a m'interesse",
+      "suggestedMergeInto": "ca m interesse"
+    },
+    {
+      "clusterKey": "ca m interesere",
+      "memberCount": 1,
+      "itemCount": 0,
+      "canonicalBiblioId": 27237,
+      "canonicalTitle": "CA M'INTERESERE DECEMBRE 2022"
+    },
+    {
+      "clusterKey": "ca m interesse",
+      "memberCount": 96,
+      "itemCount": 90,
+      "canonicalBiblioId": 7001,
+      "canonicalTitle": "Ca m'intéresse"
+    },
+    {
+      "clusterKey": "ca m interesse n 427",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 23435,
+      "canonicalTitle": "ça m'interesse n,427 septembre 2016"
+    },
+    {
+      "clusterKey": "ca m interresse",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 9386,
+      "canonicalTitle": "ça m'interresse 298",
+      "suggestedMergeInto": "ca m interesse"
+    },
+    {
+      "clusterKey": "cahiers de science et vie",
+      "memberCount": 1,
+      "itemCount": 0,
+      "canonicalBiblioId": 7737,
+      "canonicalTitle": "cahiers de science et vie n°82"
+    },
+    {
+      "clusterKey": "chasseur francais",
+      "memberCount": 10,
+      "itemCount": 9,
+      "canonicalBiblioId": 16131,
+      "canonicalTitle": "chasseur français"
+    },
+    {
+      "clusterKey": "chasseurs francais",
+      "memberCount": 4,
+      "itemCount": 4,
+      "canonicalBiblioId": 23231,
+      "canonicalTitle": "CHASSEURS FRANCAIS MARS 2016"
+    },
+    {
+      "clusterKey": "cuisine actuelle",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 26232,
+      "canonicalTitle": "Cuisine actuelle 358"
+    },
+    {
+      "clusterKey": "cuisine et vin de france",
+      "memberCount": 2,
+      "itemCount": 2,
+      "canonicalBiblioId": 13403,
+      "canonicalTitle": "cuisine et vin de France  125",
+      "suggestedMergeInto": "cuisine et vins de france"
+    },
+    {
+      "clusterKey": "cuisine et vins",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 15452,
+      "canonicalTitle": "Cuisine et vins"
+    },
+    {
+      "clusterKey": "cuisine et vins de france",
+      "memberCount": 21,
+      "itemCount": 22,
+      "canonicalBiblioId": 13635,
+      "canonicalTitle": "Cuisine et vins de france"
+    },
+    {
+      "clusterKey": "d lire",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 9360,
+      "canonicalTitle": "D lire 86"
+    },
+    {
+      "clusterKey": "detente jardin",
+      "memberCount": 5,
+      "itemCount": 5,
+      "canonicalBiblioId": 26628,
+      "canonicalTitle": "détente jardin"
+    },
+    {
+      "clusterKey": "detours en france",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 26348,
+      "canonicalTitle": "Détours en France"
+    },
+    {
+      "clusterKey": "dlire",
+      "memberCount": 11,
+      "itemCount": 11,
+      "canonicalBiblioId": 10239,
+      "canonicalTitle": "DLIRE"
+    },
+    {
+      "clusterKey": "elle",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 8377,
+      "canonicalTitle": "elle 12 2004"
+    },
+    {
+      "clusterKey": "esprit de picardie",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 14783,
+      "canonicalTitle": "Esprit de Picardie No 6"
+    },
+    {
+      "clusterKey": "geo",
+      "memberCount": 121,
+      "itemCount": 115,
+      "canonicalBiblioId": 13991,
+      "canonicalTitle": "géo"
+    },
+    {
+      "clusterKey": "geo 455 janvier2017",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 23583,
+      "canonicalTitle": "GEO  455  janvier2017"
+    },
+    {
+      "clusterKey": "geo coree du sud",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 25083,
+      "canonicalTitle": "GEO Corée du sud"
+    },
+    {
+      "clusterKey": "geo cuba",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 23205,
+      "canonicalTitle": "GEO CUBA"
+    },
+    {
+      "clusterKey": "geo gr",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 17211,
+      "canonicalTitle": "géo  GR 2012"
+    },
+    {
+      "clusterKey": "geo irlande",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 23203,
+      "canonicalTitle": "GEO IRLANDE"
+    },
+    {
+      "clusterKey": "geo japon",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 23207,
+      "canonicalTitle": "GEO JAPON"
+    },
+    {
+      "clusterKey": "geo l art de vivre au danemark",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 26272,
+      "canonicalTitle": "GEO l'art de vivre au DANEMARK"
+    },
+    {
+      "clusterKey": "geo l iran",
+      "memberCount": 1,
+      "itemCount": 2,
+      "canonicalBiblioId": 25057,
+      "canonicalTitle": "GEO   L'Iran  480  fevrier 2049"
+    },
+    {
+      "clusterKey": "geo la papouasie",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 26271,
+      "canonicalTitle": "GEO La PAPOUASIE"
+    },
+    {
+      "clusterKey": "geo le perou et la bolivie",
+      "memberCount": 1,
+      "itemCount": 0,
+      "canonicalBiblioId": 23561,
+      "canonicalTitle": "GEO LE PEROU ET LA BOLIVIE N° 453"
+    },
+    {
+      "clusterKey": "geo mars2017",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 23663,
+      "canonicalTitle": "GEO   mars2017   457"
+    },
+    {
+      "clusterKey": "geo nouvelle zelande",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 23206,
+      "canonicalTitle": "GEO NOUVELLE ZELANDE"
+    },
+    {
+      "clusterKey": "geo oct",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 23464,
+      "canonicalTitle": "GEO   oct.2016   N°452"
+    },
+    {
+      "clusterKey": "geo rome",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 23204,
+      "canonicalTitle": "GEO ROME"
+    },
+    {
+      "clusterKey": "geo saint petersbourg",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 25388,
+      "canonicalTitle": "GEO sAINT-pÉTERSBOURG"
+    },
+    {
+      "clusterKey": "geo thailande secrete",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 22609,
+      "canonicalTitle": "GEO THAILANDE SECRETE n° 440"
+    },
+    {
+      "clusterKey": "hebdo micro",
+      "memberCount": 10,
+      "itemCount": 7,
+      "canonicalBiblioId": 7020,
+      "canonicalTitle": "Hebdo micro 347"
+    },
+    {
+      "clusterKey": "hebdo micro 349 350",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 6991,
+      "canonicalTitle": "Hebdo micro 349/350"
+    },
+    {
+      "clusterKey": "hebdo micro 690",
+      "memberCount": 1,
+      "itemCount": 0,
+      "canonicalBiblioId": 16694,
+      "canonicalTitle": "Hebdo micro 690 691"
+    },
+    {
+      "clusterKey": "historia",
+      "memberCount": 6,
+      "itemCount": 3,
+      "canonicalBiblioId": 12397,
+      "canonicalTitle": "historia"
+    },
+    {
+      "clusterKey": "historia thematique",
+      "memberCount": 3,
+      "itemCount": 3,
+      "canonicalBiblioId": 2279,
+      "canonicalTitle": "Historia thématique 89"
+    },
+    {
+      "clusterKey": "j aime lire",
+      "memberCount": 167,
+      "itemCount": 160,
+      "canonicalBiblioId": 10871,
+      "canonicalTitle": "J AIME LIRE"
+    },
+    {
+      "clusterKey": "j aime lire 466 novembre2015",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 22700,
+      "canonicalTitle": "J'aime lire 466 novembre2015"
+    },
+    {
+      "clusterKey": "j aime lire drole de rentree pour lisa west",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 23933,
+      "canonicalTitle": "j'aime lire DROLE DE RENTREE POUR LISA WEST"
+    },
+    {
+      "clusterKey": "j aime lire n",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 23420,
+      "canonicalTitle": "J'Aime lire n' 476"
+    },
+    {
+      "clusterKey": "jardin",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 25418,
+      "canonicalTitle": "jardin 142"
+    },
+    {
+      "clusterKey": "je bouquine",
+      "memberCount": 9,
+      "itemCount": 9,
+      "canonicalBiblioId": 2598,
+      "canonicalTitle": "Je bouquine 242"
+    },
+    {
+      "clusterKey": "l ami des jardins",
+      "memberCount": 2,
+      "itemCount": 2,
+      "canonicalBiblioId": 2744,
+      "canonicalTitle": "L'ami des jardins 894"
+    },
+    {
+      "clusterKey": "l argus",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 8394,
+      "canonicalTitle": "l'argus"
+    },
+    {
+      "clusterKey": "la petite salamandre",
+      "memberCount": 7,
+      "itemCount": 7,
+      "canonicalBiblioId": 18176,
+      "canonicalTitle": "La petite salamandre 83"
+    },
+    {
+      "clusterKey": "la vie de l auto",
+      "memberCount": 2,
+      "itemCount": 2,
+      "canonicalBiblioId": 10839,
+      "canonicalTitle": "la vie de l'auto no 1225"
+    },
+    {
+      "clusterKey": "le bonhomme picaer",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 22723,
+      "canonicalTitle": "Le Bonhomme Picaer 3366"
+    },
+    {
+      "clusterKey": "le bonhomme picard",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 22726,
+      "canonicalTitle": "Le Bonhomme Picard 3365"
+    },
+    {
+      "clusterKey": "le chasseur francais",
+      "memberCount": 58,
+      "itemCount": 53,
+      "canonicalBiblioId": 12409,
+      "canonicalTitle": "Le chasseur français"
+    },
+    {
+      "clusterKey": "le chasseur francais 04",
+      "memberCount": 1,
+      "itemCount": 0,
+      "canonicalBiblioId": 8351,
+      "canonicalTitle": "le chasseur français 04 2005  11744"
+    },
+    {
+      "clusterKey": "le chasseur francais aut",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 23404,
+      "canonicalTitle": "Le chasseur français aût 2016"
+    },
+    {
+      "clusterKey": "le chasseur francais nov",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 12418,
+      "canonicalTitle": "le chasseur français nov 2007"
+    },
+    {
+      "clusterKey": "le journal de la maison",
+      "memberCount": 2,
+      "itemCount": 2,
+      "canonicalBiblioId": 10493,
+      "canonicalTitle": "Le journal  de la maison 393"
+    },
+    {
+      "clusterKey": "le point",
+      "memberCount": 4,
+      "itemCount": 4,
+      "canonicalBiblioId": 11337,
+      "canonicalTitle": "le point 1773"
+    },
+    {
+      "clusterKey": "le point 2254 19 11 15",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 22765,
+      "canonicalTitle": "Le Point  2254  19.11.15"
+    },
+    {
+      "clusterKey": "les 4 saions du jardin bio sept oct",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 21207,
+      "canonicalTitle": "Les 4 saions du jardin bio sept. oct. 2014 n°208"
+    },
+    {
+      "clusterKey": "les 4 saisons",
+      "memberCount": 4,
+      "itemCount": 4,
+      "canonicalBiblioId": 25080,
+      "canonicalTitle": "Les 4 saisons"
+    },
+    {
+      "clusterKey": "les 4 saisons du jardin bio",
+      "memberCount": 14,
+      "itemCount": 13,
+      "canonicalBiblioId": 14123,
+      "canonicalTitle": "Les 4 saisons du jardin bio 178"
+    },
+    {
+      "clusterKey": "les 4 saisons du jardinage",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 17638,
+      "canonicalTitle": "Les 4 saisons du jardinage n°193 mars-avril 2012"
+    },
+    {
+      "clusterKey": "les 4 saissons du jardin bio",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 15393,
+      "canonicalTitle": "Les 4 saissons du jardin bio 184",
+      "suggestedMergeInto": "les 4 saisons du jardin bio"
+    },
+    {
+      "clusterKey": "les belle histoires",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 17189,
+      "canonicalTitle": "Les belle histoires 470",
+      "suggestedMergeInto": "les belles histoires"
+    },
+    {
+      "clusterKey": "les belles histoires",
+      "memberCount": 150,
+      "itemCount": 150,
+      "canonicalBiblioId": 11174,
+      "canonicalTitle": "les belles histoires"
+    },
+    {
+      "clusterKey": "les belles histoires avec le",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 23218,
+      "canonicalTitle": "LES BELLES HISTOIRES AVEC LE CD"
+    },
+    {
+      "clusterKey": "les belles histoires en vacances chez grand pere",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 24694,
+      "canonicalTitle": "les belles histoires en vacances chez grand-père"
+    },
+    {
+      "clusterKey": "les belles histoires ete",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 16528,
+      "canonicalTitle": "les belles histoires  spécial été"
+    },
+    {
+      "clusterKey": "les belles histoires la princesse aux tres longs cheveux",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 13095,
+      "canonicalTitle": "Les belles histoires La princesse aux très longs cheveux"
+    },
+    {
+      "clusterKey": "les belles histoires monsieur trompette",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 12090,
+      "canonicalTitle": "Les belles histoires Monsieur trompette"
+    },
+    {
+      "clusterKey": "les belles histoires noel",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 23576,
+      "canonicalTitle": "Les belles histoires  NOEL  decembre 2016"
+    },
+    {
+      "clusterKey": "les belles histoires visites surprises a noel",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 25045,
+      "canonicalTitle": "les belles histoires visites surprises à Noël"
+    },
+    {
+      "clusterKey": "les belles histoirs",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 13391,
+      "canonicalTitle": "Les belles histoirs 433",
+      "suggestedMergeInto": "les belles histoires"
+    },
+    {
+      "clusterKey": "les belles hitoires",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 25357,
+      "canonicalTitle": "Les belles hitoires 564",
+      "suggestedMergeInto": "les belles histoires"
+    },
+    {
+      "clusterKey": "les belleshistoires",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 22955,
+      "canonicalTitle": "Les belleshistoires 516",
+      "suggestedMergeInto": "les belles histoires"
+    },
+    {
+      "clusterKey": "les p tites princesses",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 25381,
+      "canonicalTitle": "LES P'TITES PRINCESSES N° 16"
+    },
+    {
+      "clusterKey": "les quatre saisons",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 26301,
+      "canonicalTitle": "Les quatre saisons septembre-octobre 2021"
+    },
+    {
+      "clusterKey": "les quatres saisons",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 23927,
+      "canonicalTitle": "Les quatres saisons"
+    },
+    {
+      "clusterKey": "ls belles histoires",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 15084,
+      "canonicalTitle": "Ls belles histoires 447",
+      "suggestedMergeInto": "les belles histoires"
+    },
+    {
+      "clusterKey": "maison creative",
+      "memberCount": 12,
+      "itemCount": 12,
+      "canonicalBiblioId": 6879,
+      "canonicalTitle": "maison creative 24"
+    },
+    {
+      "clusterKey": "maison et travaux",
+      "memberCount": 2,
+      "itemCount": 2,
+      "canonicalBiblioId": 7595,
+      "canonicalTitle": "Maison et travaux 148"
+    },
+    {
+      "clusterKey": "marianne",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 8376,
+      "canonicalTitle": "marianne 409"
+    },
+    {
+      "clusterKey": "maxi",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 25354,
+      "canonicalTitle": "Maxi Hors-série Décembre 2019"
+    },
+    {
+      "clusterKey": "maxi cuisine",
+      "memberCount": 103,
+      "itemCount": 92,
+      "canonicalBiblioId": 10242,
+      "canonicalTitle": "maxi cuisine"
+    },
+    {
+      "clusterKey": "maxi cuisine 101 sept",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 22607,
+      "canonicalTitle": "Maxi Cuisine  101  sept 2015"
+    },
+    {
+      "clusterKey": "maxi cuisine 134 07 08",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 25270,
+      "canonicalTitle": "Maxi cuisine 134   07.08.2019"
+    },
+    {
+      "clusterKey": "maxi cuisine automne",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 15385,
+      "canonicalTitle": "Maxi cuisine HS automne 2010"
+    },
+    {
+      "clusterKey": "maxi cuisine du solei ete",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 17867,
+      "canonicalTitle": "Maxi cuisine du solei été 2012"
+    },
+    {
+      "clusterKey": "maxi cuisine ete",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 18833,
+      "canonicalTitle": "Maxi cuisine HS été 2013"
+    },
+    {
+      "clusterKey": "maxi cuisine familiale automne",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 16760,
+      "canonicalTitle": "Maxi cuisine familiale automne 2011"
+    },
+    {
+      "clusterKey": "maxi cuisine hors",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 16081,
+      "canonicalTitle": "Maxi cuisine Hors"
+    },
+    {
+      "clusterKey": "maxi cuisine m",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 18672,
+      "canonicalTitle": "Maxi cuisine Hors série M 01195"
+    },
+    {
+      "clusterKey": "maxi cuisine n 121",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 24365,
+      "canonicalTitle": "maxi cuisine n-121"
+    },
+    {
+      "clusterKey": "maxi cuisine n s",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 26161,
+      "canonicalTitle": "MAXI CUISINE N° HORS SERIES"
+    },
+    {
+      "clusterKey": "maxi cuisine noel",
+      "memberCount": 1,
+      "itemCount": 2,
+      "canonicalBiblioId": 23567,
+      "canonicalTitle": "Maxi cuisine   Noel 2016    n° 112"
+    },
+    {
+      "clusterKey": "maxi cuisine73",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 18496,
+      "canonicalTitle": "maxi cuisine73"
+    },
+    {
+      "clusterKey": "maxi cuisines oct",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 23472,
+      "canonicalTitle": "Maxi cuisines  Hors série  oct 2016"
+    },
+    {
+      "clusterKey": "maxi cuisne",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 19915,
+      "canonicalTitle": "maxi cuisne 81",
+      "suggestedMergeInto": "maxi cuisine"
+    },
+    {
+      "clusterKey": "maxicuisine",
+      "memberCount": 2,
+      "itemCount": 2,
+      "canonicalBiblioId": 25252,
+      "canonicalTitle": "maxicuisine 133",
+      "suggestedMergeInto": "maxi cuisine"
+    },
+    {
+      "clusterKey": "micro",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 10819,
+      "canonicalTitle": "micro 427"
+    },
+    {
+      "clusterKey": "micro hebdo",
+      "memberCount": 11,
+      "itemCount": 0,
+      "canonicalBiblioId": 13978,
+      "canonicalTitle": "Micro Hebdo"
+    },
+    {
+      "clusterKey": "micro hebdo 534",
+      "memberCount": 1,
+      "itemCount": 0,
+      "canonicalBiblioId": 13077,
+      "canonicalTitle": "micro hebdo 534_ 535"
+    },
+    {
+      "clusterKey": "micro hebdo n e",
+      "memberCount": 1,
+      "itemCount": 0,
+      "canonicalBiblioId": 11632,
+      "canonicalTitle": "MICRO HEBDO N) '(È"
+    },
+    {
+      "clusterKey": "micro hebdo714 715",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 17162,
+      "canonicalTitle": "micro hebdo714-715"
+    },
+    {
+      "clusterKey": "microhebdo428",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 10822,
+      "canonicalTitle": "microhebdo428"
+    },
+    {
+      "clusterKey": "mlaxi cuisine",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 25355,
+      "canonicalTitle": "MLaxi cuisine 137",
+      "suggestedMergeInto": "maxi cuisine"
+    },
+    {
+      "clusterKey": "modes travaux",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 8380,
+      "canonicalTitle": "modes & travaux mars 2004"
+    },
+    {
+      "clusterKey": "mon jardin et ma maison",
+      "memberCount": 2,
+      "itemCount": 2,
+      "canonicalBiblioId": 13031,
+      "canonicalTitle": "mon jardin et ma maison"
+    },
+    {
+      "clusterKey": "mon jardin ma maison",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 12059,
+      "canonicalTitle": "Mon jardin ma maison 571",
+      "suggestedMergeInto": "mon jardin et ma maison"
+    },
+    {
+      "clusterKey": "mon jardinet ma maison",
+      "memberCount": 1,
+      "itemCount": 0,
+      "canonicalBiblioId": 12661,
+      "canonicalTitle": "mon jardinet ma maison",
+      "suggestedMergeInto": "mon jardin et ma maison"
+    },
+    {
+      "clusterKey": "mon jaredin mamaison",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 9952,
+      "canonicalTitle": "mon jaredin mamaison juillet août",
+      "suggestedMergeInto": "mon jardin et ma maison"
+    },
+    {
+      "clusterKey": "n otre temps",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 26333,
+      "canonicalTitle": "N otre temps",
+      "suggestedMergeInto": "notre temps"
+    },
+    {
+      "clusterKey": "notre temps",
+      "memberCount": 141,
+      "itemCount": 133,
+      "canonicalBiblioId": 10243,
+      "canonicalTitle": "notre temps"
+    },
+    {
+      "clusterKey": "notre temps 565 janvier2017",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 23584,
+      "canonicalTitle": "Notre temps  565  janvier2017"
+    },
+    {
+      "clusterKey": "notre temps 586",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 24741,
+      "canonicalTitle": "Notre temps 586 . Octobre 2018"
+    },
+    {
+      "clusterKey": "notre temps n 561",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 23418,
+      "canonicalTitle": "Notre temps n'561"
+    },
+    {
+      "clusterKey": "notre temps oct n 562",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 23463,
+      "canonicalTitle": "Notre Temps  oct.2016   N*562"
+    },
+    {
+      "clusterKey": "notre temps8055801679",
+      "memberCount": 1,
+      "itemCount": 0,
+      "canonicalBiblioId": 11217,
+      "canonicalTitle": "notre_ temps8055801679"
+    },
+    {
+      "clusterKey": "notre tempsma sante j y tiens",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 26176,
+      "canonicalTitle": "Notre tempsMa santé j'y tiens:"
+    },
+    {
+      "clusterKey": "notres temps",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 25046,
+      "canonicalTitle": "notres temps",
+      "suggestedMergeInto": "notre temps"
+    },
+    {
+      "clusterKey": "occasions mag",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 8395,
+      "canonicalTitle": "occasions mag"
+    },
+    {
+      "clusterKey": "onze",
+      "memberCount": 24,
+      "itemCount": 27,
+      "canonicalBiblioId": 10240,
+      "canonicalTitle": "onze"
+    },
+    {
+      "clusterKey": "onze football",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 7590,
+      "canonicalTitle": "Onze football 194 mars 2005"
+    },
+    {
+      "clusterKey": "onze mondial",
+      "memberCount": 41,
+      "itemCount": 40,
+      "canonicalBiblioId": 7305,
+      "canonicalTitle": "Onze mondial"
+    },
+    {
+      "clusterKey": "pantes et sante",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 17823,
+      "canonicalTitle": "pantes et sante",
+      "suggestedMergeInto": "plantes et sante"
+    },
+    {
+      "clusterKey": "plante et sante",
+      "memberCount": 2,
+      "itemCount": 2,
+      "canonicalBiblioId": 14352,
+      "canonicalTitle": "Plante et santé 94",
+      "suggestedMergeInto": "plantes et sante"
+    },
+    {
+      "clusterKey": "plantes et jardin oct",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 23466,
+      "canonicalTitle": "Plantes et jardin  oct. 2016  N°172"
+    },
+    {
+      "clusterKey": "plantes et jardins",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 16738,
+      "canonicalTitle": "Plantes et jardins   116"
+    },
+    {
+      "clusterKey": "plantes et sante",
+      "memberCount": 59,
+      "itemCount": 59,
+      "canonicalBiblioId": 20552,
+      "canonicalTitle": "plantes et sante"
+    },
+    {
+      "clusterKey": "plantes et sante n 167",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 23309,
+      "canonicalTitle": "Plantes et sante n'167"
+    },
+    {
+      "clusterKey": "plantes sante",
+      "memberCount": 34,
+      "itemCount": 35,
+      "canonicalBiblioId": 19945,
+      "canonicalTitle": "plantes sante"
+    },
+    {
+      "clusterKey": "plantes sante 193",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 24738,
+      "canonicalTitle": "Plantes & santé .193 . Septembre 2018"
+    },
+    {
+      "clusterKey": "plantes sante n 165",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 23310,
+      "canonicalTitle": "Plantes&sante n'165"
+    },
+    {
+      "clusterKey": "pomme d api",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 6901,
+      "canonicalTitle": "Pomme d'api 445"
+    },
+    {
+      "clusterKey": "quatre saisons",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 23393,
+      "canonicalTitle": "QUATRE SAISONS N° 219"
+    },
+    {
+      "clusterKey": "quatre saisons du jardin bio",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 27317,
+      "canonicalTitle": "Quatre saisons du jardin bio 259"
+    },
+    {
+      "clusterKey": "que choisir",
+      "memberCount": 17,
+      "itemCount": 11,
+      "canonicalBiblioId": 27227,
+      "canonicalTitle": "QUE CHOISIR"
+    },
+    {
+      "clusterKey": "que choisir 07 08",
+      "memberCount": 1,
+      "itemCount": 0,
+      "canonicalBiblioId": 15067,
+      "canonicalTitle": "QUE CHOISIR      07.08.2010"
+    },
+    {
+      "clusterKey": "reponse a tout",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 2660,
+      "canonicalTitle": "Réponse à tout 165"
+    },
+    {
+      "clusterKey": "retro course",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 10838,
+      "canonicalTitle": "retro course no 32"
+    },
+    {
+      "clusterKey": "retro passion",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 10837,
+      "canonicalTitle": "retro passion no 179"
+    },
+    {
+      "clusterKey": "rustca",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 15500,
+      "canonicalTitle": "rustca 2141"
+    },
+    {
+      "clusterKey": "rustica",
+      "memberCount": 149,
+      "itemCount": 143,
+      "canonicalBiblioId": 15472,
+      "canonicalTitle": "rustica"
+    },
+    {
+      "clusterKey": "rustica 01 14 02 14",
+      "memberCount": 1,
+      "itemCount": 0,
+      "canonicalBiblioId": 20568,
+      "canonicalTitle": "Rustica 01.14    02.14"
+    },
+    {
+      "clusterKey": "rustica 2147bis",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 15919,
+      "canonicalTitle": "RUSTICA  2147bis"
+    },
+    {
+      "clusterKey": "rustica 2279 bis",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 19986,
+      "canonicalTitle": "Rustica 2279 bis"
+    },
+    {
+      "clusterKey": "rustica hebdo",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 16769,
+      "canonicalTitle": "Rustica hebdo n°2182"
+    },
+    {
+      "clusterKey": "rustica numero",
+      "memberCount": 3,
+      "itemCount": 3,
+      "canonicalBiblioId": 16080,
+      "canonicalTitle": "RUSTICA  numéro spécial"
+    },
+    {
+      "clusterKey": "rustica sem du 10 au",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 20550,
+      "canonicalTitle": "rustica sem du 10 au 16  janvier"
+    },
+    {
+      "clusterKey": "rustica sem du 22 au",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 20389,
+      "canonicalTitle": "rustica sem du 22 au 28 novembre 2013"
+    },
+    {
+      "clusterKey": "rustica sem du 3 au",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 20549,
+      "canonicalTitle": "rustica sem du 3 au 9 janvier",
+      "suggestedMergeInto": "rustica sem du 22 au"
+    },
+    {
+      "clusterKey": "rustica semaine du 13 au",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 20002,
+      "canonicalTitle": "rustica semaine du 13 au 19 septembre 2013"
+    },
+    {
+      "clusterKey": "rustica semaine du 20 au 26sept",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 19999,
+      "canonicalTitle": "rustica semaine du 20 au 26sept 2013"
+    },
+    {
+      "clusterKey": "rustican",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 19972,
+      "canonicalTitle": "rustican 2279"
+    },
+    {
+      "clusterKey": "rusticat",
+      "memberCount": 3,
+      "itemCount": 3,
+      "canonicalBiblioId": 18162,
+      "canonicalTitle": "rusticat 2221"
+    },
+    {
+      "clusterKey": "salamandre",
+      "memberCount": 4,
+      "itemCount": 4,
+      "canonicalBiblioId": 19316,
+      "canonicalTitle": "salamandre"
+    },
+    {
+      "clusterKey": "salamandre junior",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 22589,
+      "canonicalTitle": "salamandre junior  aout . sept. 2015"
+    },
+    {
+      "clusterKey": "salamndre",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 20523,
+      "canonicalTitle": "Salamndre 2017",
+      "suggestedMergeInto": "salamandre"
+    },
+    {
+      "clusterKey": "scienc et vie junior",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 7303,
+      "canonicalTitle": "Scienc et vie junior",
+      "suggestedMergeInto": "science et vie junior"
+    },
+    {
+      "clusterKey": "science avenir",
+      "memberCount": 2,
+      "itemCount": 0,
+      "canonicalBiblioId": 16542,
+      "canonicalTitle": "science avenir 773",
+      "suggestedMergeInto": "sciences avenir"
+    },
+    {
+      "clusterKey": "science et avenir",
+      "memberCount": 3,
+      "itemCount": 1,
+      "canonicalBiblioId": 17821,
+      "canonicalTitle": "science et avenir",
+      "suggestedMergeInto": "sciences et avenir"
+    },
+    {
+      "clusterKey": "science et vie",
+      "memberCount": 19,
+      "itemCount": 1,
+      "canonicalBiblioId": 2290,
+      "canonicalTitle": "Science et vie 1044"
+    },
+    {
+      "clusterKey": "science et vie decouverte",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 8054,
+      "canonicalTitle": "Science et vie découverte 76",
+      "suggestedMergeInto": "science et vie decouvertes"
+    },
+    {
+      "clusterKey": "science et vie decouvertes",
+      "memberCount": 12,
+      "itemCount": 11,
+      "canonicalBiblioId": 6869,
+      "canonicalTitle": "science et vie decouvertes 72"
+    },
+    {
+      "clusterKey": "science et vie junior",
+      "memberCount": 24,
+      "itemCount": 21,
+      "canonicalBiblioId": 11211,
+      "canonicalTitle": "science et vie junior"
+    },
+    {
+      "clusterKey": "science et vie junior ete",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 2612,
+      "canonicalTitle": "Science et vie junior été 2002"
+    },
+    {
+      "clusterKey": "science etvie decouvertes",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 12420,
+      "canonicalTitle": "science etvie découvertes 110",
+      "suggestedMergeInto": "science et vie decouvertes"
+    },
+    {
+      "clusterKey": "science etviedecouvertes",
+      "memberCount": 1,
+      "itemCount": 0,
+      "canonicalBiblioId": 9333,
+      "canonicalTitle": "science etviedecouvertes",
+      "suggestedMergeInto": "science et vie decouvertes"
+    },
+    {
+      "clusterKey": "science vie",
+      "memberCount": 1,
+      "itemCount": 0,
+      "canonicalBiblioId": 12389,
+      "canonicalTitle": "Science vie 1083"
+    },
+    {
+      "clusterKey": "science vie decouvertes",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 12667,
+      "canonicalTitle": "science vie découvertes 111",
+      "suggestedMergeInto": "science et vie decouvertes"
+    },
+    {
+      "clusterKey": "science vie junior",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 12067,
+      "canonicalTitle": "Science &vie junior 216",
+      "suggestedMergeInto": "science et vie junior"
+    },
+    {
+      "clusterKey": "sciences avenir",
+      "memberCount": 10,
+      "itemCount": 1,
+      "canonicalBiblioId": 15896,
+      "canonicalTitle": "sciences avenir HS"
+    },
+    {
+      "clusterKey": "sciences et avenir",
+      "memberCount": 23,
+      "itemCount": 3,
+      "canonicalBiblioId": 20384,
+      "canonicalTitle": "sciences et avenir"
+    },
+    {
+      "clusterKey": "sciences et avenir n 834",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 23419,
+      "canonicalTitle": "Sciences et Avenir n'834"
+    },
+    {
+      "clusterKey": "sciences et avenir n 835",
+      "memberCount": 1,
+      "itemCount": 0,
+      "canonicalBiblioId": 23434,
+      "canonicalTitle": "Sciences et Avenir n;835"
+    },
+    {
+      "clusterKey": "sciences et avenir oct",
+      "memberCount": 2,
+      "itemCount": 0,
+      "canonicalBiblioId": 23467,
+      "canonicalTitle": "Sciences et  Avenir   oct.2016"
+    },
+    {
+      "clusterKey": "sciences et vie",
+      "memberCount": 1,
+      "itemCount": 0,
+      "canonicalBiblioId": 23392,
+      "canonicalTitle": "SCIENCES ET VIE HORS SERIE JUILLET AOUT",
+      "suggestedMergeInto": "science et vie"
+    },
+    {
+      "clusterKey": "sciences et vie decouvertes",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 11186,
+      "canonicalTitle": "sciences et vie découvertes 95",
+      "suggestedMergeInto": "science et vie decouvertes"
+    },
+    {
+      "clusterKey": "sciences vie",
+      "memberCount": 1,
+      "itemCount": 0,
+      "canonicalBiblioId": 6884,
+      "canonicalTitle": "sciences & vie  1047"
+    },
+    {
+      "clusterKey": "systeme",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 16977,
+      "canonicalTitle": "systeme n 791"
+    },
+    {
+      "clusterKey": "systeme d",
+      "memberCount": 55,
+      "itemCount": 52,
+      "canonicalBiblioId": 15027,
+      "canonicalTitle": "Système D"
+    },
+    {
+      "clusterKey": "systemed",
+      "memberCount": 1,
+      "itemCount": 0,
+      "canonicalBiblioId": 16749,
+      "canonicalTitle": "systèmeD 789"
+    },
+    {
+      "clusterKey": "top sante",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 8381,
+      "canonicalTitle": "top santé 02 2004"
+    },
+    {
+      "clusterKey": "wakou",
+      "memberCount": 10,
+      "itemCount": 10,
+      "canonicalBiblioId": 15486,
+      "canonicalTitle": "wakou 262"
+    },
+    {
+      "clusterKey": "wapii",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 16991,
+      "canonicalTitle": "WAPII  297  decembre 2011"
+    },
+    {
+      "clusterKey": "wapiti",
+      "memberCount": 24,
+      "itemCount": 24,
+      "canonicalBiblioId": 16073,
+      "canonicalTitle": "wapiti"
+    },
+    {
+      "clusterKey": "winnie",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 9000,
+      "canonicalTitle": "winnie No 209"
+    },
+    {
+      "clusterKey": "wokou",
+      "memberCount": 1,
+      "itemCount": 1,
+      "canonicalBiblioId": 17621,
+      "canonicalTitle": "wokou n 276"
+    }
+  ]
+}

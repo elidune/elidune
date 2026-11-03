@@ -9,7 +9,8 @@ use crate::api::{
     account_types, acquisitions, admin_config, audit, auth, batch, biblios, collections, deposits,
     email_templates, equipment, events, fines, first_setup, genres, health, holds, inventory,
     items, library_info, loans, maintenance, metrics, opac, public_types, schedules,
-    serial_subscriptions, serials, series, sites, stats, suggestions, tasks, transits, users,
+    serial_gifts, serial_subscriptions, serials, series, sites, stats, suggestions, tasks, transits,
+    users,
     visitor_counts, withdrawals, z3950,
 };
 
@@ -60,6 +61,8 @@ use crate::api::{
         items::update_item,
         items::delete_item,
         items::set_item_weeding,
+        items::mark_item_missing,
+        items::mark_item_lost,
         withdrawals::withdraw_item,
         withdrawals::get_active_item_withdrawal,
         withdrawals::get_withdrawal,
@@ -282,6 +285,8 @@ use crate::api::{
         serial_subscriptions::set_issue_status,
         serial_subscriptions::create_supplement,
         serial_subscriptions::mark_late_issues,
+        serial_gifts::list_gifts,
+        serial_gifts::create_gift,
         suggestions::create_suggestion,
         suggestions::list_suggestions,
         suggestions::get_suggestion,
@@ -458,6 +463,7 @@ use crate::api::{
             crate::models::dto::circulation::CirculationExceptionResponse,
             crate::models::dto::circulation::ClaimsReturnedQueueItem,
             crate::models::dto::circulation::MarkLostRequest,
+            crate::models::dto::circulation::MarkMissingRequest,
             crate::models::dto::circulation::MarkDamagedRequest,
             crate::models::dto::circulation::MarkClaimedReturnedRequest,
             crate::models::dto::circulation::ResolveClaimsReturnedRequest,
@@ -847,6 +853,7 @@ mod tests {
             .paths
             .paths
             .contains_key("/serials/subscriptions/{id}/mark-late"));
+        assert!(doc.paths.paths.contains_key("/serials/gifts"));
     }
 
     #[test]

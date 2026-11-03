@@ -44,6 +44,13 @@ pub struct MarkDamagedRequest {
     pub notes: Option<String>,
 }
 
+/// Declare a copy missing (shelf search closed). No loan close, no billing.
+#[derive(Debug, Clone, Default, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct MarkMissingRequest {
+    pub notes: Option<String>,
+}
+
 /// Flag an active loan/item for the claims-returned queue. Does not close the loan.
 /// Investigation only — `bill` is rejected if true.
 #[derive(Debug, Clone, Default, Deserialize, ToSchema)]
@@ -77,15 +84,19 @@ pub struct CirculationExceptionResponse {
     pub item_status: CirculationStatus,
     pub borrowable: bool,
     pub loan_closed: bool,
-    #[serde_as(as = "DisplayFromStr")]
-    #[schema(value_type = String)]
-    pub loan_id: i64,
+    /// Present when an open loan was involved (closed or left open).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub loan_id: Option<i64>,
     #[serde_as(as = "DisplayFromStr")]
     #[schema(value_type = String)]
     pub item_id: i64,
-    #[serde_as(as = "DisplayFromStr")]
-    #[schema(value_type = String)]
-    pub user_id: i64,
+    /// Present when an open loan was involved.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub user_id: Option<i64>,
     pub charge: Option<Fine>,
 }
 
@@ -95,6 +106,7 @@ pub struct CirculationExceptionResponse {
 pub enum CirculationExceptionOutcome {
     Lost,
     Damaged,
+    Missing,
     ClaimedReturned,
     ClaimsResolvedFound,
     ClaimsResolvedNotFound,

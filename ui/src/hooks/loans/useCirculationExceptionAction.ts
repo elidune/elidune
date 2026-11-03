@@ -40,6 +40,8 @@ export function successKeyForOutcome(outcome: CirculationExceptionOutcome): stri
       return 'loans.exceptions.lostSuccess';
     case 'damaged':
       return 'loans.exceptions.damagedSuccess';
+    case 'missing':
+      return 'items.circulation.missingSuccess';
     case 'claimedReturned':
       return 'loans.exceptions.claimedSuccess';
     case 'claimsResolvedFound':

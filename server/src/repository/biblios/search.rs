@@ -71,6 +71,11 @@ impl Repository {
             where_parts.push(format!("b.isbn = ${}", params.len()));
         }
 
+        if let Some(ref issn) = query.issn {
+            params.push(Param::Text(issn.to_string()));
+            where_parts.push(format!("b.issn = ${}", params.len()));
+        }
+
         // barcode → item lookup
         if let Some(ref barcode) = query.barcode {
             params.push(Param::Text(barcode.clone()));
@@ -92,9 +97,12 @@ impl Repository {
 
         if let Some(ref title) = query.title {
             params.push(Param::Text(format!("%{}%", like_escape(title))));
-            let idx = params.len();
+            let like_idx = params.len();
+            params.push(Param::Text(title.trim().to_string()));
+            let raw_idx = params.len();
             where_parts.push(format!(
-                "unaccent(lower(b.title)) LIKE unaccent(lower(${idx}))"
+                "(unaccent(lower(b.title)) LIKE unaccent(lower(${like_idx})) \
+                 OR strpos(lower(coalesce(b.issn, '')), lower(${raw_idx})) > 0)"
             ));
         }
 
@@ -204,11 +212,15 @@ impl Repository {
             let fs = fs.trim();
             if !fs.is_empty() {
                 params.push(Param::Text(format!("%{}%", like_escape(fs))));
-                let idx = params.len();
+                let like_idx = params.len();
+                params.push(Param::Text(fs.to_string()));
+                let raw_idx = params.len();
                 where_parts.push(format!(
-                    "(unaccent(lower(b.title)) LIKE unaccent(lower(${idx})) \
-                     OR unaccent(lower(b.subject)) LIKE unaccent(lower(${idx})) \
-                     OR unaccent(lower(b.notes)) LIKE unaccent(lower(${idx})))"
+                    "(unaccent(lower(b.title)) LIKE unaccent(lower(${like_idx})) \
+                     OR unaccent(lower(b.subject)) LIKE unaccent(lower(${like_idx})) \
+                     OR unaccent(lower(b.notes)) LIKE unaccent(lower(${like_idx})) \
+                     OR strpos(lower(coalesce(b.issn, '')), lower(${raw_idx})) > 0 \
+                     OR strpos(lower(coalesce(b.isbn, '')), lower(${raw_idx})) > 0)"
                 ));
             }
         }
@@ -223,7 +235,7 @@ impl Repository {
 
         let sql = format!(
             r#"
-            SELECT b.id, b.media_type, b.isbn, b.title,
+            SELECT b.id, b.media_type, b.isbn, b.issn, b.title,
                    b.publication_date AS date, 0::smallint AS status,
                    1::smallint AS is_local, b.is_valid, b.archived_at,
                    (
@@ -266,6 +278,7 @@ impl Repository {
             id: i64,
             media_type: MediaType,
             isbn: Option<Isbn>,
+            issn: Option<Isbn>,
             title: Option<String>,
             date: Option<String>,
             status: i16,
@@ -294,6 +307,7 @@ impl Repository {
                     id: r.id,
                     media_type: r.media_type,
                     isbn: r.isbn,
+                    issn: r.issn,
                     title: r.title,
                     date: r.date,
                     status: r.status,
@@ -316,7 +330,7 @@ impl Repository {
     pub async fn biblios_get_by_series(&self, series_id: i64) -> AppResult<Vec<BiblioShort>> {
         let rows: Vec<BiblioShortRow> = sqlx::query_as(
             r#"
-            SELECT b.id, b.media_type, b.isbn, b.title,
+            SELECT b.id, b.media_type, b.isbn, b.issn, b.title,
                    b.publication_date as date, 0::smallint as status,
                    1::smallint as is_local, b.is_valid, b.archived_at,
                    (
@@ -367,7 +381,7 @@ impl Repository {
     ) -> AppResult<Vec<BiblioShort>> {
         let rows: Vec<BiblioShortRow> = sqlx::query_as(
             r#"
-            SELECT b.id, b.media_type, b.isbn, b.title,
+            SELECT b.id, b.media_type, b.isbn, b.issn, b.title,
                    b.publication_date as date, 0::smallint as status,
                    1::smallint as is_local, b.is_valid, b.archived_at,
                    (

@@ -1,5 +1,6 @@
 import { useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import Button from '@/components/common/Button';
 import CollapsibleFormSection from '@/components/common/CollapsibleFormSection';
 import Input from '@/components/common/Input';
 import Typeahead from '@/components/common/Typeahead';
@@ -95,25 +96,92 @@ export default function SubscriptionFormFields({
         label={t('serials.form.periodical')}
         value={values.biblioId ? values.biblioTitle : biblioQuery}
         onChange={(value) => {
-          onChange({ biblioId: '', biblioTitle: '' });
+          onChange({
+            biblioId: '',
+            biblioTitle: '',
+            newBiblioMode: false,
+            newBiblioTitle: '',
+            newBiblioIssn: '',
+          });
           onBiblioQuery(value);
         }}
-        items={!values.biblioId && biblioQuery.trim().length >= 2 ? biblioResults : []}
+        items={!values.biblioId && !values.newBiblioMode && biblioQuery.trim().length >= 2 ? biblioResults : []}
         getItemId={(biblio) => biblio.id}
         onSelect={(biblio) => onSelectBiblio(biblio.id, biblio.title?.trim() || biblio.id)}
-        renderItem={(biblio) => biblio.title || biblio.id}
+        renderItem={(biblio) =>
+          biblio.issn
+            ? `${biblio.title || biblio.id} · ISSN ${biblio.issn}`
+            : biblio.title || biblio.id
+        }
         placeholder={t('serials.form.periodicalSearch')}
-        disabled={predictionLocked && Boolean(values.biblioId)}
+        disabled={(predictionLocked && Boolean(values.biblioId)) || values.newBiblioMode}
         loading={biblioSearching}
         selectedId={values.biblioId || null}
         error={fieldError('biblioId')}
         hint={
-          !values.biblioId && biblioQuery.trim().length >= 2 && !biblioSearching && biblioResults.length === 0
+          !values.biblioId &&
+          !values.newBiblioMode &&
+          biblioQuery.trim().length >= 2 &&
+          !biblioSearching &&
+          biblioResults.length === 0
             ? t('serials.form.periodicalEmpty')
             : undefined
         }
         variant="dropdown"
       />
+      {!values.biblioId && !values.newBiblioMode && biblioQuery.trim().length >= 2 && !biblioSearching ? (
+        <div>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() =>
+              onChange({
+                newBiblioMode: true,
+                newBiblioTitle: biblioQuery.trim(),
+                newBiblioIssn: '',
+                biblioId: '',
+                biblioTitle: '',
+              })
+            }
+          >
+            {t('serials.form.createPeriodical', { title: biblioQuery.trim() })}
+          </Button>
+        </div>
+      ) : null}
+      {values.newBiblioMode ? (
+        <div className="grid gap-3 rounded-lg border border-amber-200 bg-amber-50/60 p-3 dark:border-amber-900/60 dark:bg-amber-950/30 sm:grid-cols-2">
+          <Input
+            id="serial-new-title"
+            label={t('serials.form.newPeriodicalTitle')}
+            value={values.newBiblioTitle}
+            onChange={(event) => onChange({ newBiblioTitle: event.target.value })}
+            error={fieldError('newBiblioTitle')}
+            autoComplete="off"
+          />
+          <Input
+            id="serial-new-issn"
+            label={t('serials.form.newPeriodicalIssn')}
+            value={values.newBiblioIssn}
+            onChange={(event) => onChange({ newBiblioIssn: event.target.value })}
+            autoComplete="off"
+          />
+          <div className="sm:col-span-2">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() =>
+                onChange({
+                  newBiblioMode: false,
+                  newBiblioTitle: '',
+                  newBiblioIssn: '',
+                })
+              }
+            >
+              {t('serials.form.cancelNewPeriodical')}
+            </Button>
+          </div>
+        </div>
+      ) : null}
 
       <div className="grid gap-3 sm:grid-cols-2">
         <div>
@@ -189,6 +257,7 @@ export default function SubscriptionFormFields({
               onChange={(event) => onChange({ status: event.target.value as SubscriptionFormValues['status'] })}
             >
               <option value="active">{t('serials.status.active')}</option>
+              <option value="suspended">{t('serials.status.suspended')}</option>
               <option value="expired">{t('serials.status.expired')}</option>
               <option value="closed">{t('serials.status.closed')}</option>
             </select>

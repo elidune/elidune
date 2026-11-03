@@ -17,6 +17,10 @@ export const CREATE_ITEMS_DEFAULT = true;
 export interface SubscriptionFormValues {
   biblioId: string;
   biblioTitle: string;
+  /** When true, save creates a minimal periodical biblio then the subscription. */
+  newBiblioMode: boolean;
+  newBiblioTitle: string;
+  newBiblioIssn: string;
   siteId: string;
   vendorId: string;
   fundId: string;
@@ -50,6 +54,9 @@ export function emptySubscriptionForm(): SubscriptionFormValues {
   return {
     biblioId: '',
     biblioTitle: '',
+    newBiblioMode: false,
+    newBiblioTitle: '',
+    newBiblioIssn: '',
     siteId: '',
     vendorId: '',
     fundId: '',
@@ -84,6 +91,9 @@ export function subscriptionToForm(subscription: SerialSubscription): Subscripti
   return {
     biblioId: subscription.biblioId,
     biblioTitle: subscription.biblioTitle?.trim() || subscription.biblioId,
+    newBiblioMode: false,
+    newBiblioTitle: '',
+    newBiblioIssn: '',
     siteId: subscription.siteId,
     vendorId: subscription.vendorId ?? '',
     fundId: subscription.fundId ?? '',
@@ -365,7 +375,11 @@ export function buildSubscriptionWrite(
   existing?: SerialSubscription | null,
 ): SubscriptionWriteResult {
   const errors: Record<string, 'required' | 'invalidAmount' | 'invalidNumber'> = {};
-  if (!values.biblioId) errors.biblioId = 'required';
+  if (values.newBiblioMode) {
+    if (!values.newBiblioTitle.trim()) errors.newBiblioTitle = 'required';
+  } else if (!values.biblioId) {
+    errors.biblioId = 'required';
+  }
   if (!values.siteId) errors.siteId = 'required';
   if (!values.frequencyId) errors.frequencyId = 'required';
   if (!values.numberingPatternId) errors.numberingPatternId = 'required';

@@ -41,6 +41,8 @@ export default function SubscriptionFormModal({
   const [errors, setErrors] = useState<Record<string, 'required' | 'invalidAmount' | 'invalidNumber'>>({});
   const [biblioQuery, setBiblioQuery] = useState('');
   const [debouncedBiblio, setDebouncedBiblio] = useState('');
+  const [creatingBiblio, setCreatingBiblio] = useState(false);
+  const [localError, setLocalError] = useState<unknown>(null);
 
   const frequenciesQuery = useQuery({
     queryKey: ['serial-frequencies'],
@@ -63,8 +65,15 @@ export default function SubscriptionFormModal({
   const fundsQuery = useFundsPickerQuery(isOpen);
   const biblioSearch = useQuery({
     queryKey: ['serial-periodicals', debouncedBiblio],
-    queryFn: () => api.getBiblios({ title: debouncedBiblio, mediaType: 'periodic', perPage: 8, page: 1 }),
-    enabled: isOpen && debouncedBiblio.trim().length >= 2 && !values.biblioId,
+    queryFn: () =>
+      api.getBiblios({
+        title: debouncedBiblio,
+        mediaType: 'periodic',
+        perPage: 8,
+        page: 1,
+        includeWithoutActiveItems: true,
+      }),
+    enabled: isOpen && debouncedBiblio.trim().length >= 2 && !values.biblioId && !values.newBiblioMode,
   });
 
   const request = useMemo(() => predictionBody(values), [values]);
@@ -85,7 +94,7 @@ export default function SubscriptionFormModal({
     retry: false,
   });
 
-  const handleSubmit = (event: React.FormEvent) => {
+  const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     const built = buildSubscriptionWrite(values, subscription);
     if (!built.ok) {
@@ -93,11 +102,37 @@ export default function SubscriptionFormModal({
       return;
     }
     setErrors({});
-    onSubmit(built.body);
+    setLocalError(null);
+
+    let body = built.body;
+    if (values.newBiblioMode) {
+      setCreatingBiblio(true);
+      try {
+        const issn = values.newBiblioIssn.trim();
+        const created = await api.createBiblio({
+          title: values.newBiblioTitle.trim(),
+          mediaType: 'periodic',
+          ...(issn ? { issn } : {}),
+        });
+        const id = created.biblio?.id;
+        if (!id) {
+          throw new Error('Created periodical has no id');
+        }
+        body = { ...body, biblioId: String(id) };
+      } catch (createError) {
+        setLocalError(createError);
+        setCreatingBiblio(false);
+        return;
+      }
+      setCreatingBiblio(false);
+    }
+    onSubmit(body);
   };
 
-  const submitMessage = error ? getApiErrorMessage(error, t) : null;
-  const submitEmpty = Boolean(error) && isEmptyHorizonError(error);
+  const busy = isSaving || creatingBiblio;
+  const submitError = localError ?? error;
+  const submitMessage = submitError ? getApiErrorMessage(submitError, t) : null;
+  const submitEmpty = Boolean(submitError) && isEmptyHorizonError(submitError);
   const previewError = previewQuery.isError
     ? getApiErrorMessage(previewQuery.error, t)
     : submitEmpty
@@ -114,10 +149,10 @@ export default function SubscriptionFormModal({
       size="xl"
       footer={
         <div className="flex flex-wrap justify-end gap-2">
-          <Button type="button" variant="secondary" onClick={onClose} disabled={isSaving}>
+          <Button type="button" variant="secondary" onClick={onClose} disabled={busy}>
             {t('common.cancel')}
           </Button>
-          <Button type="submit" form="serial-subscription-form" isLoading={isSaving}>
+          <Button type="submit" form="serial-subscription-form" isLoading={busy}>
             {t('common.save')}
           </Button>
         </div>
@@ -138,7 +173,14 @@ export default function SubscriptionFormModal({
           biblioResults={biblioSearch.data?.items ?? []}
           biblioSearching={biblioSearch.isFetching}
           onSelectBiblio={(id, title) => {
-            setValues((current) => ({ ...current, biblioId: id, biblioTitle: title }));
+            setValues((current) => ({
+              ...current,
+              biblioId: id,
+              biblioTitle: title,
+              newBiblioMode: false,
+              newBiblioTitle: '',
+              newBiblioIssn: '',
+            }));
             setBiblioQuery('');
           }}
           predictionLocked={(subscription?.issueCount ?? 0) > 0}

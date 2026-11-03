@@ -15,6 +15,17 @@ fn default_borrowable() -> bool {
     true
 }
 
+/// Enumeration and cover date of a periodical copy.
+///
+/// Loaded from the serial issue linked to the item. The cover date is
+/// `planned_date`, not the day the issue was checked in.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SerialCopyCaption {
+    pub label: String,
+    pub date: NaiveDate,
+}
+
 /// Presence of the retired item JSON key `notes`, including `null`.
 fn deserialize_legacy_notes_present<'de, D>(deserializer: D) -> Result<bool, D::Error>
 where
@@ -322,6 +333,11 @@ pub struct Item {
         message = "Volume designation must be at most 100 characters"
     ))]
     pub volume_designation: Option<String>,
+    /// Set when this copy is a received serial issue. Absent on ordinary copies.
+    /// Filled after the row load; not a column of `items`.
+    #[sqlx(skip)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub serial_issue: Option<SerialCopyCaption>,
     pub place: Option<i16>,
     #[serde(default = "default_borrowable")]
     pub borrowable: bool,
@@ -508,6 +524,7 @@ impl Item {
             barcode: copy.barcode,
             call_number: copy.call_number,
             volume_designation: copy.volume_designation,
+            serial_issue: None,
             place: None,
             borrowable,
             circulation_status: None,
@@ -934,6 +951,7 @@ mod tests {
             on_hold: false,
             deposit_batch_id: None,
             deposit: None,
+            serial_issue: None,
             legacy_notes_present: false,
         }
     }

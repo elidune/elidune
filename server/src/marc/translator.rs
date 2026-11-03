@@ -2,9 +2,9 @@ use chrono::{DateTime, Utc};
 
 use z3950_rs::marc_rs::record::{
     Agent, BibliographicLevel, Classification, ClassificationScheme, Description, Indexing,
-    Isbn as MarcIsbn, Item as MarcItem, LinkType, LinkedRecord, Local, Note, NoteType, Person,
-    Publication, Record as MarcRecord, RecordStatus, RecordType, Relator, Responsibility,
-    SeriesStatement, Subject, SubjectType, TargetAudience, Title,
+    Isbn as MarcIsbn, Issn as MarcIssn, Item as MarcItem, LinkType, LinkedRecord, Local, Note,
+    NoteType, Person, Publication, Record as MarcRecord, RecordStatus, RecordType, Relator,
+    Responsibility, SeriesStatement, Subject, SubjectType, TargetAudience, Title,
 };
 
 use crate::{
@@ -309,6 +309,14 @@ impl From<MarcRecord> for Biblio {
             .map(Isbn::new)
             .filter(|i| !i.is_empty());
 
+        // --- ISSN (MARC 022 / identification.issn) ---
+        let issn = record
+            .identification
+            .issn
+            .first()
+            .map(|entry| Isbn::new(&entry.value))
+            .filter(|i| !i.is_empty());
+
         // --- Title ---
         let title = record.title_main().map(|s| s.to_string());
 
@@ -458,6 +466,7 @@ impl From<MarcRecord> for Biblio {
             id: None,
             media_type,
             isbn,
+            issn,
             title,
             subject,
             dewey,
@@ -550,6 +559,7 @@ impl From<&MarcItem> for Item {
             on_hold: false,
             deposit_batch_id: None,
             deposit: None,
+            serial_issue: None,
             legacy_notes_present: false,
         }
     }
@@ -579,6 +589,16 @@ impl From<&Biblio> for MarcRecord {
             let s = isbn.as_str().trim();
             if !s.is_empty() {
                 record.identification.isbn.push(MarcIsbn {
+                    value: s.to_string(),
+                    qualifying: None,
+                });
+            }
+        }
+
+        if let Some(ref issn) = item.issn {
+            let s = issn.as_str().trim();
+            if !s.is_empty() {
+                record.identification.issn.push(MarcIssn {
                     value: s.to_string(),
                     qualifying: None,
                 });
@@ -1049,6 +1069,7 @@ mod tests {
             id: None,
             media_type: MediaType::PrintedText,
             isbn: None,
+            issn: None,
             title: None,
             subject: None,
             dewey: Some("843.914".to_string()),

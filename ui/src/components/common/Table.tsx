@@ -1,6 +1,6 @@
 interface Column<T> {
   key: string;
-  header: string;
+  header: React.ReactNode;
   render?: (item: T) => React.ReactNode;
   className?: string;
   /** Right-align header and cell (action columns, numeric columns). Default: left. */

@@ -146,6 +146,7 @@ import type {
   BatchReturnResponse,
   BatchCreateResponse,
   MarkLostRequest,
+  MarkMissingRequest,
   MarkDamagedRequest,
   MarkClaimedReturnedRequest,
   ResolveClaimsReturnedRequest,
@@ -196,6 +197,9 @@ import type {
   SerialSubscriptionListResponse,
   SerialSubscriptionStatus,
   SerialSubscriptionWrite,
+  CreateSerialGift,
+  SerialGift,
+  SerialGiftListResponse,
 } from '@/types';
 import { normalizePaginatedResponse } from '@/utils/serverJson';
 import {
@@ -601,6 +605,7 @@ class ApiService {
     title?: string;
     author?: string;
     isbn?: string;
+    issn?: string;
     mediaType?: MediaType;
     audienceType?: string;
     freesearch?: string;
@@ -1089,6 +1094,25 @@ class ApiService {
 
   async markLoanLost(loanId: string, data: MarkLostRequest = {}): Promise<CirculationExceptionResponse> {
     const response = await this.client.post<CirculationExceptionResponse>(`/loans/${loanId}/lost`, data);
+    return response.data;
+  }
+
+  async markItemLost(itemId: string, data: MarkLostRequest = {}): Promise<CirculationExceptionResponse> {
+    const response = await this.client.post<CirculationExceptionResponse>(
+      `/items/${encodeURIComponent(itemId)}/lost`,
+      data,
+    );
+    return response.data;
+  }
+
+  async markItemMissing(
+    itemId: string,
+    data: MarkMissingRequest = {},
+  ): Promise<CirculationExceptionResponse> {
+    const response = await this.client.post<CirculationExceptionResponse>(
+      `/items/${encodeURIComponent(itemId)}/missing`,
+      data,
+    );
     return response.data;
   }
 
@@ -2596,8 +2620,25 @@ class ApiService {
     status?: SerialSubscriptionStatus;
     page?: number;
     perPage?: number;
+    sort?: 'title' | 'vendor' | 'itemCount';
+    direction?: 'asc' | 'desc';
   }): Promise<SerialSubscriptionListResponse> {
     const response = await this.client.get<SerialSubscriptionListResponse>('/serials/subscriptions', { params });
+    return response.data;
+  }
+
+  async listSerialGifts(params: {
+    q?: string;
+    siteId?: string;
+    page?: number;
+    perPage?: number;
+  }): Promise<SerialGiftListResponse> {
+    const response = await this.client.get<SerialGiftListResponse>('/serials/gifts', { params });
+    return response.data;
+  }
+
+  async createSerialGift(body: CreateSerialGift): Promise<SerialGift> {
+    const response = await this.client.post<SerialGift>('/serials/gifts', body);
     return response.data;
   }
 

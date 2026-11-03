@@ -13,11 +13,12 @@ use crate::{
         fine::Cents,
         item::{Item, ReceivedCopy},
         serial::{
-            CounterInners, CounterRule, CounterValues, CreateSerialSupplement, FrequencySpec,
-            FrequencyWrite, NewSerialIssue, NumberingPatternSpec, NumberingPatternWrite,
-            PredictionResponse, PredictionState, ReceiveSerialIssue, SerialFrequency,
-            SerialFrequencyListResponse, SerialIssue, SerialIssueGenerateResponse,
-            SerialIssueStatus, SerialIssuesMarkedLate, SerialListQuery, SerialNumberingPattern,
+            CounterInners, CounterRule, CounterValues, CreateSerialGift, CreateSerialSupplement,
+            FrequencySpec, FrequencyWrite, NewSerialIssue, NumberingPatternSpec,
+            NumberingPatternWrite, PredictionResponse, PredictionState, ReceiveSerialIssue,
+            SerialFrequency, SerialFrequencyListResponse, SerialGift, SerialGiftListResponse,
+            SerialGiftQuery, SerialIssue, SerialIssueGenerateResponse, SerialIssueStatus,
+            SerialIssuesMarkedLate, SerialListQuery, SerialNumberingPattern,
             SerialNumberingPatternListResponse, SerialSubscription, SerialSubscriptionListResponse,
             SerialSubscriptionQuery, SerialSubscriptionStatus, SerialSubscriptionWrite,
             SetSerialIssueStatus, TestPredictionRequest,
@@ -412,6 +413,54 @@ impl SerialsService {
                 trimmed(&data.notes),
             )
             .await
+    }
+
+    /// Register a one-off gift copy on a periodical biblio (no subscription).
+    pub async fn create_gift(&self, data: &CreateSerialGift) -> AppResult<SerialGift> {
+        self.repository.periodical_biblio(data.biblio_id).await?;
+        let volume_label = data.volume_label.trim();
+        if volume_label.is_empty() {
+            return Err(AppError::Validation(
+                "Gift volume label must not be empty".into(),
+            ));
+        }
+        let barcode = match trimmed(&data.barcode) {
+            Some(barcode) => barcode,
+            None => self.repository.allocate_item_barcode().await?,
+        };
+        let item = Item::received_copy(ReceivedCopy {
+            biblio_id: data.biblio_id,
+            barcode: Some(barcode),
+            site_id: Some(data.site_id),
+            site_name: None,
+            call_number: trimmed(&data.call_number),
+            volume_designation: Some(volume_label.to_string()),
+            public_note: None,
+            internal_note: trimmed(&data.internal_note),
+            price: None,
+            price_deferred: false,
+            borrowable: None,
+        });
+        let created = self.catalog.create_item(data.biblio_id, item).await?;
+        let item_id = created.id.ok_or_else(|| {
+            AppError::Internal("Created gift copy has no id".into())
+        })?;
+        let gift_id = self
+            .repository
+            .gifts_insert(
+                item_id,
+                data.biblio_id,
+                data.site_id,
+                volume_label,
+                data.cover_date,
+            )
+            .await?;
+        self.repository.gifts_get(gift_id).await
+    }
+
+    pub async fn list_gifts(&self, query: &SerialGiftQuery) -> AppResult<SerialGiftListResponse> {
+        let (gifts, total) = self.repository.gifts_list(query).await?;
+        Ok(SerialGiftListResponse { gifts, total })
     }
 
     /// Mark expected issues late when the library's local date is after `planned_date`

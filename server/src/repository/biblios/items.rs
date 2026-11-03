@@ -9,7 +9,7 @@ use super::super::Repository;
 use crate::models::item::ItemShort;
 use crate::{
     error::{error_code, AppError, AppResult},
-    models::item::{note_stored_value, note_write_value, Item},
+    models::item::{note_stored_value, note_write_value, Item, SerialCopyCaption},
 };
 
 use super::ItemShortRow;
@@ -83,6 +83,13 @@ const ITEM_AVAILABILITY_COLUMNS: &str = r#"
                        WHEN copy_state.availability = 'onHold' THEN assigned_hold.lastname
                    END AS hold_user_lastname
 "#;
+
+/// Newest received issue first. Copies that are not serial issues keep barcode order.
+const SERIAL_COPY_ORDER: &str = "\
+(SELECT si.planned_date FROM serial_issues si \
+  WHERE si.item_id = i.id AND si.status <> 'deleted' \
+  ORDER BY si.planned_date DESC, si.id DESC \
+  LIMIT 1) DESC NULLS LAST, i.barcode NULLS LAST, i.id";
 
 fn item_sql(where_and_order: &str) -> String {
     let deposit_join = item_deposit_join("i");
@@ -191,8 +198,35 @@ where
 }
 
 impl Repository {
+    /// Issue number and cover date for copies linked to a serial issue.
+    async fn fill_serial_captions(&self, items: &mut [Item]) -> AppResult<()> {
+        let ids: Vec<i64> = items.iter().filter_map(|item| item.id).collect();
+        if ids.is_empty() {
+            return Ok(());
+        }
+        let rows: Vec<(i64, String, chrono::NaiveDate)> = sqlx::query_as(
+            "SELECT DISTINCT ON (item_id) item_id, display_label, planned_date \
+             FROM serial_issues \
+             WHERE item_id = ANY($1) AND status <> 'deleted' \
+             ORDER BY item_id, planned_date DESC, id DESC",
+        )
+        .bind(&ids)
+        .fetch_all(&self.pool)
+        .await?;
+        let captions: HashMap<i64, SerialCopyCaption> = rows
+            .into_iter()
+            .map(|(id, label, date)| (id, SerialCopyCaption { label, date }))
+            .collect();
+        for item in items.iter_mut() {
+            item.serial_issue = item.id.and_then(|id| captions.get(&id).cloned());
+        }
+        Ok(())
+    }
+
     /// Library-local calendar date of an open loan, for the public catalog only.
+    /// Also attaches the serial issue caption used as the copy name.
     async fn fill_expected_return_dates(&self, items: &mut [Item]) -> AppResult<()> {
+        self.fill_serial_captions(items).await?;
         let needs_date = items.iter().any(|item| {
             item.availability == crate::models::item::ItemAvailability::OnLoan
                 && item.due_date.is_some()
@@ -218,9 +252,10 @@ impl Repository {
     /// Get items (physical copies) for a biblio (excludes archived items)
     #[tracing::instrument(skip(self), err)]
     pub async fn biblios_get_items(&self, biblio_id: i64) -> AppResult<Vec<Item>> {
-        let mut items = sqlx::query_as::<_, Item>(&item_sql(
-            "WHERE i.biblio_id = $1 AND i.archived_at IS NULL ORDER BY i.barcode",
-        ))
+        let sql = item_sql(&format!(
+            "WHERE i.biblio_id = $1 AND i.archived_at IS NULL ORDER BY {SERIAL_COPY_ORDER}"
+        ));
+        let mut items = sqlx::query_as::<_, Item>(&sql)
         .bind(biblio_id)
         .fetch_all(&self.pool)
         .await?;

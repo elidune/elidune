@@ -1023,50 +1023,31 @@ async fn loss_bills_the_lender_rate_or_requires_an_amount() {
     let (status, free_loan) = checkout(&app, &token, reader_id, free[0].0, false).await;
     assert_eq!(status, StatusCode::CREATED, "{free_loan}");
     let free_id = fixtures::json_id(&free_loan["id"]);
-    let (status, missing) = app
+    let (status, no_amount) = app
         .post_json(
             &format!("/api/v1/loans/{free_id}/lost"),
             &json!({"bill": true}),
             Some(&token),
         )
         .await;
-    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{missing}");
-    assert_error(&missing, "deposit_replacement_amount_required");
-    let (status, zero_amount) = app
-        .post_json(
-            &format!("/api/v1/loans/{free_id}/lost"),
-            &json!({"bill": true, "amount": "0"}),
-            Some(&token),
-        )
-        .await;
-    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{zero_amount}");
-    assert_error(&zero_amount, "deposit_replacement_amount_required");
-    let (status, billed) = app
-        .post_json(
-            &format!("/api/v1/loans/{free_id}/lost"),
-            &json!({"bill": false, "amount": "8.50"}),
-            Some(&token),
-        )
-        .await;
-    assert_eq!(status, StatusCode::OK, "{billed}");
-    assert_eq!(billed["charge"]["amount"], "8.50");
+    assert_eq!(status, StatusCode::OK, "{no_amount}");
+    assert!(
+        no_amount["charge"].is_null(),
+        "lost amount is optional: {no_amount}"
+    );
 
     let (status, unknown_loan) = checkout(&app, &token, reader_id, unknown[0].0, false).await;
     assert_eq!(status, StatusCode::CREATED, "{unknown_loan}");
     let unknown_id = fixtures::json_id(&unknown_loan["id"]);
-    let (status, unknown_missing) = app
+    let (status, unknown_billed) = app
         .post_json(
             &format!("/api/v1/loans/{unknown_id}/lost"),
-            &json!({"bill": true, "amount": "0"}),
+            &json!({"bill": false, "amount": "8.50"}),
             Some(&token),
         )
         .await;
-    assert_eq!(
-        status,
-        StatusCode::UNPROCESSABLE_ENTITY,
-        "{unknown_missing}"
-    );
-    assert_error(&unknown_missing, "deposit_replacement_amount_required");
+    assert_eq!(status, StatusCode::OK, "{unknown_billed}");
+    assert_eq!(unknown_billed["charge"]["amount"], "8.50");
 
     let (status, damage_loan) = checkout(&app, &token, reader_id, rated_items[1].0, false).await;
     assert_eq!(status, StatusCode::CREATED, "{damage_loan}");
@@ -1666,4 +1647,103 @@ async fn catalog_delete_deposit_refused_while_batch_returning() {
         .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{refused}");
     assert_error(&refused, "deposit_item_delete_use_batch_return");
+}
+
+#[tokio::test]
+async fn shelf_deposit_lost_bills_lender_and_lists_on_deposit_losses() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let token = fixtures::ensure_first_setup(&app).await;
+    let site_id = site(&app, &token).await;
+    let rated = lender(&app, &token, Some(1800)).await;
+    let batch_id = batch(&app, &token, rated, site_id).await;
+    let (_biblio, items) = copies(&app, &token, 1, Some("20.00")).await;
+    attach(&app, batch_id, site_id, items[0].0).await;
+
+    let (status, lost) = app
+        .post_json(
+            &format!("/api/v1/items/{}/lost", items[0].0),
+            &json!({}),
+            Some(&token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{lost}");
+    assert_eq!(lost["outcome"], "lost");
+    assert_eq!(lost["loanClosed"], false);
+    assert!(lost["loanId"].is_null() || lost.get("loanId").is_none(), "{lost}");
+    assert_eq!(lost["charge"]["chargeType"], "replacement");
+    assert_eq!(lost["charge"]["amount"], "18.00", "{lost}");
+    assert!(
+        lost["charge"]["loanId"].is_null() || lost["charge"].get("loanId").is_none(),
+        "shelf deposit fine has no loan: {lost}"
+    );
+    assert!(
+        lost["charge"]["userId"].is_null() || lost["charge"].get("userId").is_none(),
+        "shelf deposit fine has no user: {lost}"
+    );
+
+    let loan_id: Option<i64> = sqlx::query_scalar(
+        "SELECT loan_id FROM fines WHERE item_id = $1 AND charge_type = 'replacement'",
+    )
+    .bind(items[0].0)
+    .fetch_one(app.state.services.repository.pool())
+    .await
+    .unwrap();
+    assert!(loan_id.is_none(), "fine.loan_id must be null");
+
+    let (status, losses) = app
+        .get_json_with_auth(&format!("/api/v1/deposit-losses?lenderId={rated}"), &token)
+        .await;
+    assert_eq!(status, StatusCode::OK, "{losses}");
+    let item_key = items[0].0.to_string();
+    let loss_row = losses
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["itemId"].as_str() == Some(item_key.as_str()))
+        .expect("shelf deposit loss listed");
+    assert_eq!(loss_row["kind"], "lost", "{loss_row}");
+    assert_eq!(loss_row["amountCents"], 1800, "{loss_row}");
+}
+
+#[tokio::test]
+async fn shelf_deposit_lost_amount_is_optional_when_no_rate_or_price() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let token = fixtures::ensure_first_setup(&app).await;
+    let site_id = site(&app, &token).await;
+    let unrated = lender(&app, &token, None).await;
+    let batch_id = batch(&app, &token, unrated, site_id).await;
+    let (_biblio, items) = copies(&app, &token, 2, None).await;
+    for (item_id, _) in &items {
+        attach(&app, batch_id, site_id, *item_id).await;
+        sqlx::query("UPDATE items SET price = NULL WHERE id = $1")
+            .bind(*item_id)
+            .execute(app.state.services.repository.pool())
+            .await
+            .unwrap();
+    }
+
+    let (status, body) = app
+        .post_json(
+            &format!("/api/v1/items/{}/lost", items[0].0),
+            &json!({}),
+            Some(&token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["outcome"], "lost");
+    assert!(body["charge"].is_null(), "optional amount → no fine: {body}");
+
+    let (status, lost) = app
+        .post_json(
+            &format!("/api/v1/items/{}/lost", items[1].0),
+            &json!({ "amount": "7.25" }),
+            Some(&token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{lost}");
+    assert_eq!(lost["charge"]["amount"], "7.25", "{lost}");
 }

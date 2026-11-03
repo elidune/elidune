@@ -16,7 +16,7 @@ use crate::{
         dto::circulation::{
             CirculationExceptionOutcome, CirculationExceptionResponse, ClaimsReturnedQueueItem,
             LostFineAction, LostFoundDisposition, LostFoundResolution, MarkClaimedReturnedRequest,
-            MarkDamagedRequest, MarkLostRequest, ResolveClaimsReturnedRequest,
+            MarkDamagedRequest, MarkLostRequest, MarkMissingRequest, ResolveClaimsReturnedRequest,
             ResolveLostFoundRequest,
         },
         fine::{Cents, FineChargeType},
@@ -33,7 +33,7 @@ struct DepositLossAudit<'a> {
     deposit: Option<&'a crate::repository::deposits::DepositReplacement>,
     amount: Option<Cents>,
     kind: &'a str,
-    loan_id: i64,
+    loan_id: Option<i64>,
     item_id: i64,
     actor: Option<i64>,
     client_ip: Option<String>,
@@ -70,16 +70,44 @@ impl CirculationService {
         client_ip: Option<String>,
     ) -> AppResult<CirculationExceptionResponse> {
         let loan = self.repository.loans_get_by_id(loan_id).await?;
-        let deposit = self
-            .repository
-            .item_deposit_replacement(loan.item_id)
-            .await?;
+        self.mark_item_lost(loan.item_id, Some(loan_id), req, actor, client_ip)
+            .await
+    }
+
+    /// Mark a copy lost by item id. Closes an open loan when one exists.
+    ///
+    /// Billing: replacement amount is always optional. Deposit copies use
+    /// lender rate, then positive copy price, then staff `amount` when present;
+    /// otherwise lost with no charge. Own stock bills only when there is an
+    /// open loan and `req.bill` is true (shelf-only own-stock loss never bills).
+    pub async fn mark_item_lost(
+        &self,
+        item_id: i64,
+        loan_id: Option<i64>,
+        req: MarkLostRequest,
+        actor: Option<i64>,
+        client_ip: Option<String>,
+    ) -> AppResult<CirculationExceptionResponse> {
+        let deposit = self.repository.item_deposit_replacement(item_id).await?;
+        let has_open_loan = match loan_id {
+            Some(_) => true,
+            None => {
+                !self
+                    .repository
+                    .loans_get_active_ids_for_item(item_id)
+                    .await?
+                    .is_empty()
+            }
+        };
+        // Lost: amount is always optional. Deposit uses rate/price/staff amount when
+        // available; otherwise mark lost without a charge. Own-stock bills only on
+        // an open loan when `bill` is set.
         let amount = if let Some(ref deposit) = deposit {
-            Some(resolve_deposit_bill(deposit, req.amount)?)
-        } else if req.bill {
+            try_resolve_deposit_bill(deposit, req.amount)?
+        } else if has_open_loan && req.bill {
             Some(
                 self.resolve_bill_amount(
-                    loan.item_id,
+                    item_id,
                     req.amount,
                     req.use_item_price,
                     "Replacement amount",
@@ -92,6 +120,7 @@ impl CirculationService {
         let applied = self
             .repository
             .circulation_apply(CirculationApplyParams {
+                item_id,
                 loan_id,
                 action: CirculationAction::MarkLost,
                 disposition: None,
@@ -118,11 +147,45 @@ impl CirculationService {
             deposit: deposit.as_ref(),
             amount,
             kind: "lost",
-            loan_id,
+            loan_id: response.loan_id,
             item_id: response.item_id,
             actor,
             client_ip,
         });
+        Ok(response)
+    }
+
+    /// Declare a copy missing. No loan close, no billing.
+    pub async fn mark_item_missing(
+        &self,
+        item_id: i64,
+        req: MarkMissingRequest,
+        actor: Option<i64>,
+        client_ip: Option<String>,
+    ) -> AppResult<CirculationExceptionResponse> {
+        let applied = self
+            .repository
+            .circulation_apply(CirculationApplyParams {
+                item_id,
+                loan_id: None,
+                action: CirculationAction::MarkMissing,
+                disposition: None,
+                bill_amount: None,
+                charge_type: None,
+                notes: req.notes.as_deref(),
+            })
+            .await?;
+        let response = to_response(CirculationExceptionOutcome::Missing, &applied);
+        self.audit_exception(
+            audit::event::ITEM_MARKED_MISSING,
+            actor,
+            client_ip,
+            &response,
+            serde_json::json!({
+                "loanClosed": false,
+                "billed": false,
+            }),
+        );
         Ok(response)
     }
 
@@ -152,7 +215,8 @@ impl CirculationService {
         let applied = self
             .repository
             .circulation_apply(CirculationApplyParams {
-                loan_id,
+                item_id: loan.item_id,
+                loan_id: Some(loan_id),
                 action: CirculationAction::MarkDamaged,
                 disposition: Some(req.disposition),
                 bill_amount: amount,
@@ -179,7 +243,7 @@ impl CirculationService {
             deposit: deposit.as_ref(),
             amount,
             kind: "damaged",
-            loan_id,
+            loan_id: response.loan_id,
             item_id: response.item_id,
             actor,
             client_ip,
@@ -195,10 +259,12 @@ impl CirculationService {
         client_ip: Option<String>,
     ) -> AppResult<CirculationExceptionResponse> {
         reject_disallowed_bill(CirculationAction::ClaimReturned, req.bill)?;
+        let loan = self.repository.loans_get_by_id(loan_id).await?;
         let applied = self
             .repository
             .circulation_apply(CirculationApplyParams {
-                loan_id,
+                item_id: loan.item_id,
+                loan_id: Some(loan_id),
                 action: CirculationAction::ClaimReturned,
                 disposition: None,
                 bill_amount: None,
@@ -250,10 +316,12 @@ impl CirculationService {
         };
         reject_disallowed_bill(action, req.bill)?;
 
+        let loan = self.repository.loans_get_by_id(loan_id).await?;
         let mut pending = self
             .repository
             .circulation_apply_pending(CirculationApplyParams {
-                loan_id,
+                item_id: loan.item_id,
+                loan_id: Some(loan_id),
                 action,
                 disposition: None,
                 bill_amount: None,
@@ -297,8 +365,12 @@ impl CirculationService {
             }
         }
         if applied.loan_closed {
-            self.events
-                .loan_returned(applied.loan_id, applied.user_id, applied.item_id);
+            if let (Some(closed_loan_id), Some(closed_user_id)) =
+                (applied.loan_id, applied.user_id)
+            {
+                self.events
+                    .loan_returned(closed_loan_id, closed_user_id, applied.item_id);
+            }
         }
 
         Ok(response)
@@ -436,7 +508,7 @@ impl CirculationService {
             Some(serde_json::json!({
                 "lenderId": deposit.lender_id.to_string(),
                 "itemId": audit_row.item_id.to_string(),
-                "loanId": audit_row.loan_id.to_string(),
+                "loanId": audit_row.loan_id.map(|id| id.to_string()),
                 "amountCents": audit_row.amount.map(|cents| cents.0).unwrap_or(0),
                 "kind": audit_row.kind,
             })),
@@ -607,9 +679,9 @@ impl CirculationService {
                 Some(charge.id),
                 None,
                 Some(serde_json::json!({
-                    "loanId": response.loan_id.to_string(),
+                    "loanId": response.loan_id.map(|id| id.to_string()),
                     "itemId": response.item_id.to_string(),
-                    "userId": response.user_id.to_string(),
+                    "userId": response.user_id.map(|id| id.to_string()),
                     "chargeType": charge.charge_type,
                     "amount": charge.amount.to_euro_string(),
                     "trigger": event,
@@ -622,21 +694,20 @@ impl CirculationService {
 
 /// Lender `replacementRateCents` wins, including when staff also send an amount or `0`.
 /// Otherwise a positive copy price (the lender's deposit slip) wins over the staff amount.
-/// A null or zero price does not count. A missing or non-positive staff amount is then
-/// `deposit_replacement_amount_required`. The library default replacement
-/// rule is never used. The returned cents are written once onto the fine row.
-fn resolve_deposit_bill(
+/// A null or zero price does not count. Returns [`None`] when nothing resolves — used by
+/// mark-lost where the amount is optional. The library default replacement rule is never used.
+fn try_resolve_deposit_bill(
     deposit: &crate::repository::deposits::DepositReplacement,
     explicit: Option<Decimal>,
-) -> AppResult<Cents> {
+) -> AppResult<Option<Cents>> {
     if let Some(rate) = deposit.replacement_rate_cents {
         if rate.0 > 0 {
-            return Ok(rate);
+            return Ok(Some(rate));
         }
     }
     if let Some(price) = deposit.item_price_cents {
         if price.0 > 0 {
-            return Ok(price);
+            return Ok(Some(price));
         }
     }
     let cents = explicit
@@ -644,7 +715,16 @@ fn resolve_deposit_bill(
         .transpose()
         .map_err(|err| AppError::Validation(err.to_string()))?
         .filter(|cents| cents.0 > 0);
-    cents.ok_or_else(|| {
+    Ok(cents)
+}
+
+/// Same priority as [`try_resolve_deposit_bill`], but a missing amount is
+/// `deposit_replacement_amount_required` (damage path still requires a bill amount).
+fn resolve_deposit_bill(
+    deposit: &crate::repository::deposits::DepositReplacement,
+    explicit: Option<Decimal>,
+) -> AppResult<Cents> {
+    try_resolve_deposit_bill(deposit, explicit)?.ok_or_else(|| {
         AppError::coded(
             422,
             crate::error::error_code::DEPOSIT_REPLACEMENT_AMOUNT_REQUIRED,
@@ -660,7 +740,7 @@ fn exception_audit_payload(
     if let Some(obj) = extra.as_object_mut() {
         obj.insert(
             "loanId".into(),
-            serde_json::json!(response.loan_id.to_string()),
+            serde_json::json!(response.loan_id.map(|id| id.to_string())),
         );
         obj.insert(
             "itemId".into(),
@@ -668,7 +748,7 @@ fn exception_audit_payload(
         );
         obj.insert(
             "userId".into(),
-            serde_json::json!(response.user_id.to_string()),
+            serde_json::json!(response.user_id.map(|id| id.to_string())),
         );
         obj.insert(
             "itemStatus".into(),
@@ -744,7 +824,7 @@ mod tests {
 
     #[test]
     fn deposit_bill_uses_rate_then_positive_price_then_staff_amount() {
-        use super::resolve_deposit_bill;
+        use super::{resolve_deposit_bill, try_resolve_deposit_bill};
         use crate::models::fine::Cents;
         use crate::repository::deposits::DepositReplacement;
         use rust_decimal::Decimal;
@@ -785,6 +865,11 @@ mod tests {
             resolve_deposit_bill(&free, Some(Decimal::new(850, 2))).unwrap(),
             Cents(850)
         );
+        assert_eq!(
+            try_resolve_deposit_bill(&free, None).unwrap(),
+            None,
+            "lost path: amount optional"
+        );
 
         let unknown = DepositReplacement {
             lender_id: 1,
@@ -796,6 +881,7 @@ mod tests {
             resolve_deposit_bill(&unknown, Some(Decimal::new(850, 2))).unwrap(),
             Cents(850)
         );
+        assert_eq!(try_resolve_deposit_bill(&unknown, None).unwrap(), None);
     }
 
     #[test]

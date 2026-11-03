@@ -360,7 +360,8 @@ describe('deposit replacement amount', () => {
     );
     assert.deepEqual(
       replacementAmountFieldState({ kind: 'lost', bill: false, amount: '', serverRequiresAmount: true }),
-      { bill: true, required: true, invalid: true },
+      { bill: false, required: false, invalid: false },
+      'lost amount stays optional even after serverRequiresAmount',
     );
     assert.equal(
       replacementAmountFieldState({ kind: 'damaged', bill: false, amount: '0', serverRequiresAmount: true }).invalid,

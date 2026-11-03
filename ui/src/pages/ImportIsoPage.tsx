@@ -2638,6 +2638,11 @@ export function MarcImportWorkflow({
       </Modal>
 
       <DepositMarcDuplicateDialog
+        key={
+          depositDuplicateModal
+            ? depositDuplicateModal.conflicts.map((c) => c.recordKey).join('|')
+            : 'closed'
+        }
         isOpen={!!depositDuplicateModal}
         conflicts={depositDuplicateModal?.conflicts ?? []}
         isLoading={depositDuplicateLoading}

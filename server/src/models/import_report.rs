@@ -83,6 +83,7 @@ mod tests {
                 id: 42,
                 media_type: MediaType::PrintedText,
                 isbn: Some(crate::models::biblio::Isbn::new("9782070408504")),
+                issn: None,
                 title: Some("Test Book".to_string()),
                 date: None,
                 status: 0,

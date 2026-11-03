@@ -314,6 +314,20 @@ pub trait SerialsRepository: Send + Sync {
         today: NaiveDate,
     ) -> AppResult<Vec<SerialIssue>>;
     async fn apply_latest_issue_borrowable(&self, subscription_id: i64) -> AppResult<()>;
+
+    async fn gifts_insert(
+        &self,
+        item_id: i64,
+        biblio_id: i64,
+        site_id: i64,
+        volume_label: &str,
+        cover_date: Option<NaiveDate>,
+    ) -> AppResult<i64>;
+    async fn gifts_get(&self, id: i64) -> AppResult<crate::models::serial::SerialGift>;
+    async fn gifts_list(
+        &self,
+        query: &crate::models::serial::SerialGiftQuery,
+    ) -> AppResult<(Vec<crate::models::serial::SerialGift>, i64)>;
 }
 
 #[async_trait]
@@ -489,6 +503,25 @@ impl SerialsRepository for Repository {
     }
     async fn apply_latest_issue_borrowable(&self, subscription_id: i64) -> AppResult<()> {
         Repository::apply_latest_issue_borrowable(self, subscription_id).await
+    }
+    async fn gifts_insert(
+        &self,
+        item_id: i64,
+        biblio_id: i64,
+        site_id: i64,
+        volume_label: &str,
+        cover_date: Option<NaiveDate>,
+    ) -> AppResult<i64> {
+        Repository::gifts_insert(self, item_id, biblio_id, site_id, volume_label, cover_date).await
+    }
+    async fn gifts_get(&self, id: i64) -> AppResult<crate::models::serial::SerialGift> {
+        Repository::gifts_get(self, id).await
+    }
+    async fn gifts_list(
+        &self,
+        query: &crate::models::serial::SerialGiftQuery,
+    ) -> AppResult<(Vec<crate::models::serial::SerialGift>, i64)> {
+        Repository::gifts_list(self, query).await
     }
 }
 

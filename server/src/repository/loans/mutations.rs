@@ -696,6 +696,7 @@ impl Repository {
                 id: biblio_row.get("biblio_id"),
                 media_type: biblio_row.get("media_type"),
                 isbn: biblio_row.get("isbn"),
+                issn: None,
                 title: biblio_row.get("title"),
                 date: biblio_row.get("publication_date"),
                 status: 0,

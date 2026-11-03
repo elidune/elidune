@@ -13,6 +13,9 @@ use crate::{
     api::biblios::BiblioReadResponse,
     error::{AppError, AppResult},
     models::catalog_view::{sees_internal_catalog, BiblioPublicView},
+    models::dto::circulation::{
+        CirculationExceptionResponse, MarkLostRequest, MarkMissingRequest,
+    },
     models::dto::weeding::SetWeedingRequest,
     models::item::Item,
     services::audit::{self},
@@ -29,6 +32,8 @@ pub fn router() -> axum::Router<crate::AppState> {
             get(get_biblio_by_item).put(update_item).delete(delete_item),
         )
         .route("/items/:id/weeding", post(set_item_weeding))
+        .route("/items/:id/missing", post(mark_item_missing))
+        .route("/items/:id/lost", post(mark_item_lost))
 }
 
 /// Get the bibliographic record for a physical copy.
@@ -333,6 +338,71 @@ pub async fn delete_item(
 #[serde(rename_all = "camelCase")]
 pub struct DeleteItemParams {
     pub force: Option<bool>,
+}
+
+/// Declare a copy missing (shelf search closed). No loan close, no billing.
+#[utoipa::path(
+    post,
+    path = "/items/{id}/missing",
+    tag = "items",
+    security(("bearer_auth" = [])),
+    params(("id" = i64, Path, description = "Physical copy (item) ID")),
+    request_body = MarkMissingRequest,
+    responses(
+        (status = 200, description = "Item marked missing", body = CirculationExceptionResponse),
+        (status = 404, description = "Item not found or archived"),
+        (status = 422, description = "Invalid status transition")
+    )
+)]
+pub async fn mark_item_missing(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    ClientIp(ip): ClientIp,
+    Path(item_id): Path<i64>,
+    Json(body): Json<MarkMissingRequest>,
+) -> AppResult<Json<CirculationExceptionResponse>> {
+    claims.require_write_loans()?;
+    let result = state
+        .services
+        .circulation
+        .mark_item_missing(item_id, body, Some(claims.user_id), ip)
+        .await?;
+    Ok(Json(result))
+}
+
+/// Mark a copy lost. Closes an open loan when one exists.
+///
+/// Replacement amount is always optional. Deposit copies bill when a lender
+/// rate, copy price, or staff `amount` resolves; otherwise lost with no charge.
+/// Own-stock shelf copies never bill. Own-stock copies on an open loan follow
+/// `MarkLostRequest.bill`.
+#[utoipa::path(
+    post,
+    path = "/items/{id}/lost",
+    tag = "items",
+    security(("bearer_auth" = [])),
+    params(("id" = i64, Path, description = "Physical copy (item) ID")),
+    request_body = MarkLostRequest,
+    responses(
+        (status = 200, description = "Item marked lost", body = CirculationExceptionResponse),
+        (status = 404, description = "Item not found or archived"),
+        (status = 422, description = "Invalid status transition or missing deposit replacement amount")
+    )
+)]
+pub async fn mark_item_lost(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    ClientIp(ip): ClientIp,
+    Path(item_id): Path<i64>,
+    Json(body): Json<MarkLostRequest>,
+) -> AppResult<Json<CirculationExceptionResponse>> {
+    claims.require_write_loans()?;
+    let result = state
+        .services
+        .circulation
+        .mark_item_lost(item_id, None, body, Some(claims.user_id), ip)
+        .await?;
+    Ok(Json(result))
 }
 
 /// Set weeding status on a physical copy. Candidate stays circulable; withdrawn is not.

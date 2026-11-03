@@ -345,6 +345,36 @@ With `users_rights` read or write, `user` is the `UserShortStaff` object shown u
 
 When the copy is lost, the same response adds `wasLost: true` and, when a replacement charge is still open, `fineId`, `fineStatus` (`unpaid` | `paid` | `partial`), `fineAmount`, and `paidAmount` (integer cents). `status` is `lost_found` when the loan was already closed by the lost declaration.
 
+### `MarkMissingRequest` (POST /items/:id/missing)
+```json
+{ "notes": null }
+```
+
+Declares the copy missing (`circulationStatus` 5). No loan close, no charge.
+
+### `MarkLostRequest` (POST /loans/:id/lost and POST /items/:id/lost)
+```json
+{ "bill": true, "amount": "12.50", "useItemPrice": true, "notes": null }
+```
+
+Item-level lost closes an open loan when one exists. Replacement `amount` is always optional. Deposit copies bill lender replacement when a rate, copy price, or `amount` resolves; otherwise the copy is marked lost with no charge. Own-stock shelf copies never bill. Own-stock copies on an open loan follow `bill` / `amount` / `useItemPrice` as on the loan route.
+
+### `CirculationExceptionResponse`
+```json
+{
+  "outcome": "lost",
+  "itemStatus": "lost",
+  "borrowable": false,
+  "loanClosed": true,
+  "loanId": "818273645564928001",
+  "itemId": "818273645564928002",
+  "userId": "818273645564928003",
+  "charge": { "...Fine..." }
+}
+```
+
+`outcome`: `lost` | `damaged` | `missing` | `claimedReturned` | `claimsResolvedFound` | `claimsResolvedNotFound`. `loanId` / `userId` are omitted when no open loan was involved. Shelf deposit replacement charges may have null `loanId` / `userId` on `charge`.
+
 ### `ResolveLostFoundRequest` (POST /loans/items/:itemId/lost-found)
 ```json
 { "disposition": "damaged", "notes": null }

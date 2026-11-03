@@ -468,7 +468,7 @@ pub struct PredictionResponse {
     pub next_state: PredictionState,
 }
 
-/// Open, expired, or closed serial subscription. `active` is the open status.
+/// Open, expired, closed, or suspended serial subscription. `active` is the open status.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum SerialSubscriptionStatus {
@@ -476,6 +476,8 @@ pub enum SerialSubscriptionStatus {
     Active,
     Expired,
     Closed,
+    /// Paused: prediction and receipt wait; the same row and cursor resume later.
+    Suspended,
 }
 
 impl SerialSubscriptionStatus {
@@ -485,6 +487,7 @@ impl SerialSubscriptionStatus {
             Self::Active => "active",
             Self::Expired => "expired",
             Self::Closed => "closed",
+            Self::Suspended => "suspended",
         }
     }
 
@@ -494,6 +497,7 @@ impl SerialSubscriptionStatus {
             "active" => Some(Self::Active),
             "expired" => Some(Self::Expired),
             "closed" => Some(Self::Closed),
+            "suspended" => Some(Self::Suspended),
             _ => None,
         }
     }
@@ -652,6 +656,57 @@ pub struct SerialSubscriptionQuery {
     pub status: Option<SerialSubscriptionStatus>,
     pub page: Option<i64>,
     pub per_page: Option<i64>,
+    /// `title` (default), `vendor`, or `itemCount`.
+    pub sort: Option<SerialSubscriptionSort>,
+    /// `asc` (default) or `desc`.
+    pub direction: Option<SerialListDirection>,
+}
+
+/// Column used by `GET /serials/subscriptions`.
+#[derive(Debug, Clone, Copy, Deserialize, ToSchema, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum SerialSubscriptionSort {
+    #[default]
+    Title,
+    Vendor,
+    ItemCount,
+}
+
+/// Sort direction for `GET /serials/subscriptions`.
+#[derive(Debug, Clone, Copy, Deserialize, ToSchema, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum SerialListDirection {
+    #[default]
+    Asc,
+    Desc,
+}
+
+impl SerialSubscriptionQuery {
+    /// `ORDER BY` expressions. The fragment is chosen from the query enum, never from raw input.
+    #[must_use]
+    pub fn order_sql(&self) -> &'static str {
+        match (
+            self.sort.unwrap_or_default(),
+            self.direction.unwrap_or_default(),
+        ) {
+            (SerialSubscriptionSort::Title, SerialListDirection::Asc) => {
+                "lower(coalesce(b.title, '')), s.id"
+            }
+            (SerialSubscriptionSort::Title, SerialListDirection::Desc) => {
+                "lower(coalesce(b.title, '')) DESC, s.id DESC"
+            }
+            (SerialSubscriptionSort::Vendor, SerialListDirection::Asc) => {
+                "lower(coalesce(v.name, '')), s.id"
+            }
+            (SerialSubscriptionSort::Vendor, SerialListDirection::Desc) => {
+                "lower(coalesce(v.name, '')) DESC, s.id DESC"
+            }
+            (SerialSubscriptionSort::ItemCount, SerialListDirection::Asc) => "item_count, s.id",
+            (SerialSubscriptionSort::ItemCount, SerialListDirection::Desc) => {
+                "item_count DESC, s.id DESC"
+            }
+        }
+    }
 }
 
 /// One predicted or received issue row.
@@ -697,7 +752,7 @@ pub struct SerialSubscription {
     #[schema(value_type = String)]
     pub biblio_id: i64,
     pub biblio_title: Option<String>,
-    /// ISSNs of series and collections linked to the periodical. Not `biblios.issn`.
+    /// ISSN of the periodical bibliographic record (`biblios.issn`). Empty when unset.
     pub issns: Vec<String>,
     #[serde_as(as = "DisplayFromStr")]
     #[schema(value_type = String)]
@@ -744,6 +799,12 @@ pub struct SerialSubscription {
     pub internal_note: Option<String>,
     pub notes: Option<String>,
     pub issue_count: i64,
+    /// Physical copies linked to a non-deleted issue of this subscription, excluding archived copies.
+    pub item_count: i64,
+    /// Most recently received copy. Absent when none has been checked in.
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub latest_item_id: Option<i64>,
     /// Empty on list responses. Get, create, and update include the stored rows.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub issues: Vec<SerialIssue>,
@@ -857,4 +918,96 @@ pub struct NewSerialIssue {
     pub x: i32,
     pub y: i32,
     pub z: i32,
+}
+
+/// Body of `POST /serials/gifts`. Creates one copy on a periodical biblio; no subscription.
+#[serde_as]
+#[derive(Debug, Clone, Deserialize, Validate, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateSerialGift {
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub biblio_id: i64,
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub site_id: i64,
+    #[validate(length(min = 1, max = 200))]
+    pub volume_label: String,
+    #[serde(default)]
+    pub cover_date: Option<NaiveDate>,
+    #[serde(default)]
+    #[validate(length(max = 64))]
+    pub barcode: Option<String>,
+    #[serde(default)]
+    #[validate(length(max = 100))]
+    pub call_number: Option<String>,
+    #[serde(default)]
+    #[validate(length(max = 4000))]
+    pub internal_note: Option<String>,
+}
+
+/// One registered periodical gift.
+#[serde_as]
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SerialGift {
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub id: i64,
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub item_id: i64,
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub biblio_id: i64,
+    pub biblio_title: Option<String>,
+    pub issn: Option<String>,
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub site_id: i64,
+    pub site_name: Option<String>,
+    pub volume_label: String,
+    pub cover_date: Option<NaiveDate>,
+    pub barcode: Option<String>,
+    pub call_number: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+/// Search gifts by title, ISSN, barcode, or volume label.
+#[serde_as]
+#[derive(Debug, Clone, Deserialize, IntoParams, ToSchema, Default)]
+#[serde(rename_all = "camelCase")]
+#[into_params(parameter_in = Query)]
+pub struct SerialGiftQuery {
+    pub q: Option<String>,
+    #[serde(default)]
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub site_id: Option<i64>,
+    pub page: Option<i64>,
+    pub per_page: Option<i64>,
+}
+
+impl SerialGiftQuery {
+    #[must_use]
+    pub fn page(&self) -> i64 {
+        self.page.unwrap_or(1).max(1)
+    }
+
+    #[must_use]
+    pub fn per_page(&self) -> i64 {
+        self.per_page.unwrap_or(20).clamp(1, 100)
+    }
+
+    #[must_use]
+    pub fn offset(&self) -> i64 {
+        (self.page() - 1) * self.per_page()
+    }
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SerialGiftListResponse {
+    pub gifts: Vec<SerialGift>,
+    pub total: i64,
 }

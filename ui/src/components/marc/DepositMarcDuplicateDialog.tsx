@@ -29,6 +29,10 @@ function conflictKindKey(kind: DepositDuplicateConflict['kind']): string {
   }
 }
 
+function isLostOnly(conflicts: DepositDuplicateConflict[]): boolean {
+  return conflicts.length > 0 && conflicts.every((c) => c.kind === 'wasLost');
+}
+
 export default function DepositMarcDuplicateDialog({
   isOpen,
   conflicts,
@@ -37,11 +41,11 @@ export default function DepositMarcDuplicateDialog({
   onConfirm,
 }: Props) {
   const { t } = useTranslation();
-  const [action, setAction] = useState<DepositDuplicateAction>('relabel');
+  const lostOnly = isLostOnly(conflicts);
+  const [action, setAction] = useState<DepositDuplicateAction>(lostOnly ? 'ignore' : 'relabel');
   const [applyToAll, setApplyToAll] = useState(conflicts.length > 1);
 
   const primary = conflicts[0];
-  const lostOnly = conflicts.every((c) => c.kind === 'wasLost');
 
   return (
     <Modal
@@ -54,16 +58,8 @@ export default function DepositMarcDuplicateDialog({
             {t('common.cancel')}
           </Button>
           <Button
-            variant="secondary"
-            disabled={isLoading || lostOnly}
-            onClick={() => onConfirm({ action: 'ignore', applyToAll })}
-          >
-            {t('importMarc.depositDuplicate.ignore')}
-          </Button>
-          <Button
             isLoading={isLoading}
-            disabled={lostOnly}
-            onClick={() => onConfirm({ action, applyToAll })}
+            onClick={() => onConfirm({ action: lostOnly ? 'ignore' : action, applyToAll })}
           >
             {t('importMarc.depositDuplicate.confirm')}
           </Button>
@@ -91,41 +87,58 @@ export default function DepositMarcDuplicateDialog({
           ) : null}
         </div>
       ) : null}
-      {!lostOnly ? (
-        <fieldset className="space-y-2 mb-4">
-          <legend className="text-sm font-medium text-gray-900 dark:text-white">
-            {t('importMarc.depositDuplicate.actionLegend')}
-          </legend>
-          <label className="flex items-start gap-2 text-sm cursor-pointer">
-            <input
-              type="radio"
-              name="deposit-dup-action"
-              checked={action === 'overwrite'}
-              onChange={() => setAction('overwrite')}
-              className="mt-1"
-            />
-            <span>{t('importMarc.depositDuplicate.overwriteHint')}</span>
-          </label>
-          <label className="flex items-start gap-2 text-sm cursor-pointer">
-            <input
-              type="radio"
-              name="deposit-dup-action"
-              checked={action === 'relabel'}
-              onChange={() => setAction('relabel')}
-              className="mt-1"
-            />
-            <span>{t('importMarc.depositDuplicate.relabelHint')}</span>
-          </label>
-        </fieldset>
-      ) : (
+      {lostOnly ? (
         <p className="text-sm text-red-600 dark:text-red-400 mb-4">{t('importMarc.depositDuplicate.lostOnly')}</p>
-      )}
+      ) : null}
+      <fieldset className="space-y-2 mb-4">
+        <legend className="text-sm font-medium text-gray-900 dark:text-white">
+          {t('importMarc.depositDuplicate.actionLegend')}
+        </legend>
+        <label
+          className={`flex items-start gap-2 text-sm ${lostOnly ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
+        >
+          <input
+            type="radio"
+            name="deposit-dup-action"
+            checked={action === 'overwrite'}
+            onChange={() => setAction('overwrite')}
+            disabled={lostOnly || isLoading}
+            className="mt-1"
+          />
+          <span>{t('importMarc.depositDuplicate.overwriteHint')}</span>
+        </label>
+        <label
+          className={`flex items-start gap-2 text-sm ${lostOnly ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
+        >
+          <input
+            type="radio"
+            name="deposit-dup-action"
+            checked={action === 'relabel'}
+            onChange={() => setAction('relabel')}
+            disabled={lostOnly || isLoading}
+            className="mt-1"
+          />
+          <span>{t('importMarc.depositDuplicate.relabelHint')}</span>
+        </label>
+        <label className="flex items-start gap-2 text-sm cursor-pointer">
+          <input
+            type="radio"
+            name="deposit-dup-action"
+            checked={action === 'ignore'}
+            onChange={() => setAction('ignore')}
+            disabled={isLoading}
+            className="mt-1"
+          />
+          <span>{t('importMarc.depositDuplicate.ignoreHint')}</span>
+        </label>
+      </fieldset>
       {conflicts.length > 1 ? (
         <label className="flex items-center gap-2 text-sm cursor-pointer">
           <input
             type="checkbox"
             checked={applyToAll}
             onChange={(e) => setApplyToAll(e.target.checked)}
+            disabled={isLoading}
           />
           {t('importMarc.depositDuplicate.applyToAll')}
         </label>

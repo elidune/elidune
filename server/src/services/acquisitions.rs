@@ -456,6 +456,7 @@ fn stub_biblio(title: String, isbn: Option<Isbn>) -> Biblio {
         id: None,
         media_type: MediaType::PrintedText,
         isbn,
+        issn: None,
         title: Some(title),
         subject: None,
         dewey: None,

@@ -288,6 +288,7 @@ impl Repository {
             b.id AS biblio_id,
             b.media_type,
             b.isbn,
+            b.issn,
             b.publication_date,
             b.lang,
             b.lang_orig,
@@ -495,6 +496,15 @@ impl Repository {
                 Some(i)
             }
         });
+        let issn_raw: Option<String> = row.try_get("issn").ok().flatten();
+        let issn = issn_raw.and_then(|s| {
+            let i = Isbn::new(s);
+            if i.is_empty() {
+                None
+            } else {
+                Some(i)
+            }
+        });
 
         let marc_record: Option<MarcRecord> =
             {
@@ -556,6 +566,7 @@ impl Repository {
             on_hold: false,
             deposit_batch_id: None,
             deposit: None,
+            serial_issue: None,
             legacy_notes_present: false,
         };
 
@@ -572,6 +583,7 @@ impl Repository {
                 .try_get("media_type")
                 .map_err(|e| AppError::Internal(format!("marc export media_type: {}", e)))?,
             isbn,
+            issn,
             title: row.try_get("title").ok().flatten(),
             subject: row.try_get("subject").ok().flatten(),
             dewey: row.try_get("dewey").ok().flatten(),
@@ -672,6 +684,7 @@ impl Repository {
                             .get::<Option<String>, _>("biblio_isbn")
                             .map(Isbn::new)
                             .filter(|i| !i.is_empty()),
+                        issn: None,
                         title: row.get("title"),
                         date: row.get("publication_date"),
                         status: 0,

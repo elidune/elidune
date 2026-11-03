@@ -20,7 +20,7 @@ import SubscriptionFormModal from '@/components/serials/SubscriptionFormModal';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/contexts/ToastContext';
 import api from '@/services/api';
-import { canManageSerials, type SerialIssue, type SerialIssueStaffStatus } from '@/types';
+import { canManageItems, canManageSerials, type SerialIssue, type SerialIssueStaffStatus } from '@/types';
 import { getApiErrorMessage } from '@/utils/apiError';
 import { APP_PAGE_CLASS } from '@/utils/appPageLayout';
 import {
@@ -41,7 +41,9 @@ export default function SerialSubscriptionDetailPage() {
   const { user } = useAuth();
   const { showToast } = useToast();
   const queryClient = useQueryClient();
-  const canWrite = canManageSerials(user, api.getToken());
+  const token = api.getToken();
+  const canWrite = canManageSerials(user, token);
+  const canEditItems = canManageItems(user, token);
   const [editing, setEditing] = useState(false);
   const [formError, setFormError] = useState<unknown>(null);
   const [receiving, setReceiving] = useState<SerialIssue | null>(null);
@@ -205,21 +207,30 @@ export default function SerialSubscriptionDetailPage() {
       header: t('serials.issues.received'),
       render: (issue: SerialIssue) => formatIsoDateTime(issue.receivedAt, i18n.language),
     },
-    {
-      key: 'actions',
-      header: t('serials.issues.actions'),
-      render: (issue: SerialIssue) =>
-        canWrite ? (
-          <IssueActions
-            issue={issue}
-            onReceive={() => {
-              setReceiveError(null);
-              setReceiving(issue);
-            }}
-            onStatus={(status) => askStatus(issue, status)}
-          />
-        ) : null,
-    },
+    ...(canWrite || canEditItems
+      ? [
+          {
+            key: 'actions',
+            header: t('serials.issues.actions'),
+            render: (issue: SerialIssue) => (
+              <IssueRowActions
+                issue={issue}
+                canWrite={canWrite}
+                canEditCopy={canEditItems && Boolean(issue.itemId)}
+                onEditCopy={() => {
+                  if (!issue.itemId) return;
+                  navigate(`/biblios/${subscription.biblioId}?completeItem=${issue.itemId}`);
+                }}
+                onReceive={() => {
+                  setReceiveError(null);
+                  setReceiving(issue);
+                }}
+                onStatus={(status) => askStatus(issue, status)}
+              />
+            ),
+          },
+        ]
+      : []),
   ];
 
   return (
@@ -238,6 +249,11 @@ export default function SerialSubscriptionDetailPage() {
                 {t('serials.detail.edit')}
               </Button>
             ) : null}
+            {canEditItems ? (
+              <Button type="button" variant="secondary" onClick={() => navigate(`/biblios/${subscription.biblioId}/edit`)}>
+                {t('serials.detail.editNotice')}
+              </Button>
+            ) : null}
           </div>
         }
       />
@@ -247,6 +263,10 @@ export default function SerialSubscriptionDetailPage() {
           <div>
             <dt className="text-gray-500 dark:text-gray-400">{t('serials.column.issn')}</dt>
             <dd className="text-gray-900 dark:text-white">{subscription.issns.length ? subscription.issns.join(', ') : '—'}</dd>
+          </div>
+          <div>
+            <dt className="text-gray-500 dark:text-gray-400">{t('serials.column.items')}</dt>
+            <dd className="text-gray-900 dark:text-white">{subscription.itemCount}</dd>
           </div>
           <div>
             <dt className="text-gray-500 dark:text-gray-400">{t('serials.form.cost')}</dt>
@@ -322,16 +342,20 @@ export default function SerialSubscriptionDetailPage() {
                       {formatIsoDate(issue.plannedDate, i18n.language)}
                     </p>
                     <IssueStatusBadge status={issue.status} />
-                    {canWrite ? (
-                      <IssueActions
-                        issue={issue}
-                        onReceive={() => {
-                          setReceiveError(null);
-                          setReceiving(issue);
-                        }}
-                        onStatus={(status) => askStatus(issue, status)}
-                      />
-                    ) : null}
+                    <IssueRowActions
+                      issue={issue}
+                      canWrite={canWrite}
+                      canEditCopy={canEditItems && Boolean(issue.itemId)}
+                      onEditCopy={() => {
+                        if (!issue.itemId) return;
+                        navigate(`/biblios/${subscription.biblioId}?completeItem=${issue.itemId}`);
+                      }}
+                      onReceive={() => {
+                        setReceiveError(null);
+                        setReceiving(issue);
+                      }}
+                      onStatus={(status) => askStatus(issue, status)}
+                    />
                   </li>
                 ))
               )}
@@ -456,6 +480,41 @@ function IssueLabel({ issue, latest }: { issue: SerialIssue; latest: boolean }) 
       {latest ? (
         <p className="text-xs font-medium text-amber-900 dark:text-amber-100">{t('serials.issues.latestInLibrary')}</p>
       ) : null}
+    </div>
+  );
+}
+
+function IssueRowActions({
+  issue,
+  canWrite,
+  canEditCopy,
+  onEditCopy,
+  onReceive,
+  onStatus,
+}: {
+  issue: SerialIssue;
+  canWrite: boolean;
+  canEditCopy: boolean;
+  onEditCopy: () => void;
+  onReceive: () => void;
+  onStatus: (status: SerialIssueStaffStatus) => void;
+}) {
+  const { t } = useTranslation();
+  if (!canWrite && !canEditCopy) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-1">
+      {canEditCopy ? (
+        <Button
+          type="button"
+          size="sm"
+          variant="secondary"
+          aria-label={t('serials.issues.editCopyLabel', { label: issue.displayLabel })}
+          onClick={onEditCopy}
+        >
+          {t('serials.issues.editCopy')}
+        </Button>
+      ) : null}
+      {canWrite ? <IssueActions issue={issue} onReceive={onReceive} onStatus={onStatus} /> : null}
     </div>
   );
 }

@@ -28,14 +28,16 @@ import {
   validateCallNumber,
 } from '@/utils/callNumber';
 import { formChoiceControlClass, formControlClass, formLabelClass } from '@/utils/formControl';
+import { serialCopyHeading } from '@/utils/serialCopyCaption';
 import { useAuth } from '@/contexts/AuthContext';
-import { canArchiveItems, canCreateHold, canDeleteBiblios, canManageItems, canManageWeeding, canReadUsers, seesInternalCatalog, type MediaType } from '@/types';
+import { canArchiveItems, canCreateHold, canDeleteBiblios, canManageItems, canManageSerials, canManageWeeding, canReadUsers, seesInternalCatalog, type MediaType } from '@/types';
 import CopyLoanStatus from '@/components/items/CopyLoanStatus';
 import NoticeHoldsWaiting from '@/components/holds/NoticeHoldsWaiting';
 import { LoanMediaTypeBadge } from '@/utils/mediaTypeIcon';
 import PlaceHoldDialog from '@/components/holds/PlaceHoldDialog';
 import BatchDeleteSpecimensDialog from '@/components/specimen/BatchDeleteSpecimensDialog';
 import WeedingStatusControl from '@/components/items/WeedingStatusControl';
+import ItemCirculationActions from '@/components/items/ItemCirculationActions';
 import WithdrawalDialog from '@/components/items/WithdrawalDialog';
 import api from '@/services/api';
 import { CopyNoteFields, CopyNotes } from '@/components/items/CopyNotes';
@@ -373,6 +375,7 @@ export default function BiblioDetailPage() {
 
   const hasGeneralInfoFields =
     hasNonEmptyText(item.isbn) ||
+    hasNonEmptyText(item.issn) ||
     (item.authors?.length ?? 0) > 0 ||
     hasNonEmptyText(item.publicationDate) ||
     hasNonEmptyText(item.edition?.publisherName) ||
@@ -490,6 +493,7 @@ export default function BiblioDetailPage() {
               {hasGeneralInfoFields && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <InfoRow icon={Hash} label={t('items.isbn')} value={formatIsbnDisplay(item.isbn)} />
+                  <InfoRow icon={Hash} label={t('items.issn')} value={formatIsbnDisplay(item.issn)} />
                   <InfoRow icon={User} label={t('items.mainAuthor')} value={item.authors?.length ? formatAuthors([item.authors[0]]) : undefined} />
                   <InfoRow icon={User} label={t('items.secondaryAuthor')} value={item.authors && item.authors.length > 1 ? formatAuthors(item.authors.slice(1)) : undefined} />
                   <InfoRow icon={Calendar} label={t('items.publicationDate')} value={item.publicationDate} />
@@ -599,7 +603,8 @@ export default function BiblioDetailPage() {
               title={t('items.specimens')}
               subtitle={t('items.specimenCount', { count: item.items?.length ?? 0 })}
               action={
-                canManageItems(user, api.getToken()) && (
+                (canManageItems(user, api.getToken()) ||
+                  (item.mediaType === 'periodic' && canManageSerials(user, api.getToken()))) && (
                   <div className="flex flex-wrap items-center gap-2">
                     {canWeed && selectedCopyIds.length > 0 && (
                       <Button size="sm" variant="danger" onClick={() => setBatchWithdrawOpen(true)}>
@@ -616,14 +621,33 @@ export default function BiblioDetailPage() {
                         {t('items.batchDeleteScan.openButton')}
                       </Button>
                     )}
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onClick={() => setShowAddSpecimenModal(true)}
-                      leftIcon={<Plus className="h-4 w-4" />}
-                    >
-                      {t('common.add')}
-                    </Button>
+                    {item.mediaType === 'periodic' && canManageSerials(user, api.getToken()) ? (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => {
+                          const params = new URLSearchParams({
+                            tab: 'gifts',
+                            biblioId: String(item.id),
+                          });
+                          const title = item.title?.trim();
+                          if (title) params.set('biblioTitle', title);
+                          navigate(`/serials?${params.toString()}`);
+                        }}
+                      >
+                        {t('serials.gifts.fromNotice')}
+                      </Button>
+                    ) : null}
+                    {canManageItems(user, api.getToken()) ? (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => setShowAddSpecimenModal(true)}
+                        leftIcon={<Plus className="h-4 w-4" />}
+                      >
+                        {t('common.add')}
+                      </Button>
+                    ) : null}
                   </div>
                 )
               }
@@ -658,6 +682,7 @@ export default function BiblioDetailPage() {
                       setHoldDialogOpen(true);
                     }}
                     onUpdated={invalidateBiblio}
+                    periodical={item.mediaType === 'periodic'}
                     onEdit={() => {
                       if (!isItemStaffView(specimen)) return;
                       setSelectedSpecimen(specimen);
@@ -894,6 +919,7 @@ export default function BiblioDetailPage() {
             formId="add-specimen-form"
             biblioId={String(staffNotice.id)}
             callNumberSuggestions={getCallNumberOptionsFromItem(staffNotice, genreShelfCodes)}
+            periodical={staffNotice.mediaType === 'periodic'}
             onLoadingChange={setIsAddSpecimenLoading}
             onSuccess={() => {
               setShowAddSpecimenModal(false);
@@ -1077,6 +1103,8 @@ interface SpecimenCardProps {
   selected?: boolean;
   onToggleSelect?: () => void;
   audience: AvailabilityAudience;
+  /** Periodical notice: the issue caption is the copy name. */
+  periodical?: boolean;
   showReserveButton?: boolean;
   onReserve?: () => void;
   onUpdated?: () => void;
@@ -1097,13 +1125,14 @@ function SpecimenCard({
   selected = false,
   onToggleSelect,
   audience,
+  periodical = false,
   showReserveButton,
   onReserve,
   onUpdated,
   onEdit,
   onDelete,
 }: SpecimenCardProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { user: authUser } = useAuth();
   const canReadBorrowers = canReadUsers(authUser, api.getToken());
   const staffCopy = isItemStaffView(specimen) ? specimen : null;
@@ -1115,6 +1144,10 @@ function SpecimenCard({
       ? recommendedCirculationFields(specimen)
       : [];
   const staffDetailKey = staffCopy ? staffUnavailableDetailKey(staffCopy) : null;
+  const issueName =
+    serialCopyHeading(specimen.serialIssue, i18n.language)
+    ?? (periodical ? specimen.volumeDesignation?.trim() || null : null);
+  const copyTitle = issueName || specimen.barcode || t('items.noBarcode');
 
   return (
     <div className="p-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
@@ -1126,13 +1159,16 @@ function SpecimenCard({
               className={formChoiceControlClass()}
               checked={selected}
               onChange={() => onToggleSelect?.()}
-              aria-label={t('weeding.selectCopy', { barcode: specimen.barcode || specimen.id || '' })}
+              aria-label={t('weeding.selectCopy', { barcode: copyTitle })}
             />
           ) : null}
           <div className="min-w-0">
             <p className="font-medium text-gray-900 dark:text-white truncate">
-              {specimen.barcode || t('items.noBarcode')}
+              {copyTitle}
             </p>
+            {issueName && audience === 'staff' && specimen.barcode ? (
+              <p className="text-xs font-mono text-gray-500 dark:text-gray-400 truncate">{specimen.barcode}</p>
+            ) : null}
             {staffCopy?.lenderBarcode &&
             staffCopy.lenderBarcode.trim() !== '' &&
             staffCopy.lenderBarcode !== (specimen.barcode ?? '') ? (
@@ -1175,9 +1211,9 @@ function SpecimenCard({
       {specimen.callNumber && (
         <p className="text-sm text-gray-500 dark:text-gray-400">{t('items.callNumber')}: {specimen.callNumber}</p>
       )}
-      {specimen.volumeDesignation && (
+      {!issueName && specimen.volumeDesignation ? (
         <p className="text-sm text-gray-500 dark:text-gray-400">{t('items.volumeDesignation')}: {specimen.volumeDesignation}</p>
-      )}
+      ) : null}
       <CopyNotes
         audience={audience}
         publicNote={specimen.publicNote}
@@ -1253,6 +1289,10 @@ function SpecimenCard({
         </div>
       )}
 
+      {audience === 'staff' && staffCopy ? (
+        <ItemCirculationActions item={staffCopy} onUpdated={onUpdated} />
+      ) : null}
+
       {audience === 'staff' && staffCopy && !isDepositCopy(staffCopy.deposit) ? (
         <WeedingStatusControl item={staffCopy} onUpdated={onUpdated} />
       ) : null}
@@ -1269,7 +1309,9 @@ interface EditSpecimenFormProps {
 }
 
 function EditSpecimenForm({ formId, item, specimen, onLoadingChange, onSuccess }: EditSpecimenFormProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const periodical = item.mediaType === 'periodic';
+  const issueName = serialCopyHeading(specimen.serialIssue, i18n.language);
   const genreShelfCodes = useGenreShelfCodes();
   const [error, setError] = useState<string | null>(null);
   const [sites, setSites] = useState<Site[]>([]);
@@ -1392,12 +1434,19 @@ function EditSpecimenForm({ formId, item, specimen, onLoadingChange, onSuccess }
         excludeSpecimenId={specimen.id ?? undefined}
         placeholder={t('items.callNumber')}
       />
-      <Input
-        label={t('items.volumeDesignation')}
-        value={formData.volumeDesignation}
-        onChange={(e) => setFormData({ ...formData, volumeDesignation: e.target.value })}
-        placeholder={t('items.volumeDesignationPlaceholder')}
-      />
+      {issueName ? (
+        <div>
+          <p className={formLabelClass()}>{t('items.serialIssue')}</p>
+          <p className="text-sm text-gray-900 dark:text-white">{issueName}</p>
+        </div>
+      ) : (
+        <Input
+          label={t(periodical ? 'items.serialIssue' : 'items.volumeDesignation')}
+          value={formData.volumeDesignation}
+          onChange={(e) => setFormData({ ...formData, volumeDesignation: e.target.value })}
+          placeholder={t(periodical ? 'items.serialIssuePlaceholder' : 'items.volumeDesignationPlaceholder')}
+        />
+      )}
       <div>
         <label className={formLabelClass()}>
           {t('items.site')}

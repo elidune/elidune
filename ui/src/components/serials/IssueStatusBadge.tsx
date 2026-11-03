@@ -14,7 +14,8 @@ export function IssueStatusBadge({ status }: { status: SerialIssueStatus }) {
 
 export function SubscriptionStatusBadge({ status }: { status: SerialSubscriptionStatus }) {
   const { t } = useTranslation();
-  const variant = status === 'active' ? 'success' : status === 'expired' ? 'warning' : 'default';
+  const variant =
+    status === 'active' ? 'success' : status === 'expired' || status === 'suspended' ? 'warning' : 'default';
   return (
     <Badge variant={variant} size="sm">
       {t(subscriptionStatusKey(status))}
