@@ -6,6 +6,7 @@ import { useToast } from '@/contexts/ToastContext';
 import { getApiErrorCode, getApiErrorMessage } from '@/utils/apiError';
 import { interpretPickCheckIn } from '@/utils/toPickDesk';
 import type { CreateTransit, HoldListItem, ItemTransit } from '@/types';
+import { invalidateCatalogCaches } from '@/hooks/catalog/queryKeys';
 import { ACTIVE_TRANSITS_QUERY_KEY } from '@/hooks/holds/useActiveTransitsQuery';
 
 export type PendingTransitAction =
@@ -37,6 +38,8 @@ export function useTransitActions() {
     void queryClient.invalidateQueries({ queryKey: ['biblioHolds'] });
     void queryClient.invalidateQueries({ queryKey: ['my-holds'] });
     void queryClient.invalidateQueries({ queryKey: ['user-holds'] });
+    void queryClient.invalidateQueries({ queryKey: ['pickList'] });
+    void invalidateCatalogCaches(queryClient);
   }, [queryClient]);
 
   const open = useCallback((next: PendingTransitAction) => {

@@ -7,12 +7,11 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/contexts/ToastContext';
 import api from '@/services/api';
 import { canManageItems, type DepositLoss, type DepositLossKind } from '@/types';
+import { DEPOSIT_LOSSES_QUERY_ROOT, invalidateCatalogCaches } from '@/hooks/catalog/queryKeys';
 import { getApiErrorCode, getApiErrorMessage } from '@/utils/apiError';
 import { formatReplacementRateCents } from '@/utils/deposits';
 import { formatLocaleDate } from '@/utils/localeDate';
 import { formControlClass, formLabelClass } from '@/utils/formControl';
-
-const LOSSES_KEY = ['deposit-losses'] as const;
 
 function todayIsoDate(): string {
   const now = new Date();
@@ -36,7 +35,7 @@ export function DepositLossesPanel() {
   const [dates, setDates] = useState<Record<string, string>>({});
 
   const query = useQuery({
-    queryKey: [...LOSSES_KEY, notified, lenderId],
+    queryKey: [...DEPOSIT_LOSSES_QUERY_ROOT, notified, lenderId],
     queryFn: () => api.listDepositLosses({
       notified,
       ...(lenderId ? { lenderId } : {}),
@@ -51,12 +50,12 @@ export function DepositLossesPanel() {
     mutationFn: (input: { itemId: string; notifiedOn: string }) =>
       api.markDepositLossNotified(input.itemId, input.notifiedOn),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: LOSSES_KEY });
+      void invalidateCatalogCaches(queryClient);
       showToast({ variant: 'success', message: t('deposits.losses.saved') });
     },
     onError: (error: unknown) => {
       if (getApiErrorCode(error) === 'deposit_loss_already_notified') {
-        void queryClient.invalidateQueries({ queryKey: LOSSES_KEY });
+        void invalidateCatalogCaches(queryClient);
       }
       showToast({ variant: 'error', message: getApiErrorMessage(error, t) });
     },

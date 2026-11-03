@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { SearchX, CircleAlert, SearchCheck } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ConfirmDialog, Input } from '@/components/common';
 import { useAuth } from '@/contexts/AuthContext';
+import { invalidateCirculationCaches } from '@/hooks/loans/invalidateCirculationCaches';
 import api from '@/services/api';
 import type { ItemStaffView, LostFoundDisposition } from '@/types';
 import { canManageLoans } from '@/types';
@@ -33,6 +34,7 @@ function circulationCode(item: ItemStaffView): number | null {
 export default function ItemCirculationActions({ item, onUpdated }: ItemCirculationActionsProps) {
   const { t } = useTranslation();
   const { user } = useAuth();
+  const queryClient = useQueryClient();
   const canWrite = canManageLoans(user, api.getToken());
   const [dialog, setDialog] = useState<DialogKind>(null);
   const [notes, setNotes] = useState('');
@@ -72,8 +74,9 @@ export default function ItemCirculationActions({ item, onUpdated }: ItemCirculat
       };
       return api.markItemLost(item.id, payload);
     },
-    onSuccess: () => {
+    onSuccess: async () => {
       closeDialog();
+      await invalidateCirculationCaches(queryClient, undefined, { biblioId: item.biblioId });
       onUpdated?.();
     },
     onError: (err: unknown) => {

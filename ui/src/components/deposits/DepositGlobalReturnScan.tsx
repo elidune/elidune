@@ -3,12 +3,11 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import { Card, BarcodeScanField } from '@/components/common';
+import { invalidateCatalogCaches } from '@/hooks/catalog/queryKeys';
 import api from '@/services/api';
 import type { DepositGlobalScanOut } from '@/types';
 import { getApiErrorMessage } from '@/utils/apiError';
 import { depositScanAlreadyReturned } from '@/utils/deposits';
-
-const BATCHES_KEY = ['deposit-batches'] as const;
 
 type DepositGlobalReturnScanProps = {
   canWrite: boolean;
@@ -41,8 +40,7 @@ export default function DepositGlobalReturnScan({ canWrite }: DepositGlobalRetur
       );
       setLastBatchId(body.depositBatchId);
       setBarcode('');
-      void queryClient.invalidateQueries({ queryKey: BATCHES_KEY });
-      void queryClient.invalidateQueries({ queryKey: ['deposit-batch', body.depositBatchId] });
+      void invalidateCatalogCaches(queryClient);
       requestAnimationFrame(() => scanRef.current?.focus());
     },
     onError: (error: unknown) => {

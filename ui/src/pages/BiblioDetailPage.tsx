@@ -30,6 +30,7 @@ import {
 import { formChoiceControlClass, formControlClass, formLabelClass } from '@/utils/formControl';
 import { serialCopyHeading } from '@/utils/serialCopyCaption';
 import { useAuth } from '@/contexts/AuthContext';
+import { invalidateCatalogCaches } from '@/hooks/catalog/queryKeys';
 import { canArchiveItems, canCreateHold, canDeleteBiblios, canManageItems, canManageSerials, canManageWeeding, canReadUsers, seesInternalCatalog, type MediaType } from '@/types';
 import CopyLoanStatus from '@/components/items/CopyLoanStatus';
 import NoticeHoldsWaiting from '@/components/holds/NoticeHoldsWaiting';
@@ -188,7 +189,7 @@ export default function BiblioDetailPage() {
   const canDeleteBiblio = canDeleteBiblios(user, token);
 
   const invalidateBiblio = () => {
-    if (id) void queryClient.invalidateQueries({ queryKey: ['biblio', id] });
+    void invalidateCatalogCaches(queryClient, { biblioId: id });
   };
 
   const completeItemId = searchParams.get('completeItem');

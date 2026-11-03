@@ -64,7 +64,11 @@ const SettingsPage = lazy(() => import('@/pages/SettingsPage'));
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 5 * 60 * 1000, // 5 minutes
+      // Keep a short soft-cache for in-page remounts, but always refetch when a
+      // route remounts so staff never need a hard reload after mutations.
+      staleTime: 30 * 1000,
+      refetchOnMount: 'always',
+      refetchOnWindowFocus: true,
       retry: 1,
     },
   },

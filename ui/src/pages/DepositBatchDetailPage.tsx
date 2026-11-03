@@ -8,6 +8,7 @@ import { MarcImportWorkflow } from '@/pages/ImportIsoPage';
 import ReturnToLenderNotice from '@/components/items/ReturnToLenderNotice';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/contexts/ToastContext';
+import { invalidateCatalogCaches } from '@/hooks/catalog/queryKeys';
 import api from '@/services/api';
 import {
   canManageItems,
@@ -135,7 +136,7 @@ export default function DepositBatchDetailPage() {
   }, [batch?.status]);
 
   const refresh = async () => {
-    await queryClient.invalidateQueries({ queryKey: ['deposit-batch', id] });
+    await invalidateCatalogCaches(queryClient);
   };
 
   const updateMutation = useMutation({

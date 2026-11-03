@@ -18,9 +18,8 @@ import { getApiErrorMessage } from '@/utils/apiError';
 import { APP_PAGE_CLASS } from '@/utils/appPageLayout';
 import { formatCatalogDate } from '@/utils/deposits';
 import DepositGlobalReturnScan from '@/components/deposits/DepositGlobalReturnScan';
+import { DEPOSIT_BATCHES_QUERY_ROOT } from '@/hooks/catalog/queryKeys';
 import { formControlClass, formLabelClass } from '@/utils/formControl';
-
-const BATCHES_KEY = ['deposit-batches'] as const;
 
 const STATUSES: Array<DepositBatchStatus | ''> = ['', 'active', 'returning', 'closed'];
 
@@ -48,7 +47,7 @@ export function DepositBatchesPanel() {
   const [notes, setNotes] = useState('');
 
   const batchesQuery = useQuery({
-    queryKey: [...BATCHES_KEY, status],
+    queryKey: [...DEPOSIT_BATCHES_QUERY_ROOT, status],
     queryFn: () => api.listDepositBatches(status ? { status } : undefined),
   });
   const lendersQuery = useQuery({
@@ -88,7 +87,7 @@ export function DepositBatchesPanel() {
     onSuccess: (batch) => {
       setCreating(false);
       resetForm();
-      void queryClient.invalidateQueries({ queryKey: BATCHES_KEY });
+      void queryClient.invalidateQueries({ queryKey: DEPOSIT_BATCHES_QUERY_ROOT });
       showToast({ variant: 'success', message: t('deposits.batches.created') });
       navigate(`/deposits/${batch.id}`);
     },

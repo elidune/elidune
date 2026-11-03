@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Badge } from '@/components/common';
 import { useAuth } from '@/contexts/AuthContext';
+import { invalidateCatalogCaches } from '@/hooks/catalog/queryKeys';
 import api from '@/services/api';
 import type { ItemStaffView, ItemWeedingStatus } from '@/types';
 import { canManageWeeding, canViewWeeding } from '@/types';
@@ -116,10 +117,10 @@ export default function WeedingStatusControl({ item, onUpdated }: WeedingStatusC
   const withdrawal = withdrawalQuery.data ?? null;
 
   const refresh = () => {
+    void invalidateCatalogCaches(queryClient, { biblioId: item.biblioId });
     if (item.id != null) {
       void queryClient.invalidateQueries({ queryKey: ['item-withdrawal', item.id] });
     }
-    void queryClient.invalidateQueries({ queryKey: ['item-withdrawals'] });
     onUpdated?.();
   };
 

@@ -16,6 +16,7 @@ import {
 } from '@/components/common';
 import { APP_PAGE_CLASS } from '@/utils/appPageLayout';
 import { useAuth } from '@/contexts/AuthContext';
+import { invalidateCatalogCaches } from '@/hooks/catalog/queryKeys';
 import { useSitesQuery } from '@/hooks/holds/useSitesQuery';
 import api from '@/services/api';
 import { canManageWeeding, canViewWeeding } from '@/types';
@@ -110,8 +111,7 @@ export default function WeedingPage() {
   };
 
   const refreshWeedingLists = () => {
-    void queryClient.invalidateQueries({ queryKey: ['item-withdrawals'] });
-    void queryClient.invalidateQueries({ queryKey: ['weeding-candidates'] });
+    void invalidateCatalogCaches(queryClient);
   };
 
   const exportMutation = useMutation({

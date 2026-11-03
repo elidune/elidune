@@ -10,7 +10,7 @@ Library management SPA (Elidune) built with React 19 + TypeScript + Vite.
 | Build | Vite 7, `tsc -b && vite build` |
 | Styling | Tailwind CSS v4 (via `@tailwindcss/vite`) |
 | Routing | React Router v7 |
-| Server state | TanStack React Query v5 (`staleTime: 5 min, retry: 1`) |
+| Server state | TanStack React Query v5 (`staleTime: 30s`, `refetchOnMount: 'always'`, `retry: 1`) — after mutations call `invalidateCatalogCaches` / `invalidateCirculationCaches` |
 | HTTP | Axios — single `ApiService` class in `src/services/api.ts` |
 | i18n | i18next + react-i18next — `en` / `fr` / `de` / `es` in `src/locales/{lang}/translation.json` |
 | Icons | lucide-react |

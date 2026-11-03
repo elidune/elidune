@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Badge, Button, ConfirmDialog } from '@/components/common';
 import { useAuth } from '@/contexts/AuthContext';
+import { invalidateCatalogCaches } from '@/hooks/catalog/queryKeys';
 import api from '@/services/api';
 import type { ItemWithdrawal } from '@/types';
 import { canCancelWeeding, canManageWeeding } from '@/types';
@@ -64,9 +65,9 @@ export default function WithdrawalRecord({ withdrawal, onChanged }: WithdrawalRe
     : t('weeding.destinationUnset');
 
   const refresh = () => {
+    void invalidateCatalogCaches(queryClient);
     void queryClient.invalidateQueries({ queryKey: ['item-withdrawal', withdrawal.itemId] });
     void queryClient.invalidateQueries({ queryKey: ['item-withdrawal-by-id', withdrawal.id] });
-    void queryClient.invalidateQueries({ queryKey: ['item-withdrawals'] });
     onChanged?.();
   };
 
